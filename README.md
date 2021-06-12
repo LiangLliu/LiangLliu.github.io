@@ -1,5 +1,7 @@
 # 开发指南
 
+* https://travis-ci.org/dashboard
+
 ## 目录结构
 
     .
