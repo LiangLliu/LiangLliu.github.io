@@ -12,7 +12,7 @@ deploy:
   keep_history: true
   local_dir: docs/.vuepress/dist
   fqdn: lianglliu.github.io
-  target_branch: master
+  target_branch: release
   committer_from_gh: true
   on:
-    branch: release
+    branch: master
