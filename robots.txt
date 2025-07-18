@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://lianglliu.github.io/sitemap.xml
