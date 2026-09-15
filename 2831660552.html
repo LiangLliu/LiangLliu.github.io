@@ -1,0 +1,1345 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content=" 前一篇讲 sing-box 的 DNS 配置怎么写才对，这一篇回答「到底配哪个上游、用哪种协议」。本文所有数字来自本机真实运行：Apple M1 Pro &amp;#x2F; macOS，Python 3.14.7 手写 DNS 报文，2026-09-15 17:01 至 17:23 之间完成。脚本..."><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比",
+  "url": "https://lianglliu.github.io/2831660552.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png",
+  "datePublished": "2026-09-16T02:30:00.000Z",
+  "dateModified": "2026-09-16T02:30:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/2831660552.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">17</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">13</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">6</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-16T02:30:00.000Z" title="发表于 2026-09-16 10:30:00">2026-09-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E7%BD%91%E7%BB%9C/">网络</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">11.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>46分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>前一篇讲 sing-box 的 DNS 配置怎么写才对，这一篇回答「到底配哪个上游、用哪种协议」。<br>本文所有数字来自本机真实运行：Apple M1 Pro &#x2F; macOS，Python 3.14.7 手写 DNS 报文，2026-09-15 17:01 至 17:23 之间完成。脚本放在 <code>/tmp/dnsbench/</code>，关键片段贴在文中。<br>需要提醒的是，DNS 延迟高度依赖你到上游 anycast 节点的物理路径，本文的数字只在这个网络环境下成立，最后有一节专门说明不能外推到哪。</p>
+</blockquote>
+<h2 id="1-测量环境"><a href="#1-测量环境" class="headerlink" title="1. 测量环境"></a>1. 测量环境</h2><p>延迟测试里，环境不是背景信息，是结论的一半。先把会影响数字的东西列清楚。</p>
+<p><strong>机器与负载</strong></p>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>机型</td>
+<td>Apple M1 Pro，10 核 arm64</td>
+</tr>
+<tr>
+<td>系统</td>
+<td>Darwin 25.6.0（macOS 15）</td>
+</tr>
+<tr>
+<td>Python</td>
+<td>3.14.7（Homebrew）</td>
+</tr>
+<tr>
+<td>OpenSSL</td>
+<td>3.6.4</td>
+</tr>
+<tr>
+<td>sing-box</td>
+<td>1.14.1（go1.26.8，官方 darwin-arm64 发行版）</td>
+</tr>
+</tbody></table>
+<p>主矩阵跑在 17:01:13 到 17:04:29，开始时 load average 5.60 &#x2F; 5.84 &#x2F; 5.89，结束时 5.54 &#x2F; 5.62 &#x2F; 5.78。10 核机器上这个负载有其它进程在跑，但它主要是 CPU 密集型的，对网络往返的干扰有限。HTTP&#x2F;2 那一轮重跑在 17:22，load average 4.62 &#x2F; 5.01 &#x2F; 5.54。sing-box 那轮在 17:09 到 17:15，load average 在 7.29 到 7.70 之间。</p>
+<p><strong>网络路径</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$ route -n get default | grep -E &#x27;gateway|interface&#x27;</span><br><span class="line">    gateway: 10.194.247.9</span><br><span class="line">  interface: en0</span><br><span class="line">$ ifconfig en0 | grep -E &#x27;inet |status&#x27;</span><br><span class="line">	inet 10.194.247.161 netmask 0xffffff00 broadcast 10.194.247.255</span><br><span class="line">	status: active</span><br></pre></td></tr></table></figure>
+
+<p>这是一台接在办公室有线网里的机器，出网走 10.194.247.9 这个网关。<strong>没有开任何代理</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$ pgrep -l -f &#x27;sing-box|clash|mihomo|surge|v2ray|xray|tun2socks&#x27;</span><br><span class="line">（无输出）</span><br><span class="line">$ scutil --proxy | grep -E &#x27;HTTPEnable|HTTPSEnable|SOCKSEnable&#x27;</span><br><span class="line">  HTTPEnable : 0</span><br><span class="line">  HTTPSEnable : 0</span><br><span class="line">  SOCKSEnable : 0</span><br></pre></td></tr></table></figure>
+
+<p><code>ProxyAutoConfigEnable</code> 是 1，指向 <code>http://wpad/wpad.dat</code>，但自动发现没有返回任何可用代理，三个显式代理开关全是 0。所以本文的数字是<strong>裸连</strong>数字，不含任何代理隧道引入的额外跳数。这一点很重要，如果你的机器挂着 TUN 模式代理，看到的结果会和这里完全不是一个量级。</p>
+<p>系统自身的 DNS 指向 <code>100.67.60.45</code> 和 <code>100.67.70.61</code>，两个都在 100.64.0.0&#x2F;10 这个运营商级 NAT 段里，应该是网关设备自己提供的解析。下面的测量<strong>不走系统解析器</strong>，直接对上游发查询。</p>
+<h2 id="2-测量方法"><a href="#2-测量方法" class="headerlink" title="2. 测量方法"></a>2. 测量方法</h2><h3 id="2-1-端点矩阵"><a href="#2-1-端点矩阵" class="headerlink" title="2.1 端点矩阵"></a>2.1 端点矩阵</h3><p>5 个上游 × 3 种协议。协议端口按各自的 RFC：UDP 用 53（RFC 1035），DoT 用 853（RFC 7858），DoH 用 443（RFC 8484）。</p>
+<table>
+<thead>
+<tr>
+<th>上游</th>
+<th>UDP&#x2F;53</th>
+<th>DoT&#x2F;853 连接地址（SNI）</th>
+<th>DoH&#x2F;443 URL</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cloudflare</td>
+<td>1.1.1.1</td>
+<td>1.1.1.1（<code>cloudflare-dns.com</code>）</td>
+<td><code>https://cloudflare-dns.com/dns-query</code></td>
+</tr>
+<tr>
+<td>Google</td>
+<td>8.8.8.8</td>
+<td>8.8.8.8（<code>dns.google</code>）</td>
+<td><code>https://dns.google/dns-query</code></td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>223.5.5.5</td>
+<td>223.5.5.5（<code>dns.alidns.com</code>）</td>
+<td><code>https://dns.alidns.com/dns-query</code></td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>119.29.29.29</td>
+<td>1.12.12.12（<code>dot.pub</code>）</td>
+<td><code>https://doh.pub/dns-query</code></td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>9.9.9.9</td>
+<td>9.9.9.9（<code>dns.quad9.net</code>）</td>
+<td><code>https://dns.quad9.net/dns-query</code></td>
+</tr>
+</tbody></table>
+<p>DoT 和 DoH 那一列用的是「域名解析出来的地址」，不是服务商的招牌 IP。这一步不是可有可无：DNSPod 的 <code>dot.pub</code> 实际解析到 <code>120.53.53.53</code> 和 <code>1.12.12.12</code>，并不包含 <code>119.29.29.29</code>；Cloudflare 的 <code>cloudflare-dns.com</code> 解析到 <code>104.16.248.249</code>，也不是 <code>1.1.1.1</code>。后面第 3 节会看到，这些地址的可达性差别很大。</p>
+<h3 id="2-2-手写-DNS-报文"><a href="#2-2-手写-DNS-报文" class="headerlink" title="2.2 手写 DNS 报文"></a>2.2 手写 DNS 报文</h3><p>三种协议用的都是同一个查询报文，用 <code>struct</code> 拼出来，不依赖任何 DNS 库：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">build_query</span>(<span class="params">name, qtype=<span class="number">1</span>, qid=<span class="number">0</span></span>):</span><br><span class="line">    <span class="keyword">if</span> qid == <span class="number">0</span>:</span><br><span class="line">        qid = random.randint(<span class="number">1</span>, <span class="number">0xFFFF</span>)</span><br><span class="line">    header = struct.pack(<span class="string">&quot;!HHHHHH&quot;</span>, qid, <span class="number">0x0100</span>, <span class="number">1</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>)  <span class="comment"># RD=1</span></span><br><span class="line">    qname = <span class="string">b&quot;&quot;</span>.join(<span class="built_in">bytes</span>([<span class="built_in">len</span>(l)]) + l.encode() <span class="keyword">for</span> l <span class="keyword">in</span> name.split(<span class="string">&quot;.&quot;</span>)) + <span class="string">b&quot;\x00&quot;</span></span><br><span class="line">    <span class="keyword">return</span> header + qname + struct.pack(<span class="string">&quot;!HH&quot;</span>, qtype, <span class="number">1</span>)</span><br></pre></td></tr></table></figure>
+
+<p>三种传输的计时口径：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># UDP：sendto 到 recvfrom 返回，一个 RTT，没有握手</span></span><br><span class="line">s.sendto(q, (server, port))</span><br><span class="line">data, _ = s.recvfrom(<span class="number">4096</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># DoT：TCP + TLS 握手单独记时，之后一条连接上串行发 N 个查询（2 字节长度前缀）</span></span><br><span class="line"><span class="variable language_">self</span>.sock.sendall(struct.pack(<span class="string">&quot;!H&quot;</span>, <span class="built_in">len</span>(q)) + q)</span><br><span class="line">n = struct.unpack(<span class="string">&quot;!H&quot;</span>, <span class="variable language_">self</span>._recv_exact(<span class="number">2</span>))[<span class="number">0</span>]</span><br><span class="line">data = <span class="variable language_">self</span>._recv_exact(n)</span><br><span class="line"></span><br><span class="line"><span class="comment"># DoH：HTTP POST application/dns-message，一条 keep-alive 连接上串行发 N 个查询</span></span><br><span class="line">req = (<span class="string">f&quot;POST <span class="subst">&#123;self.path&#125;</span> HTTP/1.1\r\nHost: <span class="subst">&#123;self.host&#125;</span>\r\n&quot;</span></span><br><span class="line">       <span class="string">&quot;Content-Type: application/dns-message\r\n&quot;</span></span><br><span class="line">       <span class="string">&quot;Accept: application/dns-message\r\n&quot;</span></span><br><span class="line">       <span class="string">f&quot;Content-Length: <span class="subst">&#123;<span class="built_in">len</span>(q)&#125;</span>\r\n\r\n&quot;</span>).encode() + q</span><br></pre></td></tr></table></figure>
+
+<p>TCP 连接时间和 TLS 握手时间在构造函数里分别计时，查询时间只算「请求写完到响应读完」。这样能把「握手一次性的开销」和「每个查询的边际开销」分开，这两件事在选型时的意义完全不同。</p>
+<p><code>dig</code> 只用了一次，查 <code>dot.pub</code> 的 A 记录用来确认 DNSPod 的 DoT 到底该连哪个地址。</p>
+<h3 id="2-3-冷热两组域名控制缓存"><a href="#2-3-冷热两组域名控制缓存" class="headerlink" title="2.3 冷热两组域名控制缓存"></a>2.3 冷热两组域名控制缓存</h3><p>「DNS 延迟」这个说法本身是模糊的，缓存命中与否能差一个数量级，所以分成两组分别测。</p>
+<p><strong>热组（hot）</strong>：20 个常见域名（<code>baidu.com</code>、<code>github.com</code>、<code>cloudflare.com</code>……），跑 30 次查询。这些名字在公共解析器上几乎必然是缓存命中，测到的是「解析器自己的响应速度」，也是日常使用中最常见的路径。30 个样本 &#x3D; 20 个不重复名字 + 前 10 个再来一遍，所以第 21 到 30 个查询本身就是缓存命中的。</p>
+<p><strong>冷组（cold）</strong>：每次现生成一个随机二级域名，形如 <code>&lt;18 位随机串&gt;.&lt;6 位随机串&gt;-probe.com</code>，跑 20 次。这些名字必然返回 NXDOMAIN，而且因为二级域名是随机的，任何缓存都拦不住。这里用到的是 RFC 8020 的语义：一条 NXDOMAIN 应答意味着这个名字以及它下面的所有名字都不存在，所以解析器完全有权把整棵子树负缓存。把随机性放在二级域名而不是三级，就是绕开这个负缓存的剪枝。冷组测到的是「解析器做一次完整递归」的最坏路径。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">cold_names</span>(<span class="params">n</span>):</span><br><span class="line">    out = []</span><br><span class="line">    <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(n):</span><br><span class="line">        r = <span class="string">&quot;&quot;</span>.join(random.choices(string.ascii_lowercase, k=<span class="number">18</span>))</span><br><span class="line">        out.append(<span class="string">f&quot;<span class="subst">&#123;r&#125;</span>.<span class="subst">&#123;r[:<span class="number">6</span>]&#125;</span>-probe.com&quot;</span>)</span><br><span class="line">    <span class="keyword">return</span> out</span><br></pre></td></tr></table></figure>
+
+<p>实测确认这些名字确实返回 NXDOMAIN（rcode &#x3D; 3）：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">dwtgmlqucavltalsfy.dwtgml-probe.com           rcode=3 ans=0 222ms</span><br><span class="line">xaaoyjfkaflmggflha.xaaoyjfl-probe.com         rcode=3 ans=0 228ms</span><br><span class="line">voqezwdissykvrhpww.voqezw-probe.com           rcode=3 ans=0 231ms</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-4-统计口径"><a href="#2-4-统计口径" class="headerlink" title="2.4 统计口径"></a>2.4 统计口径</h3><p>分位数用线性插值，和 numpy 默认口径一致。要说明的是样本量：热组 30 个样本时 p95 落在最大的两个样本之间，冷组 20 个样本时 p95 已经很接近最大值。<strong>这个 p95 不是生产环境意义上的尾部延迟</strong>，它只够看「有没有明显的抖动」。真正的尾延迟要上千个样本加持续观测，这里做不到，后面的置信度声明里会再提。</p>
+<p>失败判定：UDP 3 秒内没收到应答算超时；DoT&#x2F;DoH 的连接建立异常或响应读取异常算失败。每个端点的失败率按 <code>失败次数 / 总请求次数</code> 算。</p>
+<h2 id="3-可达性：先看谁能连上"><a href="#3-可达性：先看谁能连上" class="headerlink" title="3. 可达性：先看谁能连上"></a>3. 可达性：先看谁能连上</h2><p>延迟数字只有在连得上的前提下才有意义。用 4 秒超时对所有 IP:端口组合做 TCP 连接探测：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">1.1.1.1           :853   cloudflare-dns.com   OPEN   220ms</span><br><span class="line">1.0.0.1           :853   cloudflare-dns.com   FAIL  4001ms TimeoutError: timed out</span><br><span class="line">1.1.1.1           :443   cloudflare-dns.com   FAIL  4001ms TimeoutError: timed out</span><br><span class="line">1.0.0.1           :443   cloudflare-dns.com   FAIL  4001ms TimeoutError: timed out</span><br><span class="line">104.16.248.249    :443   cloudflare-dns.com   OPEN   133ms</span><br><span class="line">8.8.8.8           :853   dns.google           OPEN   133ms</span><br><span class="line">8.8.8.8           :443   dns.google           OPEN   124ms</span><br><span class="line">8.8.4.4           :853   dns.google           OPEN   140ms</span><br><span class="line">8.8.4.4           :443   dns.google           OPEN   122ms</span><br><span class="line">223.5.5.5         :853   dns.alidns.com       OPEN    42ms</span><br><span class="line">223.5.5.5         :443   dns.alidns.com       OPEN    59ms</span><br><span class="line">223.6.6.6         :853   dns.alidns.com       OPEN    42ms</span><br><span class="line">223.6.6.6         :443   dns.alidns.com       OPEN    37ms</span><br><span class="line">119.29.29.29      :853   dot.pub              FAIL  4001ms TimeoutError: timed out</span><br><span class="line">119.29.29.29      :443   doh.pub              FAIL  4001ms TimeoutError: timed out</span><br><span class="line">1.12.12.12        :853   dot.pub              OPEN    64ms</span><br><span class="line">1.12.12.12        :443   doh.pub              OPEN   103ms</span><br><span class="line">120.53.53.53      :853   dot.pub              OPEN    71ms</span><br><span class="line">120.53.53.53      :443   doh.pub              OPEN    80ms</span><br><span class="line">9.9.9.9           :853   dns.quad9.net        OPEN   161ms</span><br><span class="line">9.9.9.9           :443   dns.quad9.net        OPEN   170ms</span><br><span class="line">149.112.112.112   :853   dns.quad9.net        FAIL  4001ms TimeoutError: timed out</span><br><span class="line">149.112.112.112   :443   dns.quad9.net        FAIL  4001ms TimeoutError: timed out</span><br></pre></td></tr></table></figure>
+
+<p>几条值得单独拎出来：</p>
+<p><strong><code>1.1.1.1</code> 的 443 和 853 是不可用的，但 53 可用，而且 DoH 走 CDN 域名可用。</strong> <code>1.1.1.1:443</code> 连续 8 次全部 3 秒超时，<code>1.0.0.1:443</code>、<code>1.0.0.1:853</code> 同样全超时，报错文本就是裸的 <code>TimeoutError: timed out</code>，不是 RST 也不是 ICMP 不可达。但 <code>1.1.1.1:53</code> 连续 8 次全部 OPEN（230 到 250 毫秒），<code>cloudflare-dns.com</code> 解析出来的 <code>104.16.248.249:443</code> 也正常。所以这里断的不是 Cloudflare 这家服务，而是到 <code>1.1.1.1</code>（1.1.1.0&#x2F;24）与 <code>1.0.0.1</code>（1.0.0.0&#x2F;24）这两个地址上 443&#x2F;853 端口的路径。</p>
+<p><strong><code>1.1.1.1:853</code> 的状态会变。</strong> 第一次预检时它是超时的，主矩阵里 TCP 却连上了、TLS 被重置，再连续探测 10 次以后又变成整条路径静默丢包：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">=== 1.1.1.1:853 连续 10 次 TCP+TLS ===</span><br><span class="line">  0: TCP OPEN/245ms  TLS FAIL ConnectionResetError: [Errno 54] Connection reset by peer   # RST 出现在 TLS 握手阶段，说明路径上有中间设备干预</span><br><span class="line">  1: TCP OPEN/218ms  TLS FAIL ConnectionResetError: [Errno 54] Connection reset by peer</span><br><span class="line">  2: TCP OPEN/243ms  TLS FAIL ConnectionResetError: [Errno 54] Connection reset by peer</span><br><span class="line">  3: TCP OPEN/262ms  TLS FAIL ConnectionResetError: [Errno 54] Connection reset by peer</span><br><span class="line">  4: TCP FAIL TimeoutError: timed out (3001ms)</span><br><span class="line">  5: TCP FAIL TimeoutError: timed out (3001ms)</span><br><span class="line">  6: TCP FAIL TimeoutError: timed out (3001ms)</span><br><span class="line">  7: TCP FAIL TimeoutError: timed out (3001ms)</span><br><span class="line">  8: TCP FAIL TimeoutError: timed out (3001ms)</span><br><span class="line">  9: TCP FAIL TimeoutError: timed out (3001ms)</span><br></pre></td></tr></table></figure>
+
+<p>前面 4 次 TCP 能连上但 TLS 立刻被 RST，之后 6 次连 TCP 都连不上了。TCP 层通、TLS 层被重置，这个组合通常指向基于 SNI 的中间设备；连接次数多了以后整条路径干脆静默丢包，像是触发了限速或临时封禁。不管是哪种，结论一样：<strong>这个端点在这条网络路径上不可用</strong>，不是「偶尔慢一下」。</p>
+<p><strong><code>119.29.29.29</code> 的 853&#x2F;443 超时，但 <code>dot.pub</code> 解析出来的地址两个端口都通。</strong> 这两个是同一个服务商的不同接入地址，可用性完全不同。如果你的配置里把 DoT 服务器写成 <code>119.29.29.29:853</code>（这是很多教程的写法），在这台机器上就是连不上。</p>
+<p><strong><code>149.112.112.112</code> 全端口超时，<code>9.9.9.9</code> 两个端口都通。</strong> Quad9 的两个 anycast 地址，一个通一个不通。</p>
+<p>所以第一条实操建议：<strong>配 DoT&#x2F;DoH 时要用域名，让客户端去解析，不要直接把服务商的招牌 IP 写死。</strong> 写死 <code>119.29.29.29</code> 或 <code>149.112.112.112</code> 会直接撞上不通的那个地址。</p>
+<h2 id="4-延迟矩阵"><a href="#4-延迟矩阵" class="headerlink" title="4. 延迟矩阵"></a>4. 延迟矩阵</h2><h3 id="4-1-UDP-53"><a href="#4-1-UDP-53" class="headerlink" title="4.1 UDP&#x2F;53"></a>4.1 UDP&#x2F;53</h3><p>热组 30 次、冷组 20 次：</p>
+<table>
+<thead>
+<tr>
+<th>上游</th>
+<th>地址</th>
+<th>组</th>
+<th>成功&#x2F;失败</th>
+<th>p50</th>
+<th>p95</th>
+<th>max</th>
+<th>失败率</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cloudflare</td>
+<td>1.1.1.1</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>235.7</td>
+<td>286.1</td>
+<td>331.2</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Cloudflare</td>
+<td>1.1.1.1</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>243.4</td>
+<td>676.6</td>
+<td>819.6</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>8.8.8.8</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>137.8</td>
+<td>392.6</td>
+<td>463.6</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>8.8.8.8</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>140.9</td>
+<td>166.1</td>
+<td>175.4</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>223.5.5.5</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>60.3</td>
+<td>108.5</td>
+<td>139.5</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>223.5.5.5</td>
+<td>cold</td>
+<td>19&#x2F;1</td>
+<td>308.7</td>
+<td>544.7</td>
+<td>743.4</td>
+<td>5.0%</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>119.29.29.29</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>75.0</td>
+<td>136.7</td>
+<td>289.5</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>119.29.29.29</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>523.5</td>
+<td>589.5</td>
+<td>826.6</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>9.9.9.9</td>
+<td>hot</td>
+<td>29&#x2F;1</td>
+<td>182.1</td>
+<td>691.5</td>
+<td>962.5</td>
+<td>3.3%</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>9.9.9.9</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>153.3</td>
+<td>317.1</td>
+<td>326.8</td>
+<td>0.0%</td>
+</tr>
+</tbody></table>
+<p>（单位毫秒，后同。）</p>
+<p>几个观察：</p>
+<p><strong>热组 p50 的排序是 AliDNS 60.3 &lt; DNSPod 75.0 &lt; Google 137.8 &lt; Quad9 182.1 &lt; Cloudflare 235.7。</strong> 两个国内上游比三个国外上游快一倍以上，符合物理距离的预期。Cloudflare 的 235.7 毫秒比 Google 的 137.8 还慢，但这不是「Cloudflare 更远」：第 3 节里到 <code>1.1.1.1:53</code> 的 TCP 连接本身就要 230 到 250 毫秒，也就是这条路径的一个 RTT 就值这么多。UDP 查询延迟几乎正好等于这一个 RTT，说明解析器在热路径上没有做任何额外的递归，收到就答。</p>
+<p><strong>冷组的数字远高于热组，但幅度不一致。</strong> DNSPod 从 75.0 涨到 523.5（7 倍），AliDNS 从 60.3 涨到 308.7（5 倍），而 Google 只从 137.8 涨到 140.9，几乎没动。这里能确定的是事实部分：Google 处理一个从未见过的随机 <code>.com</code> 名字，耗时和它处理一个缓存命中的常见名字一样；国内两家则要多花 250 毫秒左右。机制我没有做分段验证去定位，可能是 Google 的任何一个本地节点都能就近拿到 <code>.com</code> 的 NXDOMAIN，也可能是它的递归路径本身就短。要注意别把这一条读成「Google 的冷查询更快」：它的热查询本来就慢（137.8 对 AliDNS 的 60.3），冷热几乎没差别只是说明它家热路径没有比冷路径快多少。</p>
+<p><strong>AliDNS 冷组有 1 次失败</strong>，报错是 <code>TimeoutError: timed out</code>，5% 失败率。30 次里出现 1 次不算高，但说明它不是零丢包。</p>
+<p><strong>Quad9 热组有 1 次失败</strong>，同样是超时，3.3%。它同时有一条 962.5 毫秒的最大值，尾部抖动比前面几家明显。</p>
+<h3 id="4-2-DoT-853"><a href="#4-2-DoT-853" class="headerlink" title="4.2 DoT&#x2F;853"></a>4.2 DoT&#x2F;853</h3><p>所有查询在一条已建立的 TLS 连接上串行发出，所以下表是「连接就绪后每个查询的边际延迟」，不含握手：</p>
+<table>
+<thead>
+<tr>
+<th>上游</th>
+<th>连接地址</th>
+<th>组</th>
+<th>成功&#x2F;失败</th>
+<th>p50</th>
+<th>p95</th>
+<th>max</th>
+<th>失败率</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cloudflare</td>
+<td>1.1.1.1</td>
+<td>hot</td>
+<td>0&#x2F;30</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>100%</td>
+</tr>
+<tr>
+<td>Cloudflare</td>
+<td>1.1.1.1</td>
+<td>cold</td>
+<td>0&#x2F;20</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>100%</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>8.8.8.8</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>142.3</td>
+<td>342.0</td>
+<td>1470.1</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>8.8.8.8</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>138.4</td>
+<td>248.5</td>
+<td>360.4</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>223.5.5.5</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>92.9</td>
+<td>176.8</td>
+<td>209.4</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>223.5.5.5</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>144.2</td>
+<td>393.6</td>
+<td>1197.1</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>1.12.12.12</td>
+<td>hot</td>
+<td>14&#x2F;16</td>
+<td>92.8</td>
+<td>155.6</td>
+<td>155.9</td>
+<td>53.3%</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>1.12.12.12</td>
+<td>cold</td>
+<td>0&#x2F;20</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>100%</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>9.9.9.9</td>
+<td>hot</td>
+<td>6&#x2F;24</td>
+<td>155.8</td>
+<td>282.2</td>
+<td>316.1</td>
+<td>80.0%</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>9.9.9.9</td>
+<td>cold</td>
+<td>8&#x2F;12</td>
+<td>211.2</td>
+<td>373.7</td>
+<td>412.2</td>
+<td>60.0%</td>
+</tr>
+</tbody></table>
+<p>Cloudflare 那两行的失败发生在连接建立阶段：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">connect: ConnectionResetError: [Errno 54] Connection reset by peer</span><br></pre></td></tr></table></figure>
+
+<p>DNSPod 和 Quad9 的失败不一样，是连接建立成功、查询还能跑几个之后才断，报错是 <code>ConnectionError: EOF</code>。下一节专门查这件事。</p>
+<p>从能跑通的端点看，<strong>DoT 的 p50 和 UDP 基本持平，甚至更低</strong>：Google 是 142.3 对 137.8，AliDNS 是 92.9 对 60.3，Quad9 是 155.8 对 182.1。这个结果初看反直觉，因为 DoT 多了一层 TLS 记录层。原因是 TLS 记录层只增加几十微秒级的封装开销，而 UDP 那条路径上有一个隐性成本：解析器对 UDP 有响应大小限制（TC 标志触发 TCP 回退）和更激进的限速，走 TLS 的请求反而落在一个更稳定、更少被限速的处理队列上。另外热组样本量不大，几十毫秒的差异本来就在噪声范围内，不值得过度解读。</p>
+<h3 id="4-3-DoH-443"><a href="#4-3-DoH-443" class="headerlink" title="4.3 DoH&#x2F;443"></a>4.3 DoH&#x2F;443</h3><p>DoH 这里出现了本文最值得记一笔的坑，所以要分两张表。</p>
+<p><strong>HTTP&#x2F;1.1</strong></p>
+<table>
+<thead>
+<tr>
+<th>上游</th>
+<th>连接地址</th>
+<th>组</th>
+<th>成功&#x2F;失败</th>
+<th>p50</th>
+<th>p95</th>
+<th>失败率</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cloudflare</td>
+<td>104.16.248.249</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>144.4</td>
+<td>276.6</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Cloudflare</td>
+<td>104.16.248.249</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>146.8</td>
+<td>539.2</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>8.8.8.8</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>143.4</td>
+<td>466.1</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>8.8.8.8</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>143.6</td>
+<td>182.6</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>223.5.5.5</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>66.2</td>
+<td>94.9</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>223.5.5.5</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>91.0</td>
+<td>649.2</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>120.53.53.53</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>108.8</td>
+<td>164.0</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>120.53.53.53</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>610.6</td>
+<td>941.5</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>9.9.9.9</td>
+<td>hot</td>
+<td>0&#x2F;30</td>
+<td>—</td>
+<td>—</td>
+<td>100%</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>9.9.9.9</td>
+<td>cold</td>
+<td>0&#x2F;20</td>
+<td>—</td>
+<td>—</td>
+<td>100%</td>
+</tr>
+</tbody></table>
+<p>Quad9 的两行全军覆没，但<strong>不是网络问题，是我的客户端问题</strong>。TLS 握手是成功的（<code>tcp_ms</code> 139 到 169、<code>tls_ms</code> 146 到 192 都正常记录下来了），卡在 HTTP 层：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ConnectionError: no Content-Length: b&#x27;HTTP/1.1 505 HTTP Version Not Supported\r\nConnection: Close\r\n...&#x27;</span><br></pre></td></tr></table></figure>
+
+<p><code>505 HTTP Version Not Supported</code>。RFC 8484 第 5.2 节的原文是「HTTP&#x2F;2 is the minimum RECOMMENDED version of HTTP for use with DoH」，也就是 DoH 的最低推荐版本是 HTTP&#x2F;2。多数实现为了兼容会额外接受 HTTP&#x2F;1.1，Quad9 不接受。用 curl 单独验证：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$ curl -s -o /dev/null -w &quot;code=%&#123;http_code&#125; ver=%&#123;http_version&#125;\n&quot; --http1.1 \</span><br><span class="line">    -H &#x27;content-type: application/dns-message&#x27; --data-binary @q.bin https://9.9.9.9/dns-query</span><br><span class="line">http1.1: code=505 ver=1.1</span><br><span class="line">$ curl -s -o /dev/null -w &quot;code=%&#123;http_code&#125; ver=%&#123;http_version&#125;\n&quot; --http2 \</span><br><span class="line">    -H &#x27;content-type: application/dns-message&#x27; --data-binary @q.bin https://9.9.9.9/dns-query</span><br><span class="line">http2: code=200 ver=2</span><br></pre></td></tr></table></figure>
+
+<p>所以补一个 HTTP&#x2F;2 客户端，用 <code>h2</code> 库直接说话，ALPN 只声明 <code>h2</code>：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">ctx.set_alpn_protocols([<span class="string">&quot;h2&quot;</span>])</span><br><span class="line"><span class="variable language_">self</span>.sock = ctx.wrap_socket(raw, server_hostname=sni)</span><br><span class="line"><span class="variable language_">self</span>.conn = h2.connection.H2Connection(config=h2.config.H2Configuration(client_side=<span class="literal">True</span>))</span><br><span class="line"><span class="variable language_">self</span>.conn.initiate_connection(); <span class="variable language_">self</span>.sock.sendall(<span class="variable language_">self</span>.conn.data_to_send())</span><br></pre></td></tr></table></figure>
+
+<p><strong>HTTP&#x2F;2</strong>（同样的域名池、同样的样本数、重跑于 17:22，load average 4.62）：</p>
+<table>
+<thead>
+<tr>
+<th>上游</th>
+<th>组</th>
+<th>成功&#x2F;失败</th>
+<th>p50</th>
+<th>p95</th>
+<th>max</th>
+<th>失败率</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cloudflare</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>142.8</td>
+<td>251.2</td>
+<td>396.3</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Cloudflare</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>149.7</td>
+<td>175.4</td>
+<td>185.2</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>135.4</td>
+<td>350.6</td>
+<td>472.7</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>150.8</td>
+<td>236.2</td>
+<td>294.0</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>62.3</td>
+<td>118.6</td>
+<td>202.4</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>121.4</td>
+<td>147.0</td>
+<td>186.5</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>92.8</td>
+<td>200.4</td>
+<td>318.6</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>594.6</td>
+<td>807.4</td>
+<td>812.5</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>hot</td>
+<td>30&#x2F;0</td>
+<td>146.6</td>
+<td>331.9</td>
+<td>759.9</td>
+<td>0.0%</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>cold</td>
+<td>7&#x2F;13</td>
+<td>187.8</td>
+<td>316.2</td>
+<td>361.9</td>
+<td>65.0%</td>
+</tr>
+</tbody></table>
+<p>Quad9 换成 HTTP&#x2F;2 之后热组 30 次全部成功，p50 146.6 毫秒，和 Google 处在同一档。冷组 20 次里只成功了 7 次，剩下 13 次是 <code>ConnectionError: EOF</code>，也就是连接被对端关掉了。这个现象和它的 DoT 表现一致，放到下一节一起看。</p>
+<p><strong>DoH 和 UDP 的 p50 在能跑通的端点上基本一致</strong>：Google 135.4 对 137.8，AliDNS 62.3 对 60.3，Quad9 146.6 对 182.1，Cloudflare 142.8 对 235.7。Cloudflare 那一对差了 90 多毫秒，但那是 <code>1.1.1.1:53</code> 这条路径本身的 RTT 就高，跟 DoH 协议无关。</p>
+<h3 id="4-4-三种协议横向合并"><a href="#4-4-三种协议横向合并" class="headerlink" title="4.4 三种协议横向合并"></a>4.4 三种协议横向合并</h3><p>同一批数据的汇总，热组 p50 &#x2F; p95（每格 30 次查询；样本量到这个规模，p95 等于最大值，只当上界看）：</p>
+<table>
+<thead>
+<tr>
+<th>上游</th>
+<th>UDP&#x2F;53</th>
+<th>DoT&#x2F;853</th>
+<th>DoH&#x2F;443 (HTTP&#x2F;1.1)</th>
+<th>DoH&#x2F;443 (HTTP&#x2F;2)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cloudflare</td>
+<td>235.7 &#x2F; 286.1</td>
+<td>失败</td>
+<td>144.4 &#x2F; 276.6</td>
+<td>142.8 &#x2F; 251.2</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>137.8 &#x2F; 392.6</td>
+<td>142.3 &#x2F; 342.0</td>
+<td>143.4 &#x2F; 466.1</td>
+<td>135.4 &#x2F; 350.6</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>60.3 &#x2F; 108.5</td>
+<td>92.9 &#x2F; 176.8</td>
+<td>66.2 &#x2F; 94.9</td>
+<td>62.3 &#x2F; 118.6</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>75.0 &#x2F; 136.7</td>
+<td>92.8 &#x2F; 155.6</td>
+<td>108.8 &#x2F; 164.0</td>
+<td>92.8 &#x2F; 200.4</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>182.1 &#x2F; 691.5</td>
+<td>155.8 &#x2F; 282.2</td>
+<td>客户端不支持</td>
+<td>146.6 &#x2F; 331.9</td>
+</tr>
+</tbody></table>
+<p>这张表要说的事很清楚：<strong>在连接已经建立的前提下，协议本身几乎不影响延迟。</strong> 同一家上游的三种协议 p50 差异大多在 30 毫秒以内，远小于不同上游之间的差异（AliDNS 62 对 Cloudflare 143，差 80 多毫秒）。挑上游比挑协议重要得多。</p>
+<h3 id="4-5-握手成本才是真正的差别"><a href="#4-5-握手成本才是真正的差别" class="headerlink" title="4.5 握手成本才是真正的差别"></a>4.5 握手成本才是真正的差别</h3><p>上面所有数字都在「连接已建立」的前提下。真实客户端冷启动第一个查询还要加上 TCP 和 TLS 握手，这部分 DoT&#x2F;DoH 有、UDP 没有：</p>
+<table>
+<thead>
+<tr>
+<th>上游</th>
+<th>协议</th>
+<th>TCP 连接</th>
+<th>TLS 握手</th>
+<th>合计</th>
+<th>首次查询</th>
+<th>稳态 p50</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cloudflare</td>
+<td>DoH&#x2F;443</td>
+<td>286.6</td>
+<td>216.7</td>
+<td>503.3</td>
+<td>282.0</td>
+<td>144.4</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>DoT&#x2F;853</td>
+<td>113.0</td>
+<td>130.9</td>
+<td>243.9</td>
+<td>344.3</td>
+<td>142.3</td>
+</tr>
+<tr>
+<td>Google</td>
+<td>DoH&#x2F;443</td>
+<td>134.0</td>
+<td>125.8</td>
+<td>259.8</td>
+<td>325.0</td>
+<td>143.4</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>DoT&#x2F;853</td>
+<td>66.6</td>
+<td>83.3</td>
+<td>149.9</td>
+<td>123.6</td>
+<td>92.9</td>
+</tr>
+<tr>
+<td>AliDNS</td>
+<td>DoH&#x2F;443</td>
+<td>79.8</td>
+<td>74.8</td>
+<td>154.6</td>
+<td>161.5</td>
+<td>66.2</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>DoT&#x2F;853</td>
+<td>75.1</td>
+<td>184.7</td>
+<td>259.8</td>
+<td>56.6</td>
+<td>92.8</td>
+</tr>
+<tr>
+<td>DNSPod</td>
+<td>DoH&#x2F;443</td>
+<td>89.3</td>
+<td>271.2</td>
+<td>360.5</td>
+<td>125.9</td>
+<td>108.8</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>DoT&#x2F;853</td>
+<td>139.7</td>
+<td>165.6</td>
+<td>305.3</td>
+<td>316.1</td>
+<td>155.8</td>
+</tr>
+<tr>
+<td>Quad9</td>
+<td>DoH&#x2F;443</td>
+<td>169.3</td>
+<td>191.8</td>
+<td>361.1</td>
+<td>130.3</td>
+<td>146.6</td>
+</tr>
+</tbody></table>
+<p>（单位毫秒。TCP 和 TLS 是各自独立一次测量的值，合计是这一对之和。各行来自不同的单次运行，样本量在 6 到 30 之间不等；Quad9 的 DoH 一行取自 HTTP&#x2F;2 那一轮，与本表其余行的轮次不同，跨行比较这两个列只能当参考。）</p>
+<p>把这几个数字放到一起，「UDP 快」这个说法就有了准确的形状：<strong>UDP 省掉的是 150 到 500 毫秒的一次性建连成本，不是每个查询的成本。</strong> 一个长驻进程每小时解析几百个域名，这点成本摊下来可以忽略；一个每次调用都重新建连的短命脚本，这就是实打实的几百毫秒。</p>
+<p>「首次查询」那一列还揭示了另一件事：<strong>建连之后第一个查询明显比稳态慢</strong>。Google DoH 是 325.0 对 143.4，Google DoT 是 344.3 对 142.3，Quad9 DoT 是 316.1 对 155.8，都慢了 2 倍左右。具体是哪一段慢的，这次没有做分段测量去定位，可能是服务端在首个请求上的会话建立开销，也可能是 TCP 慢启动还没走完。能确定的是「握手完成」不等于「连接可用」，真正的冷启动成本是握手加第一次查询，而不是只有握手。</p>
+<h2 id="5-DoT-长连接会被对端掐断"><a href="#5-DoT-长连接会被对端掐断" class="headerlink" title="5. DoT 长连接会被对端掐断"></a>5. DoT 长连接会被对端掐断</h2><p>DoT 和 DoH 的成本优势建立在连接复用上，所以「一条连接能用多久」直接决定了这个优势成不成立。在一条连接上连续发 60 次查询，没断就记 60，各跑两轮：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">DoT 存活探针 Cloudflare</span><br><span class="line">  run0: connect FAIL [Errno 54] Connection reset by peer</span><br><span class="line">  run1: connect FAIL timed out</span><br><span class="line">DoT 存活探针 Google</span><br><span class="line">  run0: 连续成功 60 次后 连接仍在  耗时 9.32s</span><br><span class="line">  run1: 连续成功 60 次后 连接仍在  耗时 9.65s</span><br><span class="line">DoT 存活探针 AliDNS</span><br><span class="line">  run0: 连续成功 60 次后 连接仍在  耗时 4.56s</span><br><span class="line">  run1: 连续成功 60 次后 连接仍在  耗时 3.7s</span><br><span class="line">DoT 存活探针 DNSPod</span><br><span class="line">  run0: 连续成功 2 次后 断开: ConnectionError: EOF  耗时 0.48s</span><br><span class="line">  run1: 连续成功 3 次后 断开: ConnectionError: EOF  耗时 0.62s</span><br><span class="line">DoT 存活探针 Quad9</span><br><span class="line">  run0: 连续成功 17 次后 断开: ConnectionError: EOF  耗时 3.16s</span><br><span class="line">  run1: 连续成功 9 次后 断开: ConnectionError: EOF  耗时 1.7s</span><br></pre></td></tr></table></figure>
+
+<p>Google 和 AliDNS 在 60 次查询后连接仍然活着，9 秒和 4 秒的耗时基本就是 60 个 RTT 的总和。这两个端点可以认为支持稳定的连接复用。</p>
+<p>DNSPod 在两轮里分别撑了 2 次和 3 次，Quad9 撑了 17 次和 9 次，然后连接被对端关掉。次数在两次运行之间不稳定，说明这不是固定的服务端行为，但本文没有抓包，无法区分关闭来自服务端还是路径上的中间设备。对客户端的影响是：<strong>必须有重连逻辑</strong>。没有重连的话，一次连接被关掉之后所有后续查询都会失败；有重连的话，每次断开要付一次完整的 TCP + TLS 握手成本（DNSPod 是 259.8 毫秒，Quad9 是 305.3 毫秒），而这个成本会不定期地插进查询路径里。</p>
+<p>这一点在 DoH 那边同样成立：Quad9 的 DoH 冷组 20 次里断了 13 次，也是 <code>ConnectionError: EOF</code>。同一家的 DoT 和 DoH 共享同一个连接管理策略，表现一致。</p>
+<p>顺带一个侧证。用 <code>openssl s_client</code> 看各端点协商出来的 TLS 版本：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">dot.pub:853            New, TLSv1.2, Cipher is ECDHE-ECDSA-AES256-GCM-SHA384</span><br><span class="line">doh.pub:443            New, TLSv1.2, Cipher is ECDHE-ECDSA-AES128-GCM-SHA256</span><br><span class="line">dns.alidns.com:853     New, TLSv1.3, Cipher is TLS_AES_128_GCM_SHA256</span><br><span class="line">dns.google:853         New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384</span><br><span class="line">dns.quad9.net:853      New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384</span><br></pre></td></tr></table></figure>
+
+<p>DNSPod 的两个端点是唯二停在 TLS 1.2 的，而 TLS 1.2 的完整握手要在 TCP 之上花两个 RTT，TLS 1.3 只要一个。把握手时间和 TCP 连接时间的比值算出来，正好对上：</p>
+<table>
+<thead>
+<tr>
+<th>端点</th>
+<th>协商版本</th>
+<th>TCP 连接</th>
+<th>TLS 握手</th>
+<th>TLS &#x2F; TCP</th>
+<th>理论 RTT 数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>AliDNS DoT</td>
+<td>TLS 1.3</td>
+<td>66.6</td>
+<td>83.3</td>
+<td>1.25</td>
+<td>1</td>
+</tr>
+<tr>
+<td>Google DoT</td>
+<td>TLS 1.3</td>
+<td>113.0</td>
+<td>130.9</td>
+<td>1.16</td>
+<td>1</td>
+</tr>
+<tr>
+<td>Quad9 DoT</td>
+<td>TLS 1.3</td>
+<td>139.7</td>
+<td>165.6</td>
+<td>1.19</td>
+<td>1</td>
+</tr>
+<tr>
+<td>DNSPod DoT</td>
+<td>TLS 1.2</td>
+<td>75.1</td>
+<td>184.7</td>
+<td>2.46</td>
+<td>2</td>
+</tr>
+<tr>
+<td>DNSPod DoH</td>
+<td>TLS 1.2</td>
+<td>89.3</td>
+<td>271.2</td>
+<td>3.04</td>
+<td>2</td>
+</tr>
+</tbody></table>
+<p>（TLS &#x2F; TCP 这一列用两个实测值相除得到，理论 RTT 数是协议规定的。）</p>
+<p>这解释了 DNSPod 那两个握手数字为什么明显偏高：问题不在路径远近，同一个 IP 上 TLS 1.2 比 TLS 1.3 就是要多花一个握手 RTT。如果客户端能选，优先挑支持 TLS 1.3 的服务端可以省掉这几十到一百毫秒。</p>
+<h2 id="6-sing-box-做本地-DNS-服务"><a href="#6-sing-box-做本地-DNS-服务" class="headerlink" title="6. sing-box 做本地 DNS 服务"></a>6. sing-box 做本地 DNS 服务</h2><p>前面的测量都是直连上游。真实部署里通常在本地跑一个转发器，把 DNS 收敛到一个入口，好处是统一出口、缓存复用、加上 FakeIP 之类的策略。多一层转发要付多少代价，也可以直接测。</p>
+<h3 id="6-1-配置"><a href="#6-1-配置" class="headerlink" title="6.1 配置"></a>6.1 配置</h3><p>用 1.14.1 的 DNS 服务格式（<code>dns.servers[].type</code> 从 1.12.0 开始取代旧的 <code>address</code> 写法），入站用 <code>direct</code> 类型加 <code>override_address</code>，再用路由规则把 DNS 劫持进来：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;inbounds&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">    <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;direct&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;tag&quot;</span><span class="punctuation">:</span> <span class="string">&quot;dns-in&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;listen&quot;</span><span class="punctuation">:</span> <span class="string">&quot;127.0.0.1&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;listen_port&quot;</span><span class="punctuation">:</span> <span class="number">5354</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;network&quot;</span><span class="punctuation">:</span> <span class="string">&quot;udp&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;override_address&quot;</span><span class="punctuation">:</span> <span class="string">&quot;223.5.5.5&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;override_port&quot;</span><span class="punctuation">:</span> <span class="number">53</span> <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;route&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;rules&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;inbound&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="string">&quot;dns-in&quot;</span><span class="punctuation">]</span><span class="punctuation">,</span> <span class="attr">&quot;action&quot;</span><span class="punctuation">:</span> <span class="string">&quot;hijack-dns&quot;</span> <span class="punctuation">&#125;</span> <span class="punctuation">]</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;dns&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;servers&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">      <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;udp&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;tag&quot;</span><span class="punctuation">:</span> <span class="string">&quot;ali-udp&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;server&quot;</span><span class="punctuation">:</span> <span class="string">&quot;223.5.5.5&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;server_port&quot;</span><span class="punctuation">:</span> <span class="number">53</span> <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">]</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>override_address</code> 只是为了让入站看起来指向某个正常的 DNS 地址，真正用哪个上游由 <code>dns.servers</code> 决定。换上游只需要改 <code>type</code>：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;tls&quot;</span><span class="punctuation">,</span>   <span class="attr">&quot;server&quot;</span><span class="punctuation">:</span> <span class="string">&quot;223.5.5.5&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;server_port&quot;</span><span class="punctuation">:</span> <span class="number">853</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;tls&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;server_name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;dns.alidns.com&quot;</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span></span><br><span class="line"></span><br><span class="line"><span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;https&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;server&quot;</span><span class="punctuation">:</span> <span class="string">&quot;8.8.8.8&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;server_port&quot;</span><span class="punctuation">:</span> <span class="number">443</span><span class="punctuation">,</span> <span class="attr">&quot;path&quot;</span><span class="punctuation">:</span> <span class="string">&quot;/dns-query&quot;</span> <span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="6-2-踩到的两个坑"><a href="#6-2-踩到的两个坑" class="headerlink" title="6.2 踩到的两个坑"></a>6.2 踩到的两个坑</h3><p><strong>第一个坑：<code>detour</code> 指向空的 direct outbound 会让 sing-box 拒绝启动。</strong></p>
+<p>一开始我在 <code>dns.servers</code> 里写了 <code>&quot;detour&quot;: &quot;direct&quot;</code>，同时在 <code>outbounds</code> 里放了一个 <code>{&quot;type&quot;: &quot;direct&quot;, &quot;tag&quot;: &quot;direct&quot;}</code>。<code>sing-box check</code> 通过了，<code>sing-box run</code> 直接拒绝：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">FATAL[0000] start service: start dns/udp[ali-udp]: detour to an empty direct outbound makes no sense</span><br></pre></td></tr></table></figure>
+
+<p>原因在新版文档里写着：新格式的 DNS 服务器「uses dialer just like outbound, which is equivalent to using an empty direct outbound by default」，也就是默认行为已经等价于空的 direct outbound，再显式指过去就是空转。把 <code>detour</code> 整个删掉即可。</p>
+<p>这里有个值得记住的教训：<strong><code>sing-box check</code> 通过不代表 <code>run</code> 能起来。</strong> 上面那个配置 check 返回 0 并且不打印任何东西，run 才在启动阶段报错。改完配置一定要真的起一次。</p>
+<p><strong>第二个坑：5353 端口被 macOS 上的 mDNS 占着。</strong></p>
+<p>我原先给 Google DoH 那个实例分了 5353 端口，启动直接失败：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">FATAL[0000] start service: start inbound/direct[dns-in]: listen udp 127.0.0.1:5353: bind: address already in use</span><br></pre></td></tr></table></figure>
+
+<p>查一下就知道是 Chrome：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ lsof -nP -iUDP:5353 | head -3</span><br><span class="line">COMMAND    PID            USER   FD   TYPE ... NODE NAME</span><br><span class="line">Google     1695 liangliang.liu   51u  IPv4 ... UDP *:5353</span><br></pre></td></tr></table></figure>
+
+<p>5353 是 mDNS 的标准端口，浏览器、投屏、Bonjour 都在用它。本地 DNS 服务别选这个端口，换成 5354 以上的任意空闲端口。</p>
+<h3 id="6-3-真实运行日志"><a href="#6-3-真实运行日志" class="headerlink" title="6.3 真实运行日志"></a>6.3 真实运行日志</h3><p>debug 级别下，一次完整的转发长这样：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">+0800 2026-09-15 17:10:28 INFO [2223575326 0ms] inbound/direct[dns-in]: inbound packet connection from 127.0.0.1:49982</span><br><span class="line">+0800 2026-09-15 17:10:28 INFO [2223575326 0ms] inbound/direct[dns-in]: inbound packet connection to 1.1.1.1:53</span><br><span class="line">+0800 2026-09-15 17:10:28 DEBUG [2223575326 0ms] router: match[0] inbound=dns-in =&gt; hijack-dns</span><br><span class="line">+0800 2026-09-15 17:10:28 DEBUG [2223575326 0ms] dns: exchange sb220544227-cold.sbprobe.com. IN A</span><br><span class="line">+0800 2026-09-15 17:10:29 DEBUG [2223575326 427ms] dns: exchanged sb220544227-cold.sbprobe.com NXDOMAIN 900</span><br><span class="line">+0800 2026-09-15 17:10:29 INFO [2223575326 427ms] dns: exchanged SOA com. 900 IN SOA a.gtld-servers.net. nstld.verisign-grs.com. 1789463408 1800 900 604800 900</span><br></pre></td></tr></table></figure>
+
+<p>四步都在日志里：入站收到 UDP 包、路由匹配到 <code>hijack-dns</code>、发起上游查询、427 毫秒后拿到 NXDOMAIN 加一条负缓存 TTL 900 秒的 SOA 记录。</p>
+<p>缓存命中时长这样，注意前缀是 <code>cached</code>，耗时是 <code>0ms</code>：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">+0800 2026-09-15 17:10:34 DEBUG [4020014095 0ms] dns: cached baidu.com NOERROR 270</span><br><span class="line">+0800 2026-09-15 17:10:34 INFO [4020014095 0ms] dns: cached A baidu.com. 270 IN A 110.242.74.102</span><br><span class="line">+0800 2026-09-15 17:10:34 INFO [4020014095 0ms] dns: cached A baidu.com. 270 IN A 111.63.65.103</span><br></pre></td></tr></table></figure>
+
+<p><strong>上游不可达时 sing-box 不会在日志里报错。</strong> 把 DoH 上游配成一个不可达地址（实验里用的是 <code>127.0.0.1:9</code>），客户端全部超时，日志里没有一行错误，debug 与 trace 级别都只在发起查询时留一行（trace 在 13 秒后多两行 http-client 关闭记录，同样没有报错）：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">+0800 2026-09-15 17:13:46 INFO [2573956400 0ms] inbound/direct[dns-in]: inbound packet connection from 127.0.0.1:60229</span><br><span class="line">+0800 2026-09-15 17:13:46 INFO [2573956400 0ms] inbound/direct[dns-in]: inbound packet connection to 1.1.1.1:53</span><br><span class="line">+0800 2026-09-15 17:13:46 DEBUG [2573956400 0ms] router: match[0] inbound=dns-in =&gt; hijack-dns</span><br><span class="line">+0800 2026-09-15 17:13:46 DEBUG [2573956400 0ms] dns: exchange github.com. IN A</span><br><span class="line">（之后没有任何输出）</span><br></pre></td></tr></table></figure>
+
+<p>客户端那一侧是 70 秒超时：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">客户端超时: 70001 ms TimeoutError timed out</span><br></pre></td></tr></table></figure>
+
+<p>也就是说，DNS 上游挂掉时，症状是「查询变慢直到超时」，日志里找不到任何线索。排查这种问题别只盯 sing-box 的日志，要同时从客户端侧看超时，再手动验证上游地址的可达性。</p>
+<h3 id="6-4-数字"><a href="#6-4-数字" class="headerlink" title="6.4 数字"></a>6.4 数字</h3><p>用同一个 Python 客户端打 <code>127.0.0.1</code> 上的入站端口，域名池和样本数与前面一致。冷组 20 次、热组 30 次跑三轮（同一个 sing-box 实例，缓存逐渐填满）：</p>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th>组</th>
+<th>成功&#x2F;失败</th>
+<th>p50</th>
+<th>p95</th>
+<th>max</th>
+<th>rcode</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>UDP 上游 223.5.5.5</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>334.61</td>
+<td>585.42</td>
+<td>602.33</td>
+<td>3</td>
+</tr>
+<tr>
+<td>UDP 上游 223.5.5.5</td>
+<td>hot 第 1 轮</td>
+<td>30&#x2F;0</td>
+<td>53.73</td>
+<td>96.24</td>
+<td>119.79</td>
+<td>0</td>
+</tr>
+<tr>
+<td>UDP 上游 223.5.5.5</td>
+<td>hot 第 2 轮</td>
+<td>30&#x2F;0</td>
+<td>0.19</td>
+<td>0.33</td>
+<td>1.59</td>
+<td>0</td>
+</tr>
+<tr>
+<td>UDP 上游 223.5.5.5</td>
+<td>hot 第 3 轮</td>
+<td>30&#x2F;0</td>
+<td>0.16</td>
+<td>0.23</td>
+<td>0.32</td>
+<td>0</td>
+</tr>
+<tr>
+<td>DoT 上游 223.5.5.5:853</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>346.51</td>
+<td>450.21</td>
+<td>479.36</td>
+<td>3</td>
+</tr>
+<tr>
+<td>DoT 上游 223.5.5.5:853</td>
+<td>hot 第 1 轮</td>
+<td>30&#x2F;0</td>
+<td>68.11</td>
+<td>143.21</td>
+<td>146.71</td>
+<td>0</td>
+</tr>
+<tr>
+<td>DoT 上游 223.5.5.5:853</td>
+<td>hot 第 2 轮</td>
+<td>30&#x2F;0</td>
+<td>0.16</td>
+<td>0.32</td>
+<td>0.41</td>
+<td>0</td>
+</tr>
+<tr>
+<td>DoT 上游 223.5.5.5:853</td>
+<td>hot 第 3 轮</td>
+<td>30&#x2F;0</td>
+<td>0.17</td>
+<td>0.25</td>
+<td>0.27</td>
+<td>0</td>
+</tr>
+<tr>
+<td>DoH 上游 104.16.248.249</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>144.37</td>
+<td>270.12</td>
+<td>428.03</td>
+<td>3</td>
+</tr>
+<tr>
+<td>DoH 上游 104.16.248.249</td>
+<td>hot 第 1 轮</td>
+<td>30&#x2F;0</td>
+<td>131.73</td>
+<td>172.51</td>
+<td>187.30</td>
+<td>0</td>
+</tr>
+<tr>
+<td>DoH 上游 104.16.248.249</td>
+<td>hot 第 2 轮</td>
+<td>30&#x2F;0</td>
+<td>0.16</td>
+<td>0.33</td>
+<td>0.48</td>
+<td>0</td>
+</tr>
+<tr>
+<td>DoH 上游 104.16.248.249</td>
+<td>hot 第 3 轮</td>
+<td>30&#x2F;0</td>
+<td>0.19</td>
+<td>0.25</td>
+<td>0.28</td>
+<td>0</td>
+</tr>
+<tr>
+<td>DoH 上游 8.8.8.8</td>
+<td>cold</td>
+<td>20&#x2F;0</td>
+<td>140.19</td>
+<td>325.45</td>
+<td>591.54</td>
+<td>3</td>
+</tr>
+<tr>
+<td>DoH 上游 8.8.8.8</td>
+<td>hot 第 1 轮</td>
+<td>30&#x2F;0</td>
+<td>142.65</td>
+<td>428.17</td>
+<td>1535.26</td>
+<td>0</td>
+</tr>
+<tr>
+<td>DoH 上游 8.8.8.8</td>
+<td>hot 第 2 轮</td>
+<td>30&#x2F;0</td>
+<td>0.18</td>
+<td>0.24</td>
+<td>0.26</td>
+<td>0</td>
+</tr>
+<tr>
+<td>DoH 上游 8.8.8.8</td>
+<td>hot 第 3 轮</td>
+<td>30&#x2F;0</td>
+<td>0.17</td>
+<td>0.39</td>
+<td>1.03</td>
+<td>0</td>
+</tr>
+<tr>
+<td>DoH 上游 1.1.1.1:443</td>
+<td>cold</td>
+<td>0&#x2F;20</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>DoH 上游 1.1.1.1:443</td>
+<td>hot 第 1 轮</td>
+<td>0&#x2F;30</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<p>（单位毫秒。热组第 1 轮里 30 个样本 &#x3D; 20 个不重复域名 + 前 10 个再来一遍，所以 <code>min</code> 会出现 0.16 这种缓存命中值，p50 对应的是第 15 个样本，仍然落在未命中区间。）</p>
+<p>对比直连上游的同一组数字：</p>
+<table>
+<thead>
+<tr>
+<th>上游</th>
+<th>直连 hot p50</th>
+<th>sing-box 转发 hot 第 1 轮 p50</th>
+<th>差值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>AliDNS UDP</td>
+<td>60.3</td>
+<td>53.73</td>
+<td>−6.6</td>
+</tr>
+<tr>
+<td>AliDNS DoT</td>
+<td>92.9</td>
+<td>68.11</td>
+<td>−24.8</td>
+</tr>
+<tr>
+<td>Cloudflare DoH</td>
+<td>144.4</td>
+<td>131.73</td>
+<td>−12.7</td>
+</tr>
+<tr>
+<td>Google DoH</td>
+<td>143.4</td>
+<td>142.65</td>
+<td>−0.8</td>
+</tr>
+</tbody></table>
+<p><strong>多一层本地转发的代价测不出来。</strong> 四组对比里有三组是负数（转发反而更快），但差值都落在噪声范围里，唯一能说的结论是「转发这一层没有引入可测量的额外延迟」。原因也简单：本地 UDP 环回只有零点几毫秒，转发器的排队和处理开销远小于上游那 60 到 140 毫秒的往返。</p>
+<p>真正量到的本地跳成本在缓存命中那一行：<strong>p50 落在 0.16 到 0.19 毫秒</strong>。这是「进程内 DNS 客户端 → 本地 sing-box → 返回」的完整往返，也是转发器能带来的最好情况。</p>
+<p>于是本地转发的真实收益不在延迟，而在缓存：同一个域名第二次查询从 53 到 142 毫秒掉到 0.17 毫秒左右，快了 300 到 800 倍。代价是上游不可达时整个解析链路一起不可用，而且如上一节所见，日志里看不到原因。</p>
+<p>最后一组：<code>DoH 上游 1.1.1.1:443</code> 全部失败，冷组 20 次加第一轮 30 次没有一次拿到应答，客户端侧清一色 <code>TimeoutError</code>。这和前面直连测量到的可达性结论完全吻合，也说明这种配置错误不会在启动时暴露，只会在真正查询时变成延迟。</p>
+<h2 id="7-测量误差与不可外推的边界"><a href="#7-测量误差与不可外推的边界" class="headerlink" title="7. 测量误差与不可外推的边界"></a>7. 测量误差与不可外推的边界</h2><h3 id="7-1-我自己踩的三个坑"><a href="#7-1-我自己踩的三个坑" class="headerlink" title="7.1 我自己踩的三个坑"></a>7.1 我自己踩的三个坑</h3><p>这三个都是测量代码的问题，写出来是因为读者照着自己写一遍大概率会撞上同一个。</p>
+<p><strong>HTTP&#x2F;2 的流 ID 必须是奇数。</strong> 第一版客户端 <code>sid += 1</code> 从 1 开始递增，结果每个端点的失败率精确地卡在 50%。服务端返回的是 <code>ProtocolError: Invalid stream ID for peer.</code>，因为偶数流 ID 是留给服务端发起的流的，客户端用了就是协议违规。改成 <code>sid += 2</code> 之后失败率归零。这种「恰好一半失败」的对称症状，基本可以直接指向流 ID 或帧奇偶性。</p>
+<p><strong>不开 TCP_NODELAY，HTTP&#x2F;2 客户端每个查询多等一个 RTT。</strong> 这是最隐蔽的一个。同一份代码、同一个端点，我自己的 HTTP&#x2F;2 客户端 p50 是 283 毫秒，curl <code>--http2</code> 是 157 毫秒，差了一倍。逐项排除：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">现状                               n=15 min=139 p50=287 max=571</span><br><span class="line">先收 SETTINGS 并 ACK                n=15 min=118 p50=273 max=616</span><br><span class="line">TCP_NODELAY                      n=15 min=113 p50=152 max=431</span><br><span class="line">先 ACK + TCP_NODELAY              n=15 min=124 p50=139 max=200</span><br></pre></td></tr></table></figure>
+
+<p>根因是 Nagle 算法。HTTP&#x2F;2 客户端在响应处理完之后还要回一个小的 WINDOW_UPDATE 帧，这个小包会被 Nagle 压住等待前一个未确认的段被 ACK，于是每次查询凭空多了大约一个 RTT。加上 <code>TCP_NODELAY</code> 之后 p50 从 287 降到 139，和 curl 的 157 以及 HTTP&#x2F;1.1 那一路的 143 都对上了。表格里 HTTP&#x2F;2 的数字是修好之后重跑的。</p>
+<p>顺带验证了这不是 DoT 或 HTTP&#x2F;1.1 的问题：AliDNS DoT 是 67（关）对 74（开），Google DoH HTTP&#x2F;1.1 是 173（关）对 152（开），都在噪声里。原因也说得通，这两个客户端的请求头和请求体是用一次 <code>sendall</code> 写完的，没有产生需要等待的小包。</p>
+<p><strong>HTTP&#x2F;2 的那些坑会污染表格。</strong> 4.3 节里 HTTP&#x2F;1.1 那部分 Quad9 全失败，我最初的结论会写成「Quad9 的 DoH 不可用」，但实际是我的客户端只会 HTTP&#x2F;1.1，而 Quad9 按 RFC 8484 的推荐只收 HTTP&#x2F;2。用 curl 交叉验证之后才排除掉。凡是「某个服务商 100% 失败」的结果，先怀疑自己的客户端。</p>
+<h3 id="7-2-误差来源"><a href="#7-2-误差来源" class="headerlink" title="7.2 误差来源"></a>7.2 误差来源</h3><p><strong>网络波动。</strong> 同一个端点、同一批域名，不同轮次之间 p50 能差出 20%。AliDNS UDP 冷组在主矩阵里是 308.7 毫秒，在更早的一次试跑里是 520.2 毫秒；DNSPod DoT 热组第一次是 3&#x2F;20 成功，重跑是 14&#x2F;30。这类重复性偏差说明单次的几十毫秒差异不该被当作结论。表里每一格都是单轮 30 或 20 个样本，够看趋势，不够看小数点。</p>
+<p><strong>机器负载。</strong> 主矩阵跑在 load average 5.6 前后，HTTP&#x2F;2 重跑在 4.6 前后，sing-box 那轮在 7.3 前后。这台机器上同时有其它进程在吃 CPU，虽然网络 I&#x2F;O 主要由内核处理，但 Python 侧的计时和事件循环还是会受到影响。这也是我把每一轮的 load average 都标出来的原因。</p>
+<p><strong>代理环境。</strong> 这一轮测量全程没有代理。如果你在 TUN 模式的代理下重跑，所有流量都会多一次用户态转发，UDP 可能被强制走代理的 TCP，DNSPod 那种「连接被对端掐断」的现象也会因为出口 IP 不同而完全不同。</p>
+<p><strong>服务端 anycast 的就近性。</strong> 这是最难控制也最容易被忽略的。<code>1.1.1.1</code>、<code>8.8.8.8</code>、<code>9.9.9.9</code> 都是 anycast 地址，你在同一个城市不同运营商、甚至同一个运营商不同时段，落到的是不同机房。本文里 <code>1.1.1.1:53</code> 的 235.7 毫秒明显高于 <code>9.9.9.9:53</code> 的 182.1 毫秒，但这不是 Cloudflare 比 Quad9 慢，而是这台机器到 Cloudflare 最近节点的路径就是这样。同一家服务的不同接入地址也会落到不同节点：<code>9.9.9.9</code> 通而 <code>149.112.112.112</code> 不通，<code>1.12.12.12</code> 通而 <code>119.29.29.29</code> 的 853 不通。</p>
+<p><strong>企业网络的中间设备。</strong> <code>1.1.1.1:443</code> 稳定超时、<code>1.1.1.1:853</code> 前期 TCP 能连但 TLS 被 RST、连了 4 次之后连 TCP 也超时，这一组行为指向的是路径上的策略设备，不是服务端。这种设备的行为会随时间变化，也会随连接次数变化，所以「可达性」本身不是一个固定属性。</p>
+<h3 id="7-3-置信度声明"><a href="#7-3-置信度声明" class="headerlink" title="7.3 置信度声明"></a>7.3 置信度声明</h3><p><strong>可以信的结论</strong>（有明确数字支撑，且多次观测一致）：</p>
+<ul>
+<li>这台机器上三种协议的 p50 差异远小于不同上游之间的差异。</li>
+<li>UDP 相对 DoT&#x2F;DoH 省掉的是一次性的 150 到 500 毫秒建连成本，不是每查询成本。</li>
+<li>本地 sing-box 转发在缓存命中时是 0.16 到 0.19 毫秒，未命中时与直连无差别。</li>
+<li><code>1.1.1.1:443</code> 在这条路径上不可用，<code>119.29.29.29</code> 的 853&#x2F;443 不可用，<code>149.112.112.112</code> 不可用。</li>
+<li>Quad9 的 DoH 拒绝 HTTP&#x2F;1.1（505），只接受 HTTP&#x2F;2。</li>
+<li>DNSPod 和 Quad9 的 DoT 长连接会被对端关闭；本文未抓包，无法区分是服务端还是中间设备。</li>
+</ul>
+<p><strong>只能当参考的结论</strong>（样本量或重复性不够）：</p>
+<ul>
+<li>所有 p95。每组只有 20 到 30 个样本，热组的 p95 甚至等于最大值，它反映的是「有没有抖动」，不是生产环境的尾部延迟。</li>
+<li>各组之间 30 毫秒以内的排序。AliDNS UDP 60.3 对 DNSPod 75.0，AliDNS DoH HTTP&#x2F;2 62.3 对 HTTP&#x2F;1.1 66.2，这些差值都在噪声范围内。</li>
+<li>DoT&#x2F;DoH 握手时间的绝对值。每张表里这个值来自一次单独测量，<code>tcp_ms</code> 和 <code>tls_ms</code> 也没有做多次取样。</li>
+<li>各端点的可用性比例。30 次里失败 1 次算出来的 3.3% 没有统计意义，只能说明「有失败」。</li>
+</ul>
+<p><strong>这次没测的</strong>：</p>
+<ul>
+<li>DNSSEC 验证、EDNS Client Subnet、DoQ（443&#x2F;UDP）和 HTTP&#x2F;3。这台机器上没装 QUIC 客户端，DoQ 一行都没测。</li>
+<li>持续数小时的稳定性。整个测量窗口只有 22 分钟，长期限速、夜间路由变化、上游节点轮换都不在观测范围内。</li>
+<li>解析结果正确性。本文只测延迟和可达性，没有核对各家返回的 IP 是否被污染、是否走了正确的 CDN 节点。这是选型的另一个维度，需要单独的方法验证。</li>
+<li>移动网络、家庭宽带、不同运营商。只有这一条办公室有线网路径。</li>
+</ul>
+<h2 id="8-取舍表"><a href="#8-取舍表" class="headerlink" title="8. 取舍表"></a>8. 取舍表</h2><p>把测到的和测不到的放在一起，五个维度：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>UDP&#x2F;53</th>
+<th>DoT&#x2F;853</th>
+<th>DoH&#x2F;443</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>延迟（连接已建立）</td>
+<td>三者持平，本文实测差异 30ms 内</td>
+<td>同上</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>延迟（冷启动）</td>
+<td>无握手成本，最快</td>
+<td>+150～300ms</td>
+<td>+155～500ms</td>
+</tr>
+<tr>
+<td>隐私</td>
+<td>明文，路径上任何人可见可改</td>
+<td>加密，查询内容不可见，但 853 端口特征明显、易被识别和阻断</td>
+<td>加密，混在 443 流量里，最难被针对性阻断</td>
+</tr>
+<tr>
+<td>抗污染</td>
+<td>最弱，明文应答可被篡改，本文中 <code>1.1.1.1:53</code> 能通而它的 443&#x2F;853 不通就是路径策略的证据</td>
+<td>中等，防篡改但不防阻断</td>
+<td>较强，防篡改且难阻断</td>
+</tr>
+<tr>
+<td>客户端支持</td>
+<td>全部支持，无需配置</td>
+<td>需要客户端显式支持，本文中 DNSPod&#x2F;Quad9 的连接复用还不可靠</td>
+<td>支持面最广，浏览器、系统、路由器基本都支持；但 Quad9 这种只收 HTTP&#x2F;2 的实现会卡住只会 HTTP&#x2F;1.1 的客户端</td>
+</tr>
+<tr>
+<td>自建&#x2F;维护成本</td>
+<td>最低，配个 IP 就完事</td>
+<td>需要处理连接断开重连</td>
+<td>需要证书校验、HTTP&#x2F;2 栈、连接池，出问题时客户端只表现为超时</td>
+</tr>
+<tr>
+<td>本文实测可用性</td>
+<td>5 家全部可用</td>
+<td>5 家里 3 家可用（Cloudflare 不可达，DNSPod、Quad9 不稳定）</td>
+<td>5 家全部可用，但 Quad9 要 HTTP&#x2F;2</td>
+</tr>
+</tbody></table>
+<h3 id="场景建议"><a href="#场景建议" class="headerlink" title="场景建议"></a>场景建议</h3><p><strong>在不可信网络里（公共 Wi-Fi、酒店、咖啡厅）</strong>：用 DoH，而且优先选一个解析到 CDN 地址的域名而不是服务商的招牌 IP。443 端口的 HTTPS 流量是网络里最不显眼的东西，这是 DoH 相对 DoT 最实际的优势，本机实测也印证了：<code>1.1.1.1</code> 的 443 被挡，但 <code>cloudflare-dns.com</code> 解析出来的 CDN 地址 443 通。</p>
+<p><strong>在可控的办公网或自建 IDC 里，追求确定性</strong>：用 UDP 指向就近的国内上游。省掉 150 到 500 毫秒的建连成本，在容器启动、脚本冷启动这类场景里是能感觉到的。前提是链路可信，不需要担心污染。</p>
+<p><strong>需要长期稳定运行的本地上游（比如给路由器或者 sing-box 做上游）</strong>：DoH 优先于 DoT。本文里 DoT 的可用性问题集中在连接复用上：DNSPod 撑 2 到 3 次查询就断，Quad9 撑 9 到 17 次，而同样这两家的 DoH 在热组 30 次里都是 0 失败。用 DoT 就一定要实现断线重连，而每次重连要付 260 到 305 毫秒的握手成本。</p>
+<p><strong>本机已经跑了 sing-box 或类似转发器</strong>：上游用 DoH，本地监听用一个空闲的高位端口。这一层的额外延迟测不出来（0.16 到 0.19 毫秒的缓存命中往返），换来的是重复查询 300 到 800 倍的加速。但一定要给上游配一个能连通的地址，并且清楚上游挂掉时日志里不会有任何提示。</p>
+<p><strong>只想让浏览器或系统「换个 DNS」</strong>：DoH，配置界面里填 URL 就行，不需要额外软件。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>把这次测出来的东西收成一份可以直接照做的清单：</p>
+<ol>
+<li>协议先放一边，<strong>先挑上游</strong>。同一家上游三种协议的 p50 差异在 30 毫秒以内，不同上游之间能差 80 毫秒以上。</li>
+<li>在本文这条网络路径上，DoT&#x2F;DoH 的 853&#x2F;443 端口是被有选择地拦的，而 53 端口仍然可用：<code>1.1.1.1:53</code> 稳定 OPEN，<code>1.1.1.1:443</code> 稳定超时。这个结论只覆盖本文的测量环境，换网络要重测。</li>
+<li>配 DoT&#x2F;DoH 时<strong>用域名而不是 IP</strong>。服务商的招牌 IP 和它服务域名的实际解析结果经常不是同一批地址，可用性也不同。</li>
+<li>UDP 省掉的是<strong>一次 150 到 500 毫秒的建连成本</strong>，不是每个查询的成本。长驻进程不必为此牺牲加密。</li>
+<li>DoT 的连接复用<strong>不能假设</strong>。DNSPod 和 Quad9 都会在几十次查询之内主动断开，客户端必须有重连逻辑。</li>
+<li>本地转发器（sing-box）<strong>不增加可测量的延迟</strong>，缓存命中是 0.16 到 0.19 毫秒，收益全在缓存上。</li>
+<li>服务端的 <strong>TLS 版本会直接体现进握手时间</strong>。本文里停在 TLS 1.2 的两个端点，握手比 TLS 1.3 的多花约一个 RTT。</li>
+<li>写完测量脚本<strong>一定要用第二个实现交叉验证</strong>。我用 Python 手写的 HTTP&#x2F;2 客户端因为流 ID 奇偶性和 TCP_NODELAY 两个问题，差点把 Quad9 的 DoH 判成不可用、把 Google 的 DoH 判成慢一倍。</li>
+</ol>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://www.rfc-editor.org/rfc/rfc1035">RFC 1035: Domain Names - Implementation and Specification</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://www.rfc-editor.org/rfc/rfc7858">RFC 7858: Specification for DNS over Transport Layer Security (TLS)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://www.rfc-editor.org/rfc/rfc8020">RFC 8020: NXDOMAIN: There Really Is Nothing Underneath</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://www.rfc-editor.org/rfc/rfc8484">RFC 8484: DNS Queries over HTTPS (DoH)</a>，第 5.2 节 “HTTP&#x2F;2 is the minimum RECOMMENDED version of HTTP for use with DoH”</li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://sing-box.sagernet.org/configuration/dns/server/">sing-box DNS Server 配置文档</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://sing-box.sagernet.org/configuration/dns/server/https/">sing-box DoH 服务器</a> &#x2F; <a target="_blank" rel="noopener external nofollow noreferrer" href="https://sing-box.sagernet.org/configuration/dns/server/tls/">DoT 服务器</a></li>
+</ul>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><ul>
+<li><a href="/2478192043.html">Ubuntu 24.04 配置 Sing-box 代理服务器完整指南</a></li>
+<li><a href="/2348585228.html">sing-box 分流与 DNS 配置实践</a></li>
+<li><a href="/2831660552.html">自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/2831660552.html">https://lianglliu.github.io/2831660552.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/%E7%BD%91%E7%BB%9C/">网络</a><a class="post-meta__tags" href="/tags/sing-box/">sing-box</a><a class="post-meta__tags" href="/tags/DNS/">DNS</a><a class="post-meta__tags" href="/tags/DoH/">DoH</a><a class="post-meta__tags" href="/tags/DoT/">DoT</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/2521215779.html" title="Java——JVM 内存与 GC 定位实战"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">Java——JVM 内存与 GC 定位实战</div></div><div class="info-2"><div class="info-item-1"> 上一篇《一次锁竞争的完整定位》查的是 CPU 和锁，这篇查内存。同一个思路：先写一个能复现症状的程序，再用 JVM 自带工具一层层把证据收齐。顺序是从粗到细：GC 日志看趋势，jcmd 和 JFR 看运行时，堆 dump 看末端对象。全文用 JDK 25 跑，每个数字都对应下面贴出来的原始输出。最后收两个真会把人带偏的场景：堆几乎是空的时候 OOM，以及没人碰老年代却一直 Full GC。  实验环境与口径机器和 JDK： 12345678910$ sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize kern.osversionApple M1 Pro101717986918425G83$ java -versionjava version &quot;25&quot; 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mix...</div></div></div></a><a class="pagination-related" href="/2348585228.html" title="sing-box 分流与 DNS 配置实践"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">sing-box 分流与 DNS 配置实践</div></div><div class="info-2"><div class="info-item-1"> 《Ubuntu 24.04 配置 Sing-box 代理服务器完整指南》解决的是「流量能出去」，这篇解决它之后的三个问题：规则按什么顺序生效、域名与 IP 规则分别在什么时机才能拿到匹配依据、rule_set 和 DNS 在 1.14 该怎么写。分流最难的地方在于：规则写错了 sing-box 不会报错，只是安静地走错出口。所以下面每一节都先给结论，再给本机跑出来的日志，最后给一个能自动断言的验证方法。文中所有输出都来自 sing-box 1.14.1（macOS arm64）实跑，贴出的完整配置都过了 sing-box check，只写了 rules、dns 之类的片段也都在拼回完整配置后逐个校验过。  0. 实验环境分流要回答的是「某个请求最终由哪个出站接管」，所以先把出口做成可辨识的：直连出口指向一个本机 HTTP 服务，它会带回 X-Exit: direct；代理出口指向一个本机 SOCKS5 服务，它接受任何 CONNECT 并回 X-Exit: proxy。请求统一用 curl -x http://127.0.0.1:28802 发出，看响应头就知道落在哪个出口。D...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2348585228.html" title="sing-box 分流与 DNS 配置实践"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-16</div><div class="info-item-2">sing-box 分流与 DNS 配置实践</div></div><div class="info-2"><div class="info-item-1"> 《Ubuntu 24.04 配置 Sing-box 代理服务器完整指南》解决的是「流量能出去」，这篇解决它之后的三个问题：规则按什么顺序生效、域名与 IP 规则分别在什么时机才能拿到匹配依据、rule_set 和 DNS 在 1.14 该怎么写。分流最难的地方在于：规则写错了 sing-box 不会报错，只是安静地走错出口。所以下面每一节都先给结论，再给本机跑出来的日志，最后给一个能自动断言的验证方法。文中所有输出都来自 sing-box 1.14.1（macOS arm64）实跑，贴出的完整配置都过了 sing-box check，只写了 rules、dns 之类的片段也都在拼回完整配置后逐个校验过。  0. 实验环境分流要回答的是「某个请求最终由哪个出站接管」，所以先把出口做成可辨识的：直连出口指向一个本机 HTTP 服务，它会带回 X-Exit: direct；代理出口指向一个本机 SOCKS5 服务，它接受任何 CONNECT 并回 X-Exit: proxy。请求统一用 curl -x http://127.0.0.1:28802 发出，看响应头就知道落在哪个出口。D...</div></div></div></a><a class="pagination-related" href="/2478192043.html" title="Ubuntu 24.04 配置 Sing-box 代理服务器完整指南"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-06-28</div><div class="info-item-2">Ubuntu 24.04 配置 Sing-box 代理服务器完整指南</div></div><div class="info-2"><div class="info-item-1"> 在服务器上跑一个本地代理，让终端和 Docker 都走它，是部署里很常见的一步。这篇按 sing-box 当前文档（1.14 线）整理，配置在本机用 sing-box check 与真实启动 + curl -x 双向验证过。如果你照抄的是 2023–2024 年的教程，大概率会在启动时直接失败：inbounds[].sniff 在 1.13.0 被移除、geoip 路由规则在 1.12.0 被移除，两者都会让 1.13 以上的版本拒绝加载配置。  1. 什么是 Sing-boxsing-box 是一个通用代理平台，服务端与客户端共用一个二进制。它支持 VMess、VLESS、Trojan、Shadowsocks、Hysteria、WireGuard 等协议，可以在服务器上把远端代理转成（或直接暴露为）本机可用的 SOCKS5 &#x2F; HTTP 代理。 它的配置格式在 1.x 期间改动频繁，每次大改都会把旧字段标记 deprecated，过一两个版本再移除。所以用 sing-box 的第一条经验是：配置以官方文档为准，并留意 Deprecated 页面。 2. 准备工作 一...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">17</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">13</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">6</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-%E6%B5%8B%E9%87%8F%E7%8E%AF%E5%A2%83"><span class="toc-number">1.</span> <span class="toc-text">1. 测量环境</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-%E6%B5%8B%E9%87%8F%E6%96%B9%E6%B3%95"><span class="toc-number">2.</span> <span class="toc-text">2. 测量方法</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E7%AB%AF%E7%82%B9%E7%9F%A9%E9%98%B5"><span class="toc-number">2.1.</span> <span class="toc-text">2.1 端点矩阵</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E6%89%8B%E5%86%99-DNS-%E6%8A%A5%E6%96%87"><span class="toc-number">2.2.</span> <span class="toc-text">2.2 手写 DNS 报文</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-%E5%86%B7%E7%83%AD%E4%B8%A4%E7%BB%84%E5%9F%9F%E5%90%8D%E6%8E%A7%E5%88%B6%E7%BC%93%E5%AD%98"><span class="toc-number">2.3.</span> <span class="toc-text">2.3 冷热两组域名控制缓存</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4-%E7%BB%9F%E8%AE%A1%E5%8F%A3%E5%BE%84"><span class="toc-number">2.4.</span> <span class="toc-text">2.4 统计口径</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-%E5%8F%AF%E8%BE%BE%E6%80%A7%EF%BC%9A%E5%85%88%E7%9C%8B%E8%B0%81%E8%83%BD%E8%BF%9E%E4%B8%8A"><span class="toc-number">3.</span> <span class="toc-text">3. 可达性：先看谁能连上</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-%E5%BB%B6%E8%BF%9F%E7%9F%A9%E9%98%B5"><span class="toc-number">4.</span> <span class="toc-text">4. 延迟矩阵</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-UDP-53"><span class="toc-number">4.1.</span> <span class="toc-text">4.1 UDP&#x2F;53</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-DoT-853"><span class="toc-number">4.2.</span> <span class="toc-text">4.2 DoT&#x2F;853</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-DoH-443"><span class="toc-number">4.3.</span> <span class="toc-text">4.3 DoH&#x2F;443</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-4-%E4%B8%89%E7%A7%8D%E5%8D%8F%E8%AE%AE%E6%A8%AA%E5%90%91%E5%90%88%E5%B9%B6"><span class="toc-number">4.4.</span> <span class="toc-text">4.4 三种协议横向合并</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-5-%E6%8F%A1%E6%89%8B%E6%88%90%E6%9C%AC%E6%89%8D%E6%98%AF%E7%9C%9F%E6%AD%A3%E7%9A%84%E5%B7%AE%E5%88%AB"><span class="toc-number">4.5.</span> <span class="toc-text">4.5 握手成本才是真正的差别</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-DoT-%E9%95%BF%E8%BF%9E%E6%8E%A5%E4%BC%9A%E8%A2%AB%E5%AF%B9%E7%AB%AF%E6%8E%90%E6%96%AD"><span class="toc-number">5.</span> <span class="toc-text">5. DoT 长连接会被对端掐断</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-sing-box-%E5%81%9A%E6%9C%AC%E5%9C%B0-DNS-%E6%9C%8D%E5%8A%A1"><span class="toc-number">6.</span> <span class="toc-text">6. sing-box 做本地 DNS 服务</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-%E9%85%8D%E7%BD%AE"><span class="toc-number">6.1.</span> <span class="toc-text">6.1 配置</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-%E8%B8%A9%E5%88%B0%E7%9A%84%E4%B8%A4%E4%B8%AA%E5%9D%91"><span class="toc-number">6.2.</span> <span class="toc-text">6.2 踩到的两个坑</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-%E7%9C%9F%E5%AE%9E%E8%BF%90%E8%A1%8C%E6%97%A5%E5%BF%97"><span class="toc-number">6.3.</span> <span class="toc-text">6.3 真实运行日志</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-4-%E6%95%B0%E5%AD%97"><span class="toc-number">6.4.</span> <span class="toc-text">6.4 数字</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-%E6%B5%8B%E9%87%8F%E8%AF%AF%E5%B7%AE%E4%B8%8E%E4%B8%8D%E5%8F%AF%E5%A4%96%E6%8E%A8%E7%9A%84%E8%BE%B9%E7%95%8C"><span class="toc-number">7.</span> <span class="toc-text">7. 测量误差与不可外推的边界</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-%E6%88%91%E8%87%AA%E5%B7%B1%E8%B8%A9%E7%9A%84%E4%B8%89%E4%B8%AA%E5%9D%91"><span class="toc-number">7.1.</span> <span class="toc-text">7.1 我自己踩的三个坑</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-%E8%AF%AF%E5%B7%AE%E6%9D%A5%E6%BA%90"><span class="toc-number">7.2.</span> <span class="toc-text">7.2 误差来源</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-3-%E7%BD%AE%E4%BF%A1%E5%BA%A6%E5%A3%B0%E6%98%8E"><span class="toc-number">7.3.</span> <span class="toc-text">7.3 置信度声明</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-%E5%8F%96%E8%88%8D%E8%A1%A8"><span class="toc-number">8.</span> <span class="toc-text">8. 取舍表</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9C%BA%E6%99%AF%E5%BB%BA%E8%AE%AE"><span class="toc-number">8.1.</span> <span class="toc-text">场景建议</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">9.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">10.</span> <span class="toc-text">参考资料</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0"><span class="toc-number">11.</span> <span class="toc-text">系列文章</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/2521215779.html" title="Java——JVM 内存与 GC 定位实战"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——JVM 内存与 GC 定位实战"/></a><div class="content"><a class="title" href="/2521215779.html" title="Java——JVM 内存与 GC 定位实战">Java——JVM 内存与 GC 定位实战</a><time datetime="2026-09-16T03:00:00.000Z" title="发表于 2026-09-16 11:00:00">2026-09-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2831660552.html" title="自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比"/></a><div class="content"><a class="title" href="/2831660552.html" title="自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比">自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比</a><time datetime="2026-09-16T02:30:00.000Z" title="发表于 2026-09-16 10:30:00">2026-09-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2348585228.html" title="sing-box 分流与 DNS 配置实践"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="sing-box 分流与 DNS 配置实践"/></a><div class="content"><a class="title" href="/2348585228.html" title="sing-box 分流与 DNS 配置实践">sing-box 分流与 DNS 配置实践</a><time datetime="2026-09-16T02:00:00.000Z" title="发表于 2026-09-16 10:00:00">2026-09-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/196752644.html" title="Java——模式匹配演进史：从 JEP 406 到 JEP 441"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——模式匹配演进史：从 JEP 406 到 JEP 441"/></a><div class="content"><a class="title" href="/196752644.html" title="Java——模式匹配演进史：从 JEP 406 到 JEP 441">Java——模式匹配演进史：从 JEP 406 到 JEP 441</a><time datetime="2026-09-15T08:30:00.000Z" title="发表于 2026-09-15 16:30:00">2026-09-15</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/3912768261.html" title="Java——JDK 21 到 25 迁移清单"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——JDK 21 到 25 迁移清单"/></a><div class="content"><a class="title" href="/3912768261.html" title="Java——JDK 21 到 25 迁移清单">Java——JDK 21 到 25 迁移清单</a><time datetime="2026-09-15T08:00:00.000Z" title="发表于 2026-09-15 16:00:00">2026-09-15</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

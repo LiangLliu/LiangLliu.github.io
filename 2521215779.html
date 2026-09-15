@@ -1,0 +1,619 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Java——JVM 内存与 GC 定位实战 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content=" 上一篇《一次锁竞争的完整定位》查的是 CPU 和锁，这篇查内存。同一个思路：先写一个能复现症状的程序，再用 JVM 自带工具一层层把证据收齐。顺序是从粗到细：GC 日志看趋势，jcmd 和 JFR 看运行时，堆 dump 看末端对象。全文用 JDK 25 跑，每个数字都对应下面贴出来的原始输..."><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Java——JVM 内存与 GC 定位实战",
+  "url": "https://lianglliu.github.io/2521215779.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png",
+  "datePublished": "2026-09-16T03:00:00.000Z",
+  "dateModified": "2026-09-16T03:00:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/2521215779.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Java——JVM 内存与 GC 定位实战',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">17</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">13</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">6</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">Java——JVM 内存与 GC 定位实战</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Java——JVM 内存与 GC 定位实战</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-16T03:00:00.000Z" title="发表于 2026-09-16 11:00:00">2026-09-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/Java/">Java</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">9.6k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>41分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>上一篇《<a href="/271167079.html">一次锁竞争的完整定位</a>》查的是 CPU 和锁，这篇查内存。同一个思路：先写一个能复现症状的程序，再用 JVM 自带工具一层层把证据收齐。<br>顺序是从粗到细：GC 日志看趋势，<code>jcmd</code> 和 JFR 看运行时，堆 dump 看末端对象。全文用 JDK 25 跑，每个数字都对应下面贴出来的原始输出。<br>最后收两个真会把人带偏的场景：堆几乎是空的时候 OOM，以及没人碰老年代却一直 Full GC。</p>
+</blockquote>
+<h2 id="实验环境与口径"><a href="#实验环境与口径" class="headerlink" title="实验环境与口径"></a>实验环境与口径</h2><p>机器和 JDK：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">$ sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize kern.osversion</span><br><span class="line">Apple M1 Pro</span><br><span class="line">10</span><br><span class="line">17179869184</span><br><span class="line">25G83</span><br><span class="line"></span><br><span class="line">$ java -version</span><br><span class="line">java version &quot;25&quot; 2025-09-16 LTS</span><br><span class="line">Java(TM) SE Runtime Environment (build 25+37-LTS-3491)</span><br><span class="line">Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)</span><br></pre></td></tr></table></figure>
+
+<p>工具全部来自 JDK 自带：<code>java</code> &#x2F; <code>javac</code> &#x2F; <code>jcmd</code> &#x2F; <code>jfr</code> &#x2F; <code>jhsdb</code>，没有装 MAT、VisualVM 或任何第三方分析器。</p>
+<p>这台机器在跑实验的时候并不空。<code>uptime</code> 的 load average 在整轮实验里落在 5.2 到 9.6 之间，一部分是实验自己造成的（G1 的并发标记线程和 ZGC 的并发线程都吃 CPU），一部分是机器上本来就有别的进程。所以所有对比都取 3 次重复的中位数，只做横向比较，不把绝对值当成硬件上限。</p>
+<h3 id="被测程序"><a href="#被测程序" class="headerlink" title="被测程序"></a>被测程序</h3><p><code>LeakDemo</code> 是一个定速分配负载，用 <code>--mode=</code> 切换三种保留策略：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">interface</span> <span class="title class_">Sink</span> &#123; <span class="keyword">void</span> <span class="title function_">put</span><span class="params">(String k, <span class="type">byte</span>[] v)</span>; &#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/** 无界，只进不出 */</span></span><br><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">LeakSink</span> <span class="keyword">implements</span> <span class="title class_">Sink</span> &#123;</span><br><span class="line">    <span class="keyword">final</span> Map&lt;String, <span class="type">byte</span>[]&gt; m = <span class="keyword">new</span> <span class="title class_">HashMap</span>&lt;&gt;();</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">put</span><span class="params">(String k, <span class="type">byte</span>[] v)</span> &#123; m.put(k, v); &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/** 有界 LRU：LinkedHashMap(accessOrder=true) + 超限从最旧开始淘汰 */</span></span><br><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">BoundedSink</span> <span class="keyword">implements</span> <span class="title class_">Sink</span> &#123;</span><br><span class="line">    <span class="keyword">final</span> <span class="type">long</span> maxBytes;</span><br><span class="line">    <span class="type">long</span> bytes;</span><br><span class="line">    <span class="keyword">final</span> LinkedHashMap&lt;String, <span class="type">byte</span>[]&gt; m = <span class="keyword">new</span> <span class="title class_">LinkedHashMap</span>&lt;&gt;(<span class="number">1024</span>, <span class="number">0.75f</span>, <span class="literal">true</span>);</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">put</span><span class="params">(String k, <span class="type">byte</span>[] v)</span> &#123;</span><br><span class="line">        <span class="type">byte</span>[] old = m.put(k, v);</span><br><span class="line">        bytes += v.length - (old == <span class="literal">null</span> ? <span class="number">0</span> : old.length);</span><br><span class="line">        <span class="keyword">if</span> (bytes &gt; maxBytes) &#123;</span><br><span class="line">            Iterator&lt;Map.Entry&lt;String, <span class="type">byte</span>[]&gt;&gt; it = m.entrySet().iterator();</span><br><span class="line">            <span class="keyword">while</span> (bytes &gt; maxBytes &amp;&amp; it.hasNext()) &#123;</span><br><span class="line">                bytes -= it.next().getValue().length;</span><br><span class="line">                it.remove();</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>主循环按 400 次&#x2F;秒的节奏走，每次分配一个 256 KiB 的 <code>byte[]</code>，每 8 次里的 1 次把它留在堆上。算下来是每秒分配 100 MiB、净增长 12.5 MiB。留的对象塞进 <code>Sink</code>，<code>leak</code> 模式进无界 <code>HashMap</code>，<code>bounded</code> 模式进有界 LRU，<code>none</code> 模式直接丢掉。</p>
+<p>payload 选 256 KiB 是有原因的：<code>-Xmx512m</code> 时 G1 的 region 是 1 MiB，超过 512 KiB（region 的一半）的分配会走 humongous 路径，行为跟普通对象不一样。256 KiB 落在普通路径里，日志才干净。</p>
+<p>三个模式跑同一份代码、同一份参数，只换 <code>Sink</code> 实现。</p>
+<h2 id="第一步：把症状跑出来"><a href="#第一步：把症状跑出来" class="headerlink" title="第一步：把症状跑出来"></a>第一步：把症状跑出来</h2><p><code>leak</code> 模式配 <code>-Xms512m -Xmx512m</code> 跑 3 次，每次都是跑到 OutOfMemoryError 才停：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">$ java -Xms512m -Xmx512m -Xlog:gc*:file=LOG:time,uptime,level,tags \</span><br><span class="line">    -cp classes LeakDemo --mode=leak --rate=400 --payloadKB=256 --retainEvery=8 --seconds=180</span><br><span class="line">CONFIG mode=leak rate=400/s payloadKB=256 retainEvery=8 seconds=180 cacheMB=64</span><br><span class="line">@t=28s ops=11201 heapUsed=368MB heapCommitted=512MB rss=445MB</span><br><span class="line">@t=29s ops=11601 heapUsed=369MB heapCommitted=512MB rss=446MB</span><br><span class="line">@t=30s ops=12001 heapUsed=377MB heapCommitted=512MB rss=446MB</span><br><span class="line">!! OutOfMemoryError</span><br><span class="line">RESULT pid=67991 mode=leak outcome=OOM elapsedMs=29590 ops=11825 opsPerSec=399.6 windowSec=29 windowOps=11825 windowOpsPerSec=407.8 retiredMB=369 leakMBps=12.75 heapUsedMB=372 heapCommittedMB=512 allocP50us=9 allocP99us=781 allocMaxus=51192 allocOver10ms=4</span><br></pre></td></tr></table></figure>
+
+<p>三次的结果：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">rep1  elapsedMs=29588  ops=11826  retiredMB=369  leakMBps=12.75  allocP99us=785  allocOver10ms=4</span><br><span class="line">rep2  elapsedMs=29590  ops=11825  retiredMB=369  leakMBps=12.75  allocP99us=781  allocOver10ms=4</span><br><span class="line">rep3  elapsedMs=29539  ops=11809  retiredMB=369  leakMBps=12.73  allocP99us=765  allocOver10ms=3</span><br></pre></td></tr></table></figure>
+
+<p>三次都在 29.5 秒上下撞上 OOM，误差 50 毫秒。这一轮跑的是 <code>--rate=400 --payloadKB=256 --retainEvery=8</code>：每秒发出 400 个 256 KiB 的 payload，每 8 个保留一个，折合 400 × 256 KiB ÷ 8 &#x3D; 12.5 MiB&#x2F;s。实测 <code>retiredMB=369</code> 除以 29 秒的统计窗口得到 12.73 到 12.75 MiB&#x2F;s，与参数算出来的一致，差在窗口取整。后面每轮读各自的 <code>leakMBps</code>，参数一换数字就变。</p>
+<p><code>allocP99us</code> 那一列值得留意。正常分配（<code>none</code> 模式，同一台机器同一时段）的 p99 是 56 到 89 微秒；泄漏版最后阶段 p99 涨到 765 到 785 微秒，还有一个 51 毫秒的尖峰。原因是堆快满的时候分配线程会撞上 GC 的同步点。在这次实验里，分配延迟的 p99 比迭代数和 CPU 更早暴露堆压力（同一台机器、3 次重复）。</p>
+<h2 id="第二步：GC-日志看趋势"><a href="#第二步：GC-日志看趋势" class="headerlink" title="第二步：GC 日志看趋势"></a>第二步：GC 日志看趋势</h2><h3 id="参数"><a href="#参数" class="headerlink" title="参数"></a>参数</h3><figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">-Xlog:gc*:file=gc.log:time,uptime,level,tags</span><br></pre></td></tr></table></figure>
+
+<p>JDK 9 之前 GC 日志是一堆独立开关：<code>-XX:+PrintGCDetails</code>、<code>-XX:+PrintGCDateStamps</code>、<code>-Xloggc:gc.log</code>、<code>-XX:+PrintGCApplicationStoppedTime</code>，各自控制一小块输出，格式还互不相同。<a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/158">JEP 158</a> 在 JDK 9 引入了统一的 JVM 日志框架（<code>-Xlog</code>），<a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/271">JEP 271</a> 在同一个版本把 GC 日志迁到这套框架上。旧的开关后来的命运并不一致，本机 JDK 11 和 JDK 25 上实测：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">$ java -XX:+PrintGCDetails -version</span><br><span class="line">[0.001s][warning][gc] -XX:+PrintGCDetails is deprecated. Will use -Xlog:gc* instead.</span><br><span class="line"></span><br><span class="line">$ java -Xloggc:/tmp/lg.log -version</span><br><span class="line">[0.001s][warning][gc] -Xloggc is deprecated. Will use -Xlog:gc:/tmp/lg.log instead.</span><br><span class="line"></span><br><span class="line">$ java -XX:+PrintGCDateStamps -version</span><br><span class="line">Unrecognized VM option &#x27;PrintGCDateStamps&#x27;</span><br><span class="line">Error: Could not create the Java Virtual Machine. Error: A fatal exception has occurred. Program will exit.</span><br></pre></td></tr></table></figure>
+
+<p><code>PrintGCDetails</code> &#x2F; <code>PrintGC</code> &#x2F; <code>-Xloggc</code> 还在，会被自动翻译成等价的 <code>-Xlog</code> 写法并打一条警告；<code>PrintGCDateStamps</code> 和 <code>PrintGCApplicationStoppedTime</code> 已经完全移除，传了直接起不来。也就是说升级 JDK 的时候，老启动参数里冒出来的”Unrecognized VM option”很可能就是这些遗留的 GC 日志开关。</p>
+<p><code>-Xlog</code> 的语法是 <code>what:output:decorators</code>。上面的写法里：</p>
+<ul>
+<li><code>gc*</code> 是 tag 选择器：<code>gc</code> 加上所有以 <code>gc</code> 开头的子 tag（<code>gc,heap</code>、<code>gc,phases</code>、<code>gc,metaspace</code>、<code>gc,cpu</code> 等）。不写星号只匹配 <code>gc</code> 这一个 tag，那样拿到的信息会少一大截。</li>
+<li><code>file=gc.log</code> 是输出目标，不写就是 <code>stdout</code>。</li>
+<li><code>time,uptime,level,tags</code> 是装饰器。<code>uptime</code> 是相对 JVM 启动的秒数，排查时比墙钟时间好用；<code>time</code> 是 ISO-8601 绝对时间，用来跟应用日志对齐；<code>level</code> 和 <code>tags</code> 告诉你这条消息的等级和来源。</li>
+</ul>
+<p>不带星号的 <code>-Xlog:gc</code> 大约等价于老的 <code>-XX:+PrintGC</code>，一条 GC 一行；加上 <code>*</code> 之后接近 <code>-XX:+PrintGCDetails</code> 并且更全。</p>
+<h3 id="读一段真实日志"><a href="#读一段真实日志" class="headerlink" title="读一段真实日志"></a>读一段真实日志</h3><p>下面这段取自诊断run（<code>-Xms768m -Xmx768m</code>）的第 60 到 61 秒：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[2026-09-15T17:05:14.329+0800][60.225s][info][gc,start       ] GC(29) Pause Full (Heap Inspection Initiated GC)</span><br><span class="line">[2026-09-15T17:05:14.432+0800][60.328s][info][gc,heap        ] GC(29) Eden regions: 110-&gt;0(203)</span><br><span class="line">[2026-09-15T17:05:14.432+0800][60.328s][info][gc,heap        ] GC(29) Survivor regions: 13-&gt;0(15)</span><br><span class="line">[2026-09-15T17:05:14.432+0800][60.328s][info][gc,heap        ] GC(29) Old regions: 577-&gt;507</span><br><span class="line">[2026-09-15T17:05:14.432+0800][60.328s][info][gc,heap        ] GC(29) Humongous regions: 19-&gt;19</span><br><span class="line">[2026-09-15T17:05:14.432+0800][60.328s][info][gc             ] GC(29) Pause Full (Heap Inspection Initiated GC) 687M-&gt;397M(768M) 103.395ms</span><br><span class="line">[2026-09-15T17:05:15.851+0800][61.747s][info][gc,start       ] GC(30) Pause Young (Concurrent Start) (G1 Evacuation Pause)</span><br><span class="line">[2026-09-15T17:05:15.852+0800][61.748s][info][gc,heap        ] GC(30) Eden regions: 203-&gt;0(190)</span><br><span class="line">[2026-09-15T17:05:15.852+0800][61.748s][info][gc,heap        ] GC(30) Survivor regions: 0-&gt;13(26)</span><br><span class="line">[2026-09-15T17:05:15.852+0800][61.748s][info][gc,heap        ] GC(30) Old regions: 507-&gt;507</span><br><span class="line">[2026-09-15T17:05:15.852+0800][61.748s][info][gc,heap        ] GC(30) Humongous regions: 19-&gt;19</span><br><span class="line">[2026-09-15T17:05:15.852+0800][61.748s][info][gc             ] GC(30) Pause Young (Concurrent Start) (G1 Evacuation Pause) 600M-&gt;410M(768M) 1.048ms</span><br></pre></td></tr></table></figure>
+
+<p>逐段拆开：</p>
+<p><code>GC(29)</code> 是 GC 序号，同一轮 GC 的所有日志行共用它，<code>gc,start</code> 和结尾的汇总行能对上。序号从 0 开始单调递增，看两个时间点的差值就知道这段窗口里 GC 有多密。</p>
+<p><code>Pause Full (Heap Inspection Initiated GC)</code> 是这一轮的类型和触发原因。<code>Pause</code> 表示这是一次 stop-the-world；<code>Young</code> &#x2F; <code>Full</code> 是回收范围；括号里是原因。这里的 <code>Heap Inspection Initiated GC</code> 很关键：它是 <code>jcmd &lt;pid&gt; GC.class_histogram</code> 引起的。也就是说，这一行 Full GC 不是应用自己需要的，是排查动作造成的。同类原因还有 <code>System.gc()</code>、<code>G1 Compaction Pause</code>（G1 自己决定做 Full GC 压实）、<code>Metadata GC Threshold</code>（元空间触发）。</p>
+<p><code>Eden regions: 110-&gt;0(203)</code> 是 G1 特有的容量表达：region 数，1 个 region 在 768 MiB 堆上等于 1 MiB。回收前 110 个 region，回收后 0 个。括号里的 203 是这一轮结束后 Eden 的目标容量，不是开始时的数量，同一份日志就能验证：GC(1) 的 before 值正好等于 GC(0) 括号里的 213。</p>
+<p><code>Old regions: 577-&gt;507</code> 单独看没意义，看趋势才有意义。</p>
+<p><code>687M-&gt;397M(768M) 103.395ms</code> 是这一轮的核心三元组：回收前堆占用、回收后堆占用、堆容量，最后是暂停时长。回收前后差了 290 MiB，说明这一轮确实回收了东西；如果两个数字几乎相等（下面会看到 <code>582M-&gt;582M</code>），这一轮就等于什么都没回收。</p>
+<p>再往下看第 30 轮的 <code>Old regions: 507-&gt;507</code>：老年代一个 region 都没回收掉，因为里面全是活对象。</p>
+<h3 id="趋势比单点重要"><a href="#趋势比单点重要" class="headerlink" title="趋势比单点重要"></a>趋势比单点重要</h3><p>把 90 秒里每次 GC 打印的 <code>Old regions</code> 抽出来：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">t=  0.5s  Old    2 -&gt;    2 regions (2 MiB)</span><br><span class="line">t=  9.2s  Old    2 -&gt;   27 regions (27 MiB)</span><br><span class="line">t= 12.3s  Old   27 -&gt;   54 regions (54 MiB)</span><br><span class="line">t= 48.7s  Old  350 -&gt;  373 regions (373 MiB)</span><br><span class="line">t= 56.7s  Old  535 -&gt;  559 regions (559 MiB)</span><br><span class="line">t= 64.5s  Old  507 -&gt;  578 regions (578 MiB)</span><br><span class="line">t= 72.9s  Old  591 -&gt;  644 regions (644 MiB)</span><br><span class="line">t= 88.1s  Old  738 -&gt;  741 regions (741 MiB)</span><br></pre></td></tr></table></figure>
+
+<p>老年代从 2 MiB 一路涨到 741 MiB，中间没有任何一次跌回低位。这是泄漏和”堆用得多”的分界：堆压力大但正常的话，Full GC 之后老年代会掉下来；泄漏的话，每次 GC 之后剩下的活对象只多不少。12.3 秒到 48.7 秒这段（36.4 秒）涨了 319 MiB，折合 8.8 MiB&#x2F;s；整段看下来大约是 8 MiB&#x2F;s 量级，跟第一步算出来的 12.5 MiB&#x2F;s 净保留量同一数量级（差异来自 G1 的并发周期什么时候启动、以及年轻代里还没晋升的部分）。</p>
+<p>到了最后几秒，日志的形状会变：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[2026-09-15T17:05:44.700+0800][90.596s][info][gc,start       ] GC(389) Pause Full (G1 Compaction Pause)</span><br><span class="line">[2026-09-15T17:05:44.706+0800][90.602s][info][gc             ] GC(389) Pause Full (G1 Compaction Pause) 582M-&gt;582M(768M) 6.405ms</span><br><span class="line">[2026-09-15T17:05:44.706+0800][90.602s][info][gc,start       ] GC(390) Pause Young (Normal) (G1 Evacuation Pause)</span><br><span class="line">[2026-09-15T17:05:44.707+0800][90.603s][info][gc             ] GC(390) Pause Young (Normal) (G1 Evacuation Pause) 582M-&gt;582M(768M) 0.616ms</span><br><span class="line">[2026-09-15T17:05:44.707+0800][90.603s][info][gc,start       ] GC(391) Pause Full (G1 Compaction Pause)</span><br><span class="line">[2026-09-15T17:05:44.732+0800][90.628s][info][gc             ] GC(391) Pause Full (G1 Compaction Pause) 582M-&gt;565M(768M) 25.267ms</span><br></pre></td></tr></table></figure>
+
+<p>一轮接一轮，<code>582M-&gt;582M</code> 反复出现：90.596s 到 90.628s 这 32 毫秒里连做三次 GC，前两次一点没回收，第三次才掉到 565M。这种形态叫 GC 抖动（thrashing）：可回收的对象已经没有了，但分配还在继续，JVM 只能不停触发回收来腾地方。到这个阶段离 OOM 只剩几百毫秒。</p>
+<p>GC 序号从 0 涨到 391。最后 29 秒（<code>GC(30)</code> 在 61.747s，<code>GC(391)</code> 在 90.628s）就做了 362 次，平均每秒十几次。</p>
+<h2 id="第三步：运行时观测"><a href="#第三步：运行时观测" class="headerlink" title="第三步：运行时观测"></a>第三步：运行时观测</h2><p>GC 日志只能告诉你”堆在涨”，说不清是哪个类在涨。这一步换 <code>jcmd</code> 和 JFR。</p>
+<h3 id="GC-heap-info"><a href="#GC-heap-info" class="headerlink" title="GC.heap_info"></a>GC.heap_info</h3><figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ jcmd 79042 GC.heap_info</span><br><span class="line">79042:</span><br><span class="line">garbage-first heap   total reserved 786432K, committed 786432K, used 431745K [0x00000007d0000000, 0x0000000800000000)</span><br><span class="line"> region size 1024K, 301 young (308224K), 52 survivors (53248K)</span><br></pre></td></tr></table></figure>
+
+<p><code>used 431745K</code> 是整堆当前占用。<code>region size 1024K</code> 确认了 region 大小。<code>301 young</code> 是当前 Eden + Survivor 占用的 region 数。命令本身不触发 GC；官方把它的影响标为 Medium，压测期间别高频调用。</p>
+<p>同一次运行第 60 秒再打一次：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ jcmd 79042 GC.heap_info</span><br><span class="line">79042:</span><br><span class="line">garbage-first heap   total reserved 786432K, committed 786432K, used 688466K [0x00000007d0000000, 0x0000000800000000)</span><br><span class="line"> region size 1024K, 108 young (110592K), 13 survivors (13312K)</span><br></pre></td></tr></table></figure>
+
+<p>整堆占用从 421 MiB 涨到 672 MiB，年轻代反而从 301 个 region 缩到 108 个。年轻代变小、总量变大，多出来的都在老年代。</p>
+<h3 id="GC-class-histogram"><a href="#GC-class-histogram" class="headerlink" title="GC.class_histogram"></a>GC.class_histogram</h3><p>两点各打一次直方图（只保留前几行，<code>[B</code> 是 <code>byte[]</code>）：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">$ jcmd 79042 GC.class_histogram      # t=+25s</span><br><span class="line"> num     #instances         #bytes  class name (module)</span><br><span class="line">-------------------------------------------------------</span><br><span class="line">   1:         21028      150881784  [B (java.base@25)</span><br><span class="line">   2:            13        1930512  [J (java.base@25)</span><br><span class="line">   3:         19301         463224  java.lang.String (java.base@25)</span><br><span class="line">   4:          2514         327600  java.lang.Class (java.base@25)</span><br><span class="line">   5:            67         291056  [Ljava.util.concurrent.ConcurrentHashMap$Node; (java.base@25)</span><br><span class="line">   6:          2866         236768  [Ljava.lang.Object; (java.base@25)</span><br><span class="line">   7:          6038         193216  java.util.HashMap$Node (java.base@25)</span><br><span class="line">...</span><br><span class="line">Total         92005      155892520</span><br><span class="line"></span><br><span class="line">$ jcmd 79042 GC.class_histogram      # t=+62s</span><br><span class="line"> num     #instances         #bytes  class name (module)</span><br><span class="line">-------------------------------------------------------</span><br><span class="line">   1:         23014      410968392  [B (java.base@25)</span><br><span class="line">   2:            13        1930512  [J (java.base@25)</span><br><span class="line">   3:         20295         487080  java.lang.String (java.base@25)</span><br><span class="line">   4:          2481         323600  java.lang.Class (java.base@25)</span><br><span class="line">   5:            67         291056  [Ljava.util.concurrent.ConcurrentHashMap$Node; (java.base@25)</span><br><span class="line">   6:          2866         236768  [Ljava.lang.Object; (java.base@25)</span><br><span class="line">   7:          7030         224960  java.util.HashMap$Node (java.base@25)</span><br><span class="line">...</span><br><span class="line">Total         95937      416035984</span><br></pre></td></tr></table></figure>
+
+<p>两次相隔 37 秒。<code>[B</code> 从 21028 个 &#x2F; 150881784 字节变成 23014 个 &#x2F; 410968392 字节，增量是 1986 个实例、260086608 字节，也就是 248 MiB &#x2F; 37s ≈ 6.7 MB&#x2F;s。第二步从 GC 日志估出来的 8 MiB&#x2F;s 和这里 6.7 MB&#x2F;s 是同一个量级，两个独立手段互相印证。</p>
+<p>注意 <code>Total</code> 行：第一次 155892520 字节、第二次 416035984 字节。这个数只有 156 MB 和 416 MB，比 <code>GC.heap_info</code> 的 421 MiB &#x2F; 672 MiB 小一截。原因是 <code>GC.class_histogram</code> 不带参数时<strong>会先做一次 Full GC</strong>，统计的是 GC 之后仍然活着的对象。所以直方图的数字是”存活”，<code>heap_info</code> 的数字是”当前占用（含垃圾）”，两者不要混着比。</p>
+<p>上面那段 GC 日志里 <code>Pause Full (Heap Inspection Initiated GC)</code> 就是这里产生的。生产环境上频繁打 <code>GC.class_histogram</code> 会自己制造 Full GC，别设成定时任务。</p>
+<h3 id="VM-native-memory"><a href="#VM-native-memory" class="headerlink" title="VM.native_memory"></a>VM.native_memory</h3><p>这个命令需要 JVM 启动时加 <code>-XX:NativeMemoryTracking=summary</code>（或 <code>detail</code>），否则打不出来。本次诊断的 JVM 是带这个参数起的：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br></pre></td><td class="code"><pre><span class="line">$ jcmd 79042 VM.native_memory summary</span><br><span class="line">79042:</span><br><span class="line"></span><br><span class="line">Native Memory Tracking:</span><br><span class="line"></span><br><span class="line">(Omitting categories weighting less than 1KB)</span><br><span class="line"></span><br><span class="line">Total: reserved=2316491KB, committed=903419KB</span><br><span class="line">       malloc: 41931KB #38231, peak=53260KB #34712</span><br><span class="line">       mmap:   reserved=2274560KB, committed=861488KB</span><br><span class="line"></span><br><span class="line">-                 Java Heap (reserved=786432KB, committed=786432KB)</span><br><span class="line">                            (mmap: reserved=786432KB, committed=786432KB, at peak)</span><br><span class="line"></span><br><span class="line">-                     Class (reserved=1048729KB, committed=601KB)</span><br><span class="line">                            (classes #2178)</span><br><span class="line">                            (  instance classes #1928, array classes #250)</span><br><span class="line">                            (malloc=153KB tag=Class #3254) (at peak)</span><br><span class="line">                            (mmap: reserved=1048576KB, committed=448KB, at peak)</span><br><span class="line">                            (  Metadata:   )</span><br><span class="line">                            (    reserved=65536KB, committed=4288KB)</span><br><span class="line">                            (    used=4207KB)</span><br><span class="line">                            (    waste=81KB =1.89%)</span><br><span class="line">                            (  Class space:)</span><br><span class="line">                            (    reserved=1048576KB, committed=448KB)</span><br><span class="line">                            (    used=390KB)</span><br><span class="line">                            (    waste=58KB =12.86%)</span><br><span class="line"></span><br><span class="line">-                    Thread (reserved=59686KB, committed=374KB)</span><br><span class="line">                            (threads #30)</span><br><span class="line">                            (stack: reserved=59600KB, committed=288KB, peak=288KB)</span><br><span class="line">                            (malloc=54KB tag=Thread #180) (peak=62KB #184)</span><br><span class="line">                            (arena=33KB #56) (peak=145KB #28)</span><br><span class="line"></span><br><span class="line">-                      Code (reserved=251146KB, committed=9210KB)</span><br><span class="line">                            (malloc=1513KB tag=Code #9037) (at peak)</span><br><span class="line">                            (mmap: reserved=249632KB, committed=7696KB, at peak)</span><br><span class="line">                            (arena=1KB #1) (peak=34KB #2)</span><br><span class="line"></span><br><span class="line">-                        GC (reserved=67531KB, committed=67531KB)</span><br><span class="line">                            (malloc=19195KB tag=GC #4941) (peak=19255KB #5023)</span><br><span class="line">                            (mmap: reserved=48336KB, committed=48336KB, at peak)</span><br><span class="line">                            (arena=0KB #0) (peak=9KB #9)</span><br><span class="line">-                  Internal (reserved=1425KB, committed=1425KB)</span><br><span class="line">-                    Symbol (reserved=1392KB, committed=1392KB)</span><br><span class="line">-        Shared class space (reserved=16384KB, committed=13936KB, readonly=0KB)</span><br></pre></td></tr></table></figure>
+
+<p>读这张表要看 <code>committed</code> 而不是 <code>reserved</code>。<code>reserved</code> 是虚拟地址空间的保留量，<code>Class</code> 那一行的 <code>reserved=1048729KB</code> 差不多是 1 GB，但 <code>committed</code> 只有 601 KB。这是压缩类空间预留的地址区间，跟实际占用的物理内存没关系，看到 1 GB 就以为元空间吃了 1 GB 是常见误读。</p>
+<p><code>committed=903419KB</code> 里，<code>Java Heap</code> 占 786432 KB，是绝对大头。这也是”排查内存问题先看堆”的理由：如果堆本身没满，剩下的 native 部分通常只有几十到几百 MB，量级完全不同。</p>
+<h3 id="JFR"><a href="#JFR" class="headerlink" title="JFR"></a>JFR</h3><p>JFR 是 JDK 自带的低开销录制器，<code>jcmd</code> 也能直接开：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">-XX:StartFlightRecording=name=diag,settings=profile,filename=dumps/diag.jfr</span><br></pre></td></tr></table></figure>
+
+<p>也可以运行中再开：<code>jcmd &lt;pid&gt; JFR.start</code>。录完用 <code>jfr view</code> 出视图。JDK 25 上跟内存相关的视图，用 <code>jfr view</code> 直接列得出来的有 <code>memory-leaks-by-class</code>、<code>memory-leaks-by-site</code>、<code>object-statistics</code>、<code>allocation-by-class</code>、<code>allocation-by-site</code>、<code>gc</code>、<code>gc-pauses</code>、<code>heap-configuration</code>、<code>native-memory-committed</code> 这些。</p>
+<p>泄漏视图靠 <code>jdk.OldObjectSample</code> 事件，它采样那些在老年代里活过一段时间的对象，并记录分配时的调用栈。在 JDK 自带的工具里，能给出”这片内存是谁分配的”这种带调用栈答案的只有它，<code>GC.class_histogram</code> 只能到类这一层。</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">$ jfr view memory-leaks-by-class dumps/diag.jfr</span><br><span class="line"></span><br><span class="line">                        Memory Leak Candidates by Class</span><br><span class="line"></span><br><span class="line">Alloc. Time Object Class                                  Object Age Heap Usage</span><br><span class="line">----------- --------------------------------------------- ---------- ----------</span><br><span class="line">17:05:43    byte[]                                            925 ms   582.3 MB</span><br><span class="line"></span><br><span class="line">$ jfr view memory-leaks-by-site dumps/diag.jfr</span><br><span class="line"></span><br><span class="line">                         Memory Leak Candidates by Site</span><br><span class="line"></span><br><span class="line">Alloc. Time Application Method                            Object Age Heap Usage</span><br><span class="line">----------- --------------------------------------------- ---------- ----------</span><br><span class="line">17:05:43    LeakDemo.main(String[])                           925 ms   582.3 MB</span><br></pre></td></tr></table></figure>
+
+<p>两行结论：泄漏的是 <code>byte[]</code>，总量 582.3 MB，分配点在 <code>LeakDemo.main(String[])</code>。这两条信息足够回答「哪个类在涨、在哪分配」；要追引用链和 retained size 还得靠堆 dump。JFR 的开销本文没有单独测，是否常开按自己服务的预算定。</p>
+<p><code>jfr view gc</code> 能看到 GC 事件的逐条明细，最后几行是这样的：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">$ jfr view gc dumps/diag.jfr</span><br><span class="line">17:05:43   384 Old Garbage Collection         583.0 MB      582.5 MB       6.19 ms</span><br><span class="line">17:05:43   385 Old Garbage Collection         582.5 MB      582.5 MB       5.09 ms</span><br><span class="line">17:05:44   386 Young Garbage Collection       582.5 MB      582.5 MB      0.909 ms</span><br><span class="line">17:05:44   387 Old Garbage Collection         582.5 MB      565.5 MB           0 s</span><br><span class="line">17:05:44   388 Old Garbage Collection         582.5 MB      582.5 MB       6.98 ms</span><br><span class="line">17:05:44   389 Old Garbage Collection         582.5 MB      582.5 MB       6.39 ms</span><br><span class="line">17:05:44   390 Young Garbage Collection       582.5 MB      582.5 MB       0.588 ms</span><br><span class="line">17:05:44   391 Old Garbage Collection         582.5 MB      565.5 MB       25.3 ms</span><br></pre></td></tr></table></figure>
+
+<p>跟 GC 日志是同一件事的另一种呈现，好处是可以按事件类型和字段排序、过滤，不用写正则去啃文本日志。</p>
+<h2 id="第四步：堆-dump"><a href="#第四步：堆-dump" class="headerlink" title="第四步：堆 dump"></a>第四步：堆 dump</h2><h3 id="导出"><a href="#导出" class="headerlink" title="导出"></a>导出</h3><p>三种方式：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"># 运行中手动导</span><br><span class="line">jcmd &lt;pid&gt; GC.heap_dump /tmp/leak.hprof</span><br><span class="line"></span><br><span class="line"># 压缩后导（gzip，本机实测 JDK 17 / 21 / 25 可用，JDK 11 报 Unknown argument）</span><br><span class="line">jcmd &lt;pid&gt; GC.heap_dump -gz=1 /tmp/leak.hprof.gz</span><br><span class="line"></span><br><span class="line"># OOM 时自动导</span><br><span class="line">java -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/leak-oom.hprof ...</span><br></pre></td></tr></table></figure>
+
+<p>本次用的是第三种，OOM 时的输出：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">java.lang.OutOfMemoryError: Java heap space</span><br><span class="line">Dumping heap to /private/tmp/jvmlab/dumps/diag-oom.hprof ...</span><br><span class="line">Heap dump file created [614301411 bytes in 0.810 secs]</span><br><span class="line">!! OutOfMemoryError</span><br><span class="line">RESULT pid=79042 mode=leak outcome=OOM elapsedMs=90356 ops=35795 opsPerSec=396.2 windowSec=90 windowOps=35795 windowOpsPerSec=397.7 retiredMB=559 leakMBps=6.22 heapUsedMB=565 heapCommittedMB=768 allocP50us=17 allocP99us=164 allocMaxus=25235 allocOver10ms=10</span><br></pre></td></tr></table></figure>
+
+<p>这一轮是排查专用跑，参数与矩阵不同：<code>--retainEvery=16</code>（矩阵是 8）、<code>-Xmx768m</code>、<code>windowSec=600</code>，因此净保留是 400 × 256 KiB ÷ 16 &#x3D; 6.22 MiB&#x2F;s，只有矩阵轮的一半。第 2 到第 4 步的 GC 日志、直方图与堆 dump 都来自这一轮。</p>
+<p>768 MiB 的堆写出了 586 MiB 的文件，耗时 0.81 秒。dump 期间 JVM 是停住的（<code>GC.heap_dump</code> 会触发一次 Full GC 然后暂停所有线程），这个 0.81 秒会全额落在请求延迟上。生产上导出堆 dump 之前先确认能不能接受这个停顿。</p>
+<h3 id="没有-MAT-怎么分析"><a href="#没有-MAT-怎么分析" class="headerlink" title="没有 MAT 怎么分析"></a>没有 MAT 怎么分析</h3><p><code>jhat</code> 在 JDK 9 就被移除了，JDK 25 的 <code>bin</code> 目录里已经没有它（<code>jmap</code> 还在，但通常用 <code>jcmd</code> 的同名功能代替）。JDK 自带的工具链里<strong>没有一个能打开 hprof 文件的命令行工具</strong>。常见的说法是”装个 MAT 就行”，但很多线上机器不让装东西，dump 文件又不好随便往外传（里面有全部业务数据，别传在线分析网站）。</p>
+<p>可行的路子有两条。</p>
+<p>第一条是在进程还活着的时候问，用 <code>jcmd GC.class_histogram</code> 做两点对比。这个上面已经做过，拿到的是”哪一类在涨”，对这个例子足够了。</p>
+<p>第二条是把 hprof 当成普通二进制文件自己读。hprof 格式很直白，规范就写在 HotSpot 源码 <code>src/hotspot/share/services/heapDumper.cpp</code> 的文件头注释里。文件结构是：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">header    &quot;JAVA PROFILE 1.0.2&quot;（0 结尾）</span><br><span class="line">u4        id 宽度（跟宿主指针一样宽，64 位机器上就是 8）</span><br><span class="line">u4 u4     时间戳（高 32 位 + 低 32 位，毫秒）</span><br><span class="line">[record]* 一串记录</span><br><span class="line"></span><br><span class="line">record:</span><br><span class="line">u1        tag</span><br><span class="line">u4        相对时间戳的微秒数</span><br><span class="line">u4        记录体剩余字节数</span><br><span class="line">[u1]*     记录体</span><br></pre></td></tr></table></figure>
+
+<p>常用 tag 和它们的记录体：</p>
+<table>
+<thead>
+<tr>
+<th>tag</th>
+<th>名字</th>
+<th>记录体</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>0x01</code></td>
+<td>HPROF_UTF8</td>
+<td>id 字符串标识 + UTF8 字节</td>
+</tr>
+<tr>
+<td><code>0x02</code></td>
+<td>HPROF_LOAD_CLASS</td>
+<td>u4 类序号 + id 类对象 + u4 栈序号 + id 类名</td>
+</tr>
+<tr>
+<td><code>0x0C</code> &#x2F; <code>0x1C</code></td>
+<td>HEAP_DUMP &#x2F; HEAP_DUMP_SEGMENT</td>
+<td>一串子记录</td>
+</tr>
+<tr>
+<td><code>0x2C</code></td>
+<td>HPROF_HEAP_DUMP_END</td>
+<td>空</td>
+</tr>
+<tr>
+<td><code>0x20</code></td>
+<td>CLASS_DUMP</td>
+<td>类元数据（含静态&#x2F;实例字段表）</td>
+</tr>
+<tr>
+<td><code>0x21</code></td>
+<td>INSTANCE_DUMP</td>
+<td>id 对象 + u4 栈序号 + id 类对象 + u4 字节数 + 字段</td>
+</tr>
+<tr>
+<td><code>0x22</code></td>
+<td>OBJ_ARRAY_DUMP</td>
+<td>id 对象 + u4 栈序号 + u4 元素数 + id 数组类 + 元素</td>
+</tr>
+<tr>
+<td><code>0x23</code></td>
+<td>PRIM_ARRAY_DUMP</td>
+<td>id 对象 + u4 栈序号 + u4 元素数 + u1 类型 + 数据</td>
+</tr>
+</tbody></table>
+<p>根记录的 tag 是 <code>0x01</code> 到 <code>0x08</code> 和 <code>0xFF</code>，各自定长。下表里的”尾巴”是 id 之后还要读的字段：</p>
+<table>
+<thead>
+<tr>
+<th>tag</th>
+<th>名字</th>
+<th>尾巴</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>0x01</code></td>
+<td>ROOT_JNI_GLOBAL</td>
+<td>id</td>
+</tr>
+<tr>
+<td><code>0x02</code></td>
+<td>ROOT_JNI_LOCAL</td>
+<td>u4 + u4</td>
+</tr>
+<tr>
+<td><code>0x03</code></td>
+<td>ROOT_JAVA_FRAME</td>
+<td>u4 + u4</td>
+</tr>
+<tr>
+<td><code>0x04</code></td>
+<td>ROOT_NATIVE_STACK</td>
+<td>u4</td>
+</tr>
+<tr>
+<td><code>0x05</code></td>
+<td>ROOT_STICKY_CLASS</td>
+<td>无</td>
+</tr>
+<tr>
+<td><code>0x06</code></td>
+<td>ROOT_THREAD_BLOCK</td>
+<td>u4</td>
+</tr>
+<tr>
+<td><code>0x07</code></td>
+<td>ROOT_MONITOR_USED</td>
+<td>无</td>
+</tr>
+<tr>
+<td><code>0x08</code></td>
+<td>ROOT_THREAD_OBJ</td>
+<td>u4 + u4</td>
+</tr>
+<tr>
+<td><code>0xFF</code></td>
+<td>ROOT_UNKNOWN</td>
+<td>无</td>
+</tr>
+</tbody></table>
+<p>坑在这里：这些 tag 的编号跟网上不少资料（包括一些老版本的 hprof 规范文档）对不上。常见的老文档写的是 <code>0x01 = ROOT_UNKNOWN</code>、<code>0x02 = JNI_GLOBAL</code>，跟 HotSpot 实际写出来的差一位。对着老表写解析器，头几十 KB 能解对，之后开始飘，最后在某个陌生的 tag 上崩掉。以 <code>heapDumper.cpp</code> 里的 <code>enum hprofTag</code> 为准。</p>
+<p>下面这个 100 多行的 Python 解析器就是按这张表写的，只做浅大小直方图和最大单体对象，不做引用遍历。跑一遍 586 MiB 的 dump：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">$ python3 hprof_histo.py diag-oom.hprof 8</span><br><span class="line">GC 根 2084 个，存活实例 92072 个，浅大小合计 580.8 MB</span><br><span class="line"></span><br><span class="line"> instances   shallowBytes  shallowMB  class</span><br><span class="line">     24151      604253477      576.3  [B</span><br><span class="line">        15        1940320        1.9  [J</span><br><span class="line">        64         579584        0.6  [Ljava/util/concurrent/ConcurrentHashMap$Node;</span><br><span class="line">      2922         370408        0.4  [Ljava/lang/Object;</span><br><span class="line">     20818         291452        0.3  java/lang/String</span><br><span class="line">      1426         218864        0.2  [Ljava/util/HashMap$Node;</span><br><span class="line">      6471         181188        0.2  java/util/HashMap$Node</span><br><span class="line">      2579         113476        0.1  java/util/LinkedHashMap$Entry</span><br><span class="line"></span><br><span class="line">[B 的实例大小分布（前 5 档）：</span><br><span class="line">      2397 个             5 字节  (合计 0.0 MB)</span><br><span class="line">      2331 个             6 字节  (合计 0.0 MB)</span><br><span class="line">      2238 个        262144 字节  (合计 559.5 MB)</span><br><span class="line">      1088 个             4 字节  (合计 0.0 MB)</span><br><span class="line">       896 个             3 字节  (合计 0.0 MB)</span><br><span class="line"></span><br><span class="line">最大的单个对象：</span><br><span class="line">    16777216    16.00 MB  prim array byte len=16777216   [B</span><br><span class="line">     1928192     1.84 MB  prim array long len=241024     [J</span><br><span class="line">      524288     0.50 MB  obj array len=65536            [Ljava/util/concurrent/ConcurrentHashMap$Node;</span><br><span class="line">      262144     0.25 MB  prim array byte len=262144     [B</span><br><span class="line">      ...</span><br></pre></td></tr></table></figure>
+
+<p>整个文件 0.4 秒读完。结论很干净：</p>
+<ul>
+<li>存活对象 92072 个，浅大小合计 580.8 MB，跟 OOM 前最后一次打印的 <code>heapUsedMB=565</code> 是同一量级（差 2.8%，两次读数之间还能再漏一会儿）。</li>
+<li><code>byte[]</code> 24151 个，合计 576.3 MB，占了整堆的 99%。</li>
+<li>按大小分档，其中 2238 个正好是 262144 字节（256 KiB），加起来 559.5 MB。这个 262144 就是 <code>payloadKB=256</code>，2238 × 256 KiB &#x3D; 559.5 MB，跟程序自己报的 <code>retiredMB=559</code> 完全一致。</li>
+<li>顺手还能看出实验程序自身的对象：16 MiB 的 <code>byte[]</code> 是 OOM 前预留的紧急缓冲，1928192 字节的 <code>long[241024]</code> 是分配延迟采样数组。</li>
+</ul>
+<p>这个例子里最大的对象是 16 MiB 的紧急缓冲，不是泄漏本体。只看”最大单个对象”会被它带偏，按类的浅大小合计才是对的入口。</p>
+<h3 id="能力边界"><a href="#能力边界" class="headerlink" title="能力边界"></a>能力边界</h3><p>自己写的解析器能回答：<strong>某个类有多少个实例、一共占多少字节、最大的单个对象多大</strong>。</p>
+<p>它回答不了：<strong>这些对象是被谁引用的、如果把这个引用切断能释放多少</strong>。后者需要从 GC 根出发做引用遍历，算支配树（dominator tree）和 retained size，是 MAT 的核心功能，写起来是另一个量级的工程。这个例子里不需要，因为两千多个 256 KiB 的 <code>byte[]</code> 已经足够指认目标，但真实业务里对象图往往是多个类互相缠绕，”谁持有谁”才是关键，那时候该上 MAT。</p>
+<p>MAT 在本地跑就行，用不着联网。dump 文件里有完整的业务数据（用户 ID、订单号、请求体全在里面），不要传到任何在线分析服务上去。</p>
+<h3 id="jhsdb-在-macOS-上的坑"><a href="#jhsdb-在-macOS-上的坑" class="headerlink" title="jhsdb 在 macOS 上的坑"></a>jhsdb 在 macOS 上的坑</h3><p>JDK 还带了一个 <code>jhsdb</code>，可以像 gdb 一样挂到 JVM 上：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ jhsdb jmap --histo --pid 96561</span><br><span class="line">Attaching to process ID 96561, please wait...</span><br><span class="line">ERROR: attach: task_for_pid(96561) failed: &#x27;(os/kern) failure&#x27; (5)</span><br><span class="line">Error attaching to process: Can&#x27;t attach to the process. Could be caused by an incorrect pid or lack of privileges.</span><br></pre></td></tr></table></figure>
+
+<p>第一反应是权限不够，加 <code>sudo</code> 再试：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ sudo jhsdb jmap --histo --pid 96561</span><br><span class="line">Attaching to process ID 96561, please wait...</span><br><span class="line">ERROR: attach: task_for_pid(96561) failed: &#x27;(os/kern) failure&#x27; (5)</span><br><span class="line">Error attaching to process: Can&#x27;t attach to the process. Could be caused by an incorrect pid or lack of privileges.</span><br></pre></td></tr></table></figure>
+
+<p><strong>root 也一样失败。</strong> <code>jhsdb</code> 在 macOS 上走 <code>task_for_pid</code> 拿目标进程的 task port，而 macOS 从 10.7 起对这条路径有硬性要求：目标进程必须带 <code>get-task-allow</code> 这个 entitlement，否则谁都拿不到，root 也不例外。JDK 发行版里的 <code>java</code> 是签过名的，但没有这个 entitlement，所以从它启动的 JVM 一律不可 attach。</p>
+<p>结论是：macOS 上不要指望 <code>jhsdb</code>，用 <code>jcmd</code>。<code>jcmd</code> 走的是 JVM 自己实现的 attach 机制（一个文件系统的 socket，加上目标进程内线程执行），全程不碰 <code>task_for_pid</code>，普通用户权限下就能用。本次实验里所有 <code>jcmd</code> 调用都是这么跑的。</p>
+<p>Linux 上 <code>jhsdb</code> 没有这层限制，<code>jhsdb jmap --histo --pid &lt;pid&gt;</code> 能拿到跟 <code>jcmd GC.class_histogram</code> 类似的结果。这条路径本次<strong>未验证</strong>，因为机器是 macOS。</p>
+<h2 id="第五步：修与验证"><a href="#第五步：修与验证" class="headerlink" title="第五步：修与验证"></a>第五步：修与验证</h2><h3 id="改法"><a href="#改法" class="headerlink" title="改法"></a>改法</h3><p><code>leak</code> 模式和 <code>bounded</code> 模式只差 <code>Sink</code> 的实现。上面已经贴过 <code>BoundedSink</code>，用的是 <code>LinkedHashMap</code> 加访问顺序，超限从最旧开始淘汰，按字节数封顶 64 MiB。</p>
+<p>这里没用 <code>WeakReference</code>。<code>WeakReference</code> 适合”键的生命周期由别处决定，这里只做缓存”的场景（<code>WeakHashMap</code> 就是干这个的），但这个例子的语义是”最近用过的数据要留住”，弱引用会让 GC 一来就把缓存清空，命中率掉到接近零。有界 LRU 才是对的形状。</p>
+<h3 id="复测"><a href="#复测" class="headerlink" title="复测"></a>复测</h3><p>三个模式各跑 3 次，<code>-Xms512m -Xmx512m</code>，同样的 400 次&#x2F;秒、256 KiB、每 8 次留 1 次：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>泄漏版（无界静态 Map）</th>
+<th>修复版（有界 LRU 64 MiB）</th>
+<th>不保留（基线）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>结束状态</td>
+<td>3&#x2F;3 次 <code>OutOfMemoryError</code></td>
+<td>3&#x2F;3 次正常结束</td>
+<td>3&#x2F;3 次正常结束</td>
+</tr>
+<tr>
+<td>存活时长</td>
+<td>29.6 &#x2F; 29.6 &#x2F; 29.5 s</td>
+<td>60 s</td>
+<td>60 s</td>
+</tr>
+<tr>
+<td>完成迭代</td>
+<td>11826 &#x2F; 11825 &#x2F; 11809</td>
+<td>24000 &#x2F; 24000 &#x2F; 24000</td>
+<td>24000 &#x2F; 24000 &#x2F; 24000</td>
+</tr>
+<tr>
+<td>结束堆占用</td>
+<td>372 MiB</td>
+<td>194 &#x2F; 252 &#x2F; 306 MiB</td>
+<td>172 &#x2F; 171 &#x2F; 172 MiB</td>
+</tr>
+<tr>
+<td>GC 事件数</td>
+<td>241 &#x2F; 233 &#x2F; 243</td>
+<td>53 &#x2F; 53 &#x2F; 53</td>
+<td>27 &#x2F; 27 &#x2F; 27</td>
+</tr>
+<tr>
+<td>Pause Full</td>
+<td>26 &#x2F; 25 &#x2F; 25</td>
+<td>0 &#x2F; 0 &#x2F; 0</td>
+<td>0 &#x2F; 0 &#x2F; 0</td>
+</tr>
+<tr>
+<td>累计暂停</td>
+<td>396.1 &#x2F; 464.2 &#x2F; 375.8 ms</td>
+<td>130.5 &#x2F; 134.1 &#x2F; 119.5 ms</td>
+<td>32.8 &#x2F; 28.3 &#x2F; 29.9 ms</td>
+</tr>
+<tr>
+<td>暂停时间占比</td>
+<td>1.34% &#x2F; 1.57% &#x2F; 1.27%</td>
+<td>0.22% &#x2F; 0.23% &#x2F; 0.20%</td>
+<td>0.06% &#x2F; 0.05% &#x2F; 0.05%</td>
+</tr>
+<tr>
+<td>分配延迟 p50</td>
+<td>9 &#x2F; 9 &#x2F; 9 µs</td>
+<td>9 &#x2F; 9 &#x2F; 9 µs</td>
+<td>10 &#x2F; 9 &#x2F; 10 µs</td>
+</tr>
+<tr>
+<td>分配延迟 p99</td>
+<td>785 &#x2F; 781 &#x2F; 765 µs</td>
+<td>64 &#x2F; 58 &#x2F; 59 µs</td>
+<td>89 &#x2F; 62 &#x2F; 56 µs</td>
+</tr>
+<tr>
+<td>分配 &gt;10 ms 次数</td>
+<td>4 &#x2F; 4 &#x2F; 3</td>
+<td>1 &#x2F; 2 &#x2F; 1</td>
+<td>0 &#x2F; 0 &#x2F; 0</td>
+</tr>
+</tbody></table>
+<p>几个点：</p>
+<p>暂停时间占比那一行是归一化后的指标，<code>泄漏版 396.1 ms / 29.6 s = 1.34%</code>，<code>修复版 130.5 ms / 60 s = 0.22%</code>，差 6 倍。这是把不同时长的运行放在一起比的办法。</p>
+<p><code>Pause Full</code> 从 25 到 26 次变成 0 次，是这张表里最有辨识度的一行。G1 只有在并发周期收拾不干净的时候才会退到 Full GC，一旦出现并且频繁出现，基本可以断定老年代里有东西长期不死。</p>
+<p>分配延迟 p99 从 780 微秒掉到 60 微秒，跟基线一个水平，说明修复版没有留下新的分配路径开销。</p>
+<p>修复版的堆占用在第 3 次跑到了 306 MiB，比前两次高。这不是泄漏（60 秒固定时长跑完正常结束，且没有 Full GC），是 G1 在 512 MiB 堆上没有及时做并发周期收集，浮动空间留得比较大。真要压这个数字，可以把 <code>-XX:InitiatingHeapOccupancyPercent</code> 调低，代价是并发标记更频繁。</p>
+<h2 id="第六步：G1-还是-ZGC"><a href="#第六步：G1-还是-ZGC" class="headerlink" title="第六步：G1 还是 ZGC"></a>第六步：G1 还是 ZGC</h2><p>同一个修复版程序，去掉限速（<code>--rate=0</code>）跑满，<code>-Xms1g -Xmx1g</code>，30 秒一档各 3 次，开 JFR 录制，暂停用 <code>jfr view gc-pauses</code> 统计。</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>G1</th>
+<th>ZGC（分代，JDK 25 默认）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>完成迭代</td>
+<td>5273602 &#x2F; 5406776 &#x2F; 5581737</td>
+<td>3489912 &#x2F; 3469866 &#x2F; 3484521</td>
+</tr>
+<tr>
+<td>吞吐</td>
+<td>175787 &#x2F; 180226 &#x2F; 186058 ops&#x2F;s</td>
+<td>116330 &#x2F; 115658 &#x2F; 116151 ops&#x2F;s</td>
+</tr>
+<tr>
+<td>暂停总时长</td>
+<td>8.88 &#x2F; 8.86 &#x2F; 8.87 s</td>
+<td>125 &#x2F; 124 &#x2F; 119 ms</td>
+</tr>
+<tr>
+<td>暂停次数</td>
+<td>4295 &#x2F; 4424 &#x2F; 4553</td>
+<td>17360 &#x2F; 17182 &#x2F; 17374</td>
+</tr>
+<tr>
+<td>中位暂停</td>
+<td>2.35 &#x2F; 2.32 &#x2F; 2.31 ms</td>
+<td>0.00667 &#x2F; 0.00667 &#x2F; 0.00621 ms</td>
+</tr>
+<tr>
+<td>P99 暂停</td>
+<td>5.07 &#x2F; 3.68 &#x2F; 3.42 ms</td>
+<td>0.0260 &#x2F; 0.0249 &#x2F; 0.0242 ms</td>
+</tr>
+<tr>
+<td>最大暂停</td>
+<td>23.8 &#x2F; 156 &#x2F; 12.3 ms</td>
+<td>0.194 &#x2F; 0.339 &#x2F; 0.293 ms</td>
+</tr>
+</tbody></table>
+<p>ZGC 的暂停总时长是 G1 的 1&#x2F;71（125 ms 对 8.88 s）。<code>jfr view gc-pauses</code> 的完整输出：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line">$ jfr view gc-pauses dumps/flatout-zgc-rep1.jfr</span><br><span class="line"></span><br><span class="line">GC Pauses</span><br><span class="line">---------</span><br><span class="line"></span><br><span class="line">Total Pause Time: 125 ms</span><br><span class="line"></span><br><span class="line">Number of Pauses: 17,360</span><br><span class="line"></span><br><span class="line">Minimum Pause Time: 0.00138 ms</span><br><span class="line"></span><br><span class="line">Median Pause Time: 0.00667 ms</span><br><span class="line"></span><br><span class="line">Average Pause Time: 0.00717 ms</span><br><span class="line"></span><br><span class="line">P90 Pause Time: 0.0114 ms</span><br><span class="line"></span><br><span class="line">P95 Pause Time: 0.0132 ms</span><br><span class="line"></span><br><span class="line">P99 Pause Time: 0.0260 ms</span><br><span class="line"></span><br><span class="line">P99.9% Pause Time: 0.0503 ms</span><br><span class="line"></span><br><span class="line">Maximum Pause Time: 0.194 ms</span><br></pre></td></tr></table></figure>
+
+<p>同一份负载在 G1 下：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line">$ jfr view gc-pauses dumps/flatout-g1-rep1.jfr</span><br><span class="line"></span><br><span class="line">GC Pauses</span><br><span class="line">---------</span><br><span class="line"></span><br><span class="line">Total Pause Time: 8.88 s</span><br><span class="line"></span><br><span class="line">Number of Pauses: 4,295</span><br><span class="line"></span><br><span class="line">Minimum Pause Time: 0.0157 ms</span><br><span class="line"></span><br><span class="line">Median Pause Time: 2.35 ms</span><br><span class="line"></span><br><span class="line">Average Pause Time: 2.07 ms</span><br><span class="line"></span><br><span class="line">P90 Pause Time: 2.81 ms</span><br><span class="line"></span><br><span class="line">P95 Pause Time: 3.07 ms</span><br><span class="line"></span><br><span class="line">P99 Pause Time: 5.07 ms</span><br><span class="line"></span><br><span class="line">P99.9% Pause Time: 16.9 ms</span><br><span class="line"></span><br><span class="line">Maximum Pause Time: 23.8 ms</span><br></pre></td></tr></table></figure>
+
+<p>G1 在 30 秒里停了 8.88 秒，占 29.6% 的时间；ZGC 停了 125 毫秒，占 0.4%。中位暂停差 350 倍；最坏情况 23.8 毫秒对 0.194 毫秒，差两个数量级。</p>
+<p>但吞吐反过来：G1 每秒 18 万次迭代，ZGC 每秒 11.6 万次，ZGC 慢了 36%。这个负载是单线程死命分配的极端形状，256 KiB 的数组瞬间变垃圾，ZGC 的并发标记线程要和业务线程抢 CPU 和内存带宽，抢不过。</p>
+<p>两边合起来就是选择依据：</p>
+<p><strong>用 ZGC 的场合</strong>：有明确的暂停时间上限。比如 p99 必须压在 10 毫秒以内，或者同一台机器上还跑着别的服务，不能被别人的 GC 停顿带着一起抖。代价是多花 CPU 和内存带宽，换的是可预测性。</p>
+<p><strong>用 G1 的场合</strong>：吞吐优先，或者堆不大（几个 GB 以内）。JDK 9 之后 G1 就是默认 GC，绝大多数业务系统不需要动它。</p>
+<p><strong>换 GC 不能解决的情况</strong>：症状不是 GC 引起的时候。本文开头那个泄漏程序在 G1 下的暂停占比是 1.3%，把 GC 换成 ZGC 确实能把停顿抹平，但泄漏一秒没少漏，OOM 照样来，排查时反而少了一个明显的告警信号。先确认是”GC 停顿长”还是”内存本身在涨”，再决定要不要动 GC 参数。</p>
+<p>关于版本：JDK 21 上 <code>-XX:+UseZGC</code> 默认还是非分代的，要加 <code>-XX:+ZGenerational</code> 才拿到分代模式。<a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/474">JEP 474</a> 在 JDK 23 把分代改成默认，<a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/490">JEP 490</a> 在 JDK 24 直接移除了非分代实现，<code>ZGenerational</code> 选项在 JDK 24 起是 obsolete，传了会打警告但不再改变行为。所以 JDK 25 上的 <code>-XX:+UseZGC</code> 只有一个含义。</p>
+<h2 id="两个常见误判"><a href="#两个常见误判" class="headerlink" title="两个常见误判"></a>两个常见误判</h2><h3 id="堆几乎是空的，却-OOM"><a href="#堆几乎是空的，却-OOM" class="headerlink" title="堆几乎是空的，却 OOM"></a>堆几乎是空的，却 OOM</h3><p>场景一：元空间。<code>MetaLeak</code> 用编译器 API 不断生成并加载新类，堆上限 256 MiB，元空间上限 32 MiB：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ java -Xmx256m -XX:MaxMetaspaceSize=32m -cp classes MetaLeak --classes=40000 --methods=24 --batch=400</span><br><span class="line">@classes=2000 elapsedMs=1438 metaspaceUsedKB=21845 heapUsedMB=20</span><br><span class="line">!! java.lang.OutOfMemoryError: Metaspace</span><br><span class="line">RESULT outcome=OOM:Metaspace classes=3973 metaspaceUsedKB=32442 heapUsedMB=4</span><br></pre></td></tr></table></figure>
+
+<p>OOM 的时候<strong>堆只用了 4 MB</strong>，元空间用满 32 MB。这类 OOM 的消息是 <code>Metaspace</code> 或者 <code>Compressed class space</code>，跟 <code>Java heap space</code> 完全不是一回事。元空间默认没有上限（受进程可用内存限制），线上一般会配 <code>-XX:MaxMetaspaceSize</code> 兜底。真出问题的时候多半是热部署反复加载同一个类、或者动态代理 &#x2F; CGLIB 生成类没有上限，<code>jcmd &lt;pid&gt; VM.metaspace</code> 能按类加载器维度看分布：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">$ jcmd 93616 VM.metaspace</span><br><span class="line">93616:</span><br><span class="line">Metaspace        used 15138K, committed 15360K, reserved 98304K</span><br><span class="line"> class space     used 1485K, committed 1600K, reserved 32768K</span><br><span class="line"></span><br><span class="line">Total Usage - 39 loaders, 3526 classes (1135 shared):</span><br><span class="line">  Non-Class:  466 chunks,     15.69 MB capacity,   13.44 MB ( 86%) committed,    13.33 MB ( 85%) used,   107.76 KB ( &lt;1%) free,     0 bytes (  0%) waste , deallocated: 38 blocks with 8.77 KB</span><br><span class="line">      Class:  119 chunks,      1.64 MB capacity,    1.52 MB ( 92%) committed,     1.45 MB ( 88%) used,    66.13 KB (  4%) free,     0 bytes (  0%) waste , deallocated: 0 blocks with 0 bytes</span><br><span class="line">       Both:  585 chunks,     17.33 MB capacity,   14.95 MB ( 86%) committed,    14.78 MB ( 85%) used,   173.89 KB ( &lt;1%) free,     0 bytes (  0%) waste , deallocated: 38 blocks with 8.77 KB</span><br></pre></td></tr></table></figure>
+
+<p><code>39 loaders, 3526 classes</code> 是这里的核心：泄漏的话，类加载器数量和类数量会单调上涨，而且卸载不掉（每个生成的类都被强引用着）。正常应用里这两个数在启动完成后就稳定了。</p>
+<p>场景二：直接内存。<code>DirectLeak</code> 反复 <code>ByteBuffer.allocateDirect(8 MiB)</code>，堆上限 256 MiB，直接内存上限 64 MiB：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">$ java -Xmx256m -XX:MaxDirectMemorySize=64m -cp classes DirectLeak</span><br><span class="line">@buffers=4 directReservedMB=32 heapUsedMB=2 elapsedMs=15</span><br><span class="line">@buffers=8 directReservedMB=64 heapUsedMB=3 elapsedMs=32</span><br><span class="line">!! java.lang.OutOfMemoryError: Cannot reserve 8388608 bytes of direct buffer memory (allocated: 67108864, limit: 67108864)</span><br><span class="line">RESULT outcome=done buffers=8 directMB=64 heapUsedMB=1 elapsedMs=575</span><br></pre></td></tr></table></figure>
+
+<p>堆用了 1 MB。<code>ByteBuffer.allocateDirect</code> 分配的内存在 JVM 堆之外，不计入 <code>-Xmx</code>，也不被 GC 日志的堆用量统计，但它受 <code>-XX:MaxDirectMemorySize</code> 限制。NIO &#x2F; Netty &#x2F; gRPC 这类框架的缓冲区大多在这块内存里，堆 dump 看不到它们，得靠 <code>jcmd &lt;pid&gt; VM.native_memory summary</code> 里的 <code>Internal</code> 或者 NMT 的 detail 级别来看。</p>
+<p><code>-XX:MaxDirectMemorySize</code> 不设的时候，<code>java</code> 手册里的原话是”If not set, the flag is ignored and the JVM chooses the size for NIO direct-buffer allocations automatically”，默认值取决于运行时判断。<code>-XX:+PrintFlagsFinal</code> 打出来是这样：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ java -XX:+PrintFlagsFinal -version 2&gt;&amp;1 | grep -i &quot;MaxDirectMemorySize\|MaxHeapSize&quot;</span><br><span class="line">   uint64_t MaxDirectMemorySize                      = 0                                         &#123;product&#125; &#123;default&#125;</span><br><span class="line">     size_t MaxHeapSize                              = 4294967296                                &#123;product&#125; &#123;ergonomic&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>MaxDirectMemorySize</code> 显示 0，意思是”没有显式上限，由 JVM 自己定”，并不等于 <code>MaxHeapSize</code>。想控住就得显式配，不要靠推算。</p>
+<p>两个场景的共同点：<code>-Xmx</code> 只管 Java 堆。看到 OOM 先去确认异常消息是哪个 pool，再看对应的上限，不然容易在堆上白找半天。</p>
+<h3 id="老年代没压力，却一直-Full-GC"><a href="#老年代没压力，却一直-Full-GC" class="headerlink" title="老年代没压力，却一直 Full GC"></a>老年代没压力，却一直 Full GC</h3><p><code>GcCall</code> 每 5 轮调一次 <code>System.gc()</code>，其余时间只分配很小的对象：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">$ java -Xms256m -Xmx256m -Xlog:gc:file=gcon.log:time,uptime,level,tags -cp classes GcCall --gc=on --rounds=20</span><br><span class="line">RESULT explicitGc=true rounds=20 retainedMB=40 heapUsedMB=82</span><br><span class="line">--- GC 日志里的 Pause 行:</span><br><span class="line">[2026-09-15T17:17:10.052+0800][0.198s][info][gc] GC(0) Pause Full (System.gc()) 12M-&gt;10M(256M) 2.571ms</span><br><span class="line">[2026-09-15T17:17:10.832+0800][0.978s][info][gc] GC(1) Pause Full (System.gc()) 56M-&gt;28M(256M) 1.761ms</span><br><span class="line">[2026-09-15T17:17:11.602+0800][1.748s][info][gc] GC(2) Pause Full (System.gc()) 74M-&gt;37M(256M) 1.547ms</span><br><span class="line">[2026-09-15T17:17:12.371+0800][2.517s][info][gc] GC(3) Pause Full (System.gc()) 83M-&gt;46M(256M) 1.513ms</span><br></pre></td></tr></table></figure>
+
+<p>4 次调用，4 次 <code>Pause Full (System.gc())</code>。堆才用了 83 MiB，离 256 MiB 上限远得很。</p>
+<p>如果只看监控大盘上的”Full GC 次数”曲线，这看起来像是老年代有严重压力。但 GC 日志括号里写着 <code>System.gc()</code>，它跟 <code>G1 Compaction Pause</code>（G1 自己的决定）和 <code>Metadata GC Threshold</code>（元空间触发）是三种完全不同的原因。先看括号再下结论。</p>
+<p>顺带验证一下 <code>-XX:+DisableExplicitGC</code> 的效果。同一个程序、同样的 4 次调用，加上这个参数之后 20 轮里只有 1 次 Pause，还是 young：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ java -Xms256m -Xmx256m -XX:+DisableExplicitGC -Xlog:gc:file=gcoff.log:time,uptime,level,tags -cp classes GcCall --gc=on --rounds=20</span><br><span class="line">RESULT explicitGc=true rounds=20 retainedMB=40 heapUsedMB=100</span><br><span class="line">--- GC 日志里的 Pause 行:</span><br><span class="line">[2026-09-15T17:17:14.955+0800][1.892s][info][gc] GC(0) Pause Young (Concurrent Start) (G1 Humongous Allocation) 111M-&gt;28M(256M) 0.910ms</span><br></pre></td></tr></table></figure>
+
+<p><code>-XX:+DisableExplicitGC</code> 把 <code>System.gc()</code> 变成一个空调用，JVM 该回收的时候照样回收（那次 Young GC 是 8 MiB 的大对象走 humongous 路径触发的）。</p>
+<p>加这个参数之前先搞清楚 <code>System.gc()</code> 是谁调的。它的常见来源不只业务代码，第三方库和 JDK 内部组件都可能在特定路径上调到。关掉显式 GC 相当于把决定权全部交给 G1 的自适应策略，在堆比较紧的服务上反而可能让 Full GC 来得更突然。</p>
+<p>找调用方靠 JFR 的 <code>jdk.SystemGC</code> 事件，它带调用栈：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">$ jfr view jdk.SystemGC dumps/sysgc.jfr</span><br><span class="line"></span><br><span class="line">                                    System GC</span><br><span class="line"></span><br><span class="line">Start Time Duration Event Thread    Stack Trace               Invoked Concurrent</span><br><span class="line">---------- -------- --------------- ------------------------- ------------------</span><br><span class="line">17:20:36    6.36 ms main            java.lang.Runtime.gc()                 false</span><br><span class="line">17:20:37    4.71 ms main            java.lang.Runtime.gc()                 false</span><br><span class="line">17:20:38    3.87 ms main            java.lang.Runtime.gc()                 false</span><br></pre></td></tr></table></figure>
+
+<p><code>Duration</code> 就是这一次 <code>System.gc()</code> 造成的停顿，<code>Stack Trace</code> 是调用点。真实业务里的调用点通常不在自己的代码里，顺着这个栈往回找比全仓库搜 <code>System.gc</code> 快得多。</p>
+<p>另一种更隐蔽的情况是 <code>-XX:+ExplicitGCInvokesConcurrent</code>。这个参数让 <code>System.gc()</code> 走并发回收而不是 Full GC，<code>java</code> 手册里写明只能跟 <code>-XX:+UseG1GC</code> 一起用。同一个程序加上它之后：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">$ java -Xms256m -Xmx256m -XX:+UseG1GC -XX:+ExplicitGCInvokesConcurrent \</span><br><span class="line">    -Xlog:gc:file=gcconc.log:time,uptime,level,tags -cp classes GcCall --gc=on --rounds=20</span><br><span class="line">RESULT explicitGc=true rounds=20 retainedMB=40 heapUsedMB=82</span><br><span class="line">--- Pause Full 的次数:</span><br><span class="line">0</span><br><span class="line">--- 原来的 Full GC 变成了:</span><br><span class="line">[2026-09-15T17:19:33.714+0800][0.212s][info][gc] GC(1) Concurrent Mark Cycle</span><br><span class="line">[2026-09-15T17:19:33.715+0800][info][gc] GC(1) Pause Remark 10M-&gt;10M(256M) 0.289ms</span><br><span class="line">[2026-09-15T17:19:33.716+0800][info][gc] GC(1) Pause Cleanup 10M-&gt;10M(256M) 0.005ms</span><br><span class="line">[2026-09-15T17:19:34.490+0800][0.989s][info][gc] GC(3) Concurrent Mark Cycle</span><br><span class="line">[2026-09-15T17:19:34.492+0800][info][gc] GC(3) Pause Remark 28M-&gt;28M(256M) 0.241ms</span><br><span class="line">[2026-09-15T17:19:34.492+0800][info][gc] GC(3) Pause Cleanup 28M-&gt;28M(256M) 0.013ms</span><br></pre></td></tr></table></figure>
+
+<p><code>Pause Full</code> 从 4 次变成 0 次，剩下的是并发周期里的两次短停顿。监控大盘上”Full GC 次数”会归零，但停顿时长只是从毫秒级变成几百微秒，总暂停并没有消失，<code>Pause Remark</code> 和 <code>Pause Cleanup</code> 还在那里。这个参数适合的场景是”代码里有无法立刻去掉的 <code>System.gc()</code>，又不想吃 Full GC 的停顿”，不适合拿来把监控曲线刷平。</p>
+<h2 id="小结工具链"><a href="#小结工具链" class="headerlink" title="小结工具链"></a>小结工具链</h2><p>按从粗到细排：</p>
+<ol>
+<li><code>-Xlog:gc*:file=...:time,uptime,level,tags</code>，看老年代增长趋势和 Full GC 的触发原因，开销很低，生产常开。</li>
+<li><code>jcmd &lt;pid&gt; GC.heap_info</code>，看当前占用和分代切片，不触发 GC。</li>
+<li><code>jcmd &lt;pid&gt; GC.class_histogram</code>，做两点对比看哪一类在涨，注意它会触发一次 Full GC。</li>
+<li><code>jcmd &lt;pid&gt; VM.native_memory summary</code>，看堆之外的 native 用量，需要启动时加 <code>-XX:NativeMemoryTracking</code>。</li>
+<li>JFR 加 <code>jfr view memory-leaks-by-class</code> &#x2F; <code>memory-leaks-by-site</code>，直接给出泄漏的类和分配点。</li>
+<li><code>jcmd &lt;pid&gt; GC.heap_dump</code>，最后一招，会停顿，且 dump 文件含敏感数据，本地分析。</li>
+</ol>
+<p>本次实验里的命令在 JDK 25 上全部跑通（跨版本对比那几处另外用了 JDK 11 &#x2F; 17 &#x2F; 21）。唯一没跑通的是 <code>jhsdb</code>：macOS 上普通用户和 root 都报 <code>task_for_pid</code> 失败，它在 Linux 上是否可用本次未验证。</p>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><h3 id="语言特性"><a href="#语言特性" class="headerlink" title="语言特性"></a>语言特性</h3><ul>
+<li><a href="/3839425231.html">Java——Optional类的使用</a></li>
+<li><a href="/428901307.html">Java——Stream API 常见误用</a></li>
+<li><a href="/726942613.html">Java——CompletableFuture 异步编程实战</a></li>
+<li><a href="/2767726751.html">Java——record、sealed 与模式匹配</a></li>
+<li><a href="/196752644.html">Java——模式匹配演进史：从 JEP 406 到 JEP 441</a></li>
+</ul>
+<h3 id="运行时与版本"><a href="#运行时与版本" class="headerlink" title="运行时与版本"></a>运行时与版本</h3><ul>
+<li><a href="/2315906029.html">Java——虚拟线程实战</a></li>
+<li><a href="/2701826243.html">Java——虚拟线程迁移实测</a></li>
+<li><a href="/271167079.html">Java——一次锁竞争的完整定位</a></li>
+<li><a href="/2521215779.html">Java——JVM 内存与 GC 定位实战</a></li>
+<li><a href="/3912768261.html">Java——JDK 21 到 25 迁移清单</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/2521215779.html">https://lianglliu.github.io/2521215779.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2831660552.html" title="自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比</div></div><div class="info-2"><div class="info-item-1"> 前一篇讲 sing-box 的 DNS 配置怎么写才对，这一篇回答「到底配哪个上游、用哪种协议」。本文所有数字来自本机真实运行：Apple M1 Pro &#x2F; macOS，Python 3.14.7 手写 DNS 报文，2026-09-15 17:01 至 17:23 之间完成。脚本放在 /tmp/dnsbench/，关键片段贴在文中。需要提醒的是，DNS 延迟高度依赖你到上游 anycast 节点的物理路径，本文的数字只在这个网络环境下成立，最后有一节专门说明不能外推到哪。  1. 测量环境延迟测试里，环境不是背景信息，是结论的一半。先把会影响数字的东西列清楚。 机器与负载    项 值    机型 Apple M1 Pro，10 核 arm64   系统 Darwin 25.6.0（macOS 15）   Python 3.14.7（Homebrew）   OpenSSL 3.6.4   sing-box 1.14.1（go1.26.8，官方 darwin-arm64 发行版）   主矩阵跑在 17:01:13 到 17:04:29，开始时 load average...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/3839425231.html" title="Java——Optional类的使用"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2022-11-25</div><div class="info-item-2">Java——Optional类的使用</div></div><div class="info-2"><div class="info-item-1"> Optional 类是一个可以为null的容器对象。如果值存在则isPresent()方法会返回true，调用get()方法会返回该对象。Optional 是个容器：它可以保存类型 T 的值，或者保存 null。它提供很多方法，省掉显式的空值检查。Optional 把「这个值可能为空」写进类型，让调用方必须显式处理；它本身并不消除空指针异常。   用例中的Person类  12345678public class Person &#123;    private String name;    private int age;    private String password;    private List&lt;String&gt; hobbies;    // getter and setter&#125;  创建Optional对象使用empty()方法创建空的Optional对象12345@Testpublic void whenCreatesEmptyOptional_thenCorrect() &#123;    Optional&lt;String&gt; ...</div></div></div></a><a class="pagination-related" href="/3912768261.html" title="Java——JDK 21 到 25 迁移清单"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-15</div><div class="info-item-2">Java——JDK 21 到 25 迁移清单</div></div><div class="info-2"><div class="info-item-1"> JDK 21 和 JDK 25 是两个相邻的 LTS，中间隔着 22、23、24 三个非 LTS 版本。多数 LTS 到 LTS 的升级都是”安静”的：你的代码大概率原样能跑。但 21 到 25 这两年是”预览转正 + 移除清理”集中发生的窗口，有几类坑是编译器和 JVM 不会替你兜底的：预览 API 改了形状、遗留线程 API 被删、sun.misc.Unsafe 开始打印警告、Security Manager 彻底关死、虚拟线程在 synchronized 里的行为被重写。这篇文章是一份可执行的迁移清单：每条结论都在本机的 JDK 21（21.0.8）和 JDK 25（25+37-LTS）上分别编译或运行过，原始输出贴在对应的 &#96;&#96;&#96;txt 块里。凡是没在本机验证过的，都单独标注”未实测”。  实验环境与取证方式本机是 Apple M1 Pro（10 核 arm64，macOS），装了 JDK 21.0.8 和 JDK 25 两个版本，路径如下： 123456789$ /Library/Java/JavaVirtualMachines/jdk-21....</div></div></div></a><a class="pagination-related" href="/196752644.html" title="Java——模式匹配演进史：从 JEP 406 到 JEP 441"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-15</div><div class="info-item-2">Java——模式匹配演进史：从 JEP 406 到 JEP 441</div></div><div class="info-2"><div class="info-item-1"> Java 的模式匹配不是一次 JEP 完成的，而是十几轮叠加出来的：instanceof 模式三轮（JDK 14 预览、15 再预览、16 定稿），switch 上的模式匹配五轮（JDK 17~20 四次预览、21 定稿），记录模式三轮（19、20 预览、21 定稿），未命名变量两轮（21 预览、22 定稿），而原始类型模式到 JDK 27 已经是第五次预览，仍然没有定稿。这篇文章不教怎么写模式匹配，而是按 JEP 的顺序回答另一类问题：每一轮究竟改了什么、为什么不得不改，以及那些只在预览期存在过的语法去了哪里。文中所有编译器输出都来自本机实测（JDK 17.0.5 &#x2F; JDK 21.0.8 &#x2F; JDK 25+37-LTS，Apple M1 Pro，macOS）；凡是标注「实测」的结论，都能在下面找到对应的原始输出块。JEP 的编号、版本、状态与引用的动机，全部核对自 openjdk.org 的 JEP 页面正文。  先看一条时间线把后面要展开的东西压成一张表，方便随时对照：    JEP JDK 状态 关键变化    305 14 预览 instanceo...</div></div></div></a><a class="pagination-related" href="/2767726751.html" title="Java——record、sealed 与模式匹配"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-15</div><div class="info-item-2">Java——record、sealed 与模式匹配</div></div><div class="info-2"><div class="info-item-1"> record 是透明的数据载体，sealed 是受控的继承层次，模式匹配是”检查类型 + 提取数据”的一体化写法。单独看，它们各自只是语法糖；合起来才是 Java 版的代数数据类型（ADT）：sealed 说明”一共有哪几种可能”，record 说明”每种可能携带哪些数据”，switch 模式匹配负责把这两种信息穷尽地消费掉。本文的代码在 JDK 21.0.8 与 JDK 25 上编译运行通过；凡是与版本绑定的结论都标注了对应的 JEP 编号与转正版本。  三个特性的版本坐标写 Java 最容易踩的坑是”我记忆里 JDK 8 就有&#x2F;就删了”。先把版本对齐：  record：JEP 395，JDK 16 转正（此前 JDK 14 的 JEP 359、JDK 15 的 JEP 384 两次预览） instanceof 模式：JEP 394，JDK 16 转正（JEP 305 &#x2F; JDK 14、JEP 375 &#x2F; JDK 15 预览） sealed 类与接口：JEP 409，JDK 17 转正（JEP 360 &#x2F; JDK 15、JEP 397 ...</div></div></div></a><a class="pagination-related" href="/726942613.html" title="Java——CompletableFuture 异步编程实战"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-15</div><div class="info-item-2">Java——CompletableFuture 异步编程实战</div></div><div class="info-2"><div class="info-item-1"> CompletableFuture 是 JDK 8 引入的异步编排工具（java.util.concurrent，类上 @since 1.8），同时实现了 Future&lt;T&gt; 与 CompletionStage&lt;T&gt;。它解决的问题是：把「查用户、查订单、算总价」这类有依赖关系或可以并行执行的步骤，写成一条声明式的异步链，而不是一堆层层嵌套的回调或者手动管理线程。本文逐条讲清每个 API 的语义边界：谁有返回值、谁吞异常、回调在哪个线程跑、默认线程池有什么坑、取消到底能不能打断正在执行的任务，以及它与仍在预览中的结构化并发（StructuredTaskScope）的差别。文中所有输出都来自 JDK 25（LTS）在 macOS 上的实测，示例代码可以原样编译运行。  示例里复用两个类型与一批工具方法，避免每个代码块都重复声明。先看这两段公共代码，后面的例子都直接引用它们。 123456789101112131415161718192021222324252627282930313233343536373839404142import java.util.L...</div></div></div></a><a class="pagination-related" href="/428901307.html" title="Java——Stream API 常见误用"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-15</div><div class="info-item-2">Java——Stream API 常见误用</div></div><div class="info-2"><div class="info-item-1"> Stream API 从 Java 8 引入，声明式的写法很容易让人把它当成「换一套语法写循环」。实际上它自带一套求值模型（惰性）、一套并发模型（ForkJoinPool）和一组明确契约（identity、结合律、有序性、一次性消费），违反契约的代码常常在单测里跑得好好的，换个数据量或换成并行流才炸。  验证环境文中所有代码都在下面的环境编译并运行，javac -Xlint:all 无告警： 123java version &quot;25&quot; 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)javac 25  涉及版本能力差异的结论一律标注 JDK 版本与 JEP 编号；纯 API 增补（没有对应 JEP 的）以 javadoc 里的 @since 为准。文中出现的实测数字都是本机（Apple M1 Pro）单次运行结果，用途是展示量级差异，不是基准测试。 本文使用的数据模型123456789record OrderLine(String sku, int qty) &#123;&...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">17</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">13</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">6</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83%E4%B8%8E%E5%8F%A3%E5%BE%84"><span class="toc-number">1.</span> <span class="toc-text">实验环境与口径</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%A2%AB%E6%B5%8B%E7%A8%8B%E5%BA%8F"><span class="toc-number">1.1.</span> <span class="toc-text">被测程序</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%AC%AC%E4%B8%80%E6%AD%A5%EF%BC%9A%E6%8A%8A%E7%97%87%E7%8A%B6%E8%B7%91%E5%87%BA%E6%9D%A5"><span class="toc-number">2.</span> <span class="toc-text">第一步：把症状跑出来</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%AC%AC%E4%BA%8C%E6%AD%A5%EF%BC%9AGC-%E6%97%A5%E5%BF%97%E7%9C%8B%E8%B6%8B%E5%8A%BF"><span class="toc-number">3.</span> <span class="toc-text">第二步：GC 日志看趋势</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8F%82%E6%95%B0"><span class="toc-number">3.1.</span> <span class="toc-text">参数</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%AF%BB%E4%B8%80%E6%AE%B5%E7%9C%9F%E5%AE%9E%E6%97%A5%E5%BF%97"><span class="toc-number">3.2.</span> <span class="toc-text">读一段真实日志</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%B6%8B%E5%8A%BF%E6%AF%94%E5%8D%95%E7%82%B9%E9%87%8D%E8%A6%81"><span class="toc-number">3.3.</span> <span class="toc-text">趋势比单点重要</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%AC%AC%E4%B8%89%E6%AD%A5%EF%BC%9A%E8%BF%90%E8%A1%8C%E6%97%B6%E8%A7%82%E6%B5%8B"><span class="toc-number">4.</span> <span class="toc-text">第三步：运行时观测</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#GC-heap-info"><span class="toc-number">4.1.</span> <span class="toc-text">GC.heap_info</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#GC-class-histogram"><span class="toc-number">4.2.</span> <span class="toc-text">GC.class_histogram</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#VM-native-memory"><span class="toc-number">4.3.</span> <span class="toc-text">VM.native_memory</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#JFR"><span class="toc-number">4.4.</span> <span class="toc-text">JFR</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%AC%AC%E5%9B%9B%E6%AD%A5%EF%BC%9A%E5%A0%86-dump"><span class="toc-number">5.</span> <span class="toc-text">第四步：堆 dump</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%AF%BC%E5%87%BA"><span class="toc-number">5.1.</span> <span class="toc-text">导出</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%B2%A1%E6%9C%89-MAT-%E6%80%8E%E4%B9%88%E5%88%86%E6%9E%90"><span class="toc-number">5.2.</span> <span class="toc-text">没有 MAT 怎么分析</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%83%BD%E5%8A%9B%E8%BE%B9%E7%95%8C"><span class="toc-number">5.3.</span> <span class="toc-text">能力边界</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jhsdb-%E5%9C%A8-macOS-%E4%B8%8A%E7%9A%84%E5%9D%91"><span class="toc-number">5.4.</span> <span class="toc-text">jhsdb 在 macOS 上的坑</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%AC%AC%E4%BA%94%E6%AD%A5%EF%BC%9A%E4%BF%AE%E4%B8%8E%E9%AA%8C%E8%AF%81"><span class="toc-number">6.</span> <span class="toc-text">第五步：修与验证</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%94%B9%E6%B3%95"><span class="toc-number">6.1.</span> <span class="toc-text">改法</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%A4%8D%E6%B5%8B"><span class="toc-number">6.2.</span> <span class="toc-text">复测</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%AC%AC%E5%85%AD%E6%AD%A5%EF%BC%9AG1-%E8%BF%98%E6%98%AF-ZGC"><span class="toc-number">7.</span> <span class="toc-text">第六步：G1 还是 ZGC</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%A4%E4%B8%AA%E5%B8%B8%E8%A7%81%E8%AF%AF%E5%88%A4"><span class="toc-number">8.</span> <span class="toc-text">两个常见误判</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%A0%86%E5%87%A0%E4%B9%8E%E6%98%AF%E7%A9%BA%E7%9A%84%EF%BC%8C%E5%8D%B4-OOM"><span class="toc-number">8.1.</span> <span class="toc-text">堆几乎是空的，却 OOM</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%80%81%E5%B9%B4%E4%BB%A3%E6%B2%A1%E5%8E%8B%E5%8A%9B%EF%BC%8C%E5%8D%B4%E4%B8%80%E7%9B%B4-Full-GC"><span class="toc-number">8.2.</span> <span class="toc-text">老年代没压力，却一直 Full GC</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93%E5%B7%A5%E5%85%B7%E9%93%BE"><span class="toc-number">9.</span> <span class="toc-text">小结工具链</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0"><span class="toc-number">10.</span> <span class="toc-text">系列文章</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%AF%AD%E8%A8%80%E7%89%B9%E6%80%A7"><span class="toc-number">10.1.</span> <span class="toc-text">语言特性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%BF%90%E8%A1%8C%E6%97%B6%E4%B8%8E%E7%89%88%E6%9C%AC"><span class="toc-number">10.2.</span> <span class="toc-text">运行时与版本</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/2521215779.html" title="Java——JVM 内存与 GC 定位实战"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——JVM 内存与 GC 定位实战"/></a><div class="content"><a class="title" href="/2521215779.html" title="Java——JVM 内存与 GC 定位实战">Java——JVM 内存与 GC 定位实战</a><time datetime="2026-09-16T03:00:00.000Z" title="发表于 2026-09-16 11:00:00">2026-09-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2831660552.html" title="自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比"/></a><div class="content"><a class="title" href="/2831660552.html" title="自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比">自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比</a><time datetime="2026-09-16T02:30:00.000Z" title="发表于 2026-09-16 10:30:00">2026-09-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2348585228.html" title="sing-box 分流与 DNS 配置实践"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="sing-box 分流与 DNS 配置实践"/></a><div class="content"><a class="title" href="/2348585228.html" title="sing-box 分流与 DNS 配置实践">sing-box 分流与 DNS 配置实践</a><time datetime="2026-09-16T02:00:00.000Z" title="发表于 2026-09-16 10:00:00">2026-09-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/196752644.html" title="Java——模式匹配演进史：从 JEP 406 到 JEP 441"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——模式匹配演进史：从 JEP 406 到 JEP 441"/></a><div class="content"><a class="title" href="/196752644.html" title="Java——模式匹配演进史：从 JEP 406 到 JEP 441">Java——模式匹配演进史：从 JEP 406 到 JEP 441</a><time datetime="2026-09-15T08:30:00.000Z" title="发表于 2026-09-15 16:30:00">2026-09-15</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/3912768261.html" title="Java——JDK 21 到 25 迁移清单"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——JDK 21 到 25 迁移清单"/></a><div class="content"><a class="title" href="/3912768261.html" title="Java——JDK 21 到 25 迁移清单">Java——JDK 21 到 25 迁移清单</a><time datetime="2026-09-15T08:00:00.000Z" title="发表于 2026-09-15 16:00:00">2026-09-15</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>
