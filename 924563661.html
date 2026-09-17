@@ -1,0 +1,930 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式——命令：撤销栈与队列化 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="用 10 万次操作、两种 JDK 实测命令对象的四种形态：直接调用、命令对象、带撤销快照、入队后由另一线程执行。命令对象在不逃逸时是免费的，逃逸后每个 24 到 40 字节；撤销栈里记快照还是记反向操作，差 10 到 130 倍内存。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="设计模式——命令：撤销栈与队列化">
+<meta property="og:url" content="https://lianglliu.github.io/924563661.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="用 10 万次操作、两种 JDK 实测命令对象的四种形态：直接调用、命令对象、带撤销快照、入队后由另一线程执行。命令对象在不逃逸时是免费的，逃逸后每个 24 到 40 字节；撤销栈里记快照还是记反向操作，差 10 到 130 倍内存。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png">
+<meta property="article:published_time" content="2026-09-17T09:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T09:00:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="命令模式">
+<meta property="article:tag" content="设计模式">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "设计模式——命令：撤销栈与队列化",
+  "url": "https://lianglliu.github.io/924563661.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png",
+  "datePublished": "2026-09-17T09:00:00.000Z",
+  "dateModified": "2026-09-17T09:00:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/924563661.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '设计模式——命令：撤销栈与队列化',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">设计模式——命令：撤销栈与队列化</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">设计模式——命令：撤销栈与队列化</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T09:00:00.000Z" title="发表于 2026-09-17 17:00:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">7.6k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>27分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p><code>doc.insert(pos, text)</code> 编译之后只剩一条 invokevirtual，方法一返回，这次调用就没有任何痕迹了。<br>命令模式把这一行换成 <code>new InsertCmd(doc, pos, text)</code>，这次调用变成内存里的一个值：能入栈做撤销、入队做排队、写盘做重放。<br>10 万次操作、四种形态，量的是耗时、分配字节与延迟，以及撤销栈里「记快照」和「记反向操作」两条路的内存差。</p>
+</blockquote>
+<h2 id="一、把调用变成对象"><a href="#一、把调用变成对象" class="headerlink" title="一、把调用变成对象"></a>一、把调用变成对象</h2><p>一个方法调用在编译后活在栈帧里。接收者、参数、要做什么，都散在字节码的指令序列上，方法一旦返回，这些信息就没了。要撤销它，得在调用之前自己把原位字符记下来；要排队，得把它包进一个 lambda 交给别人；要记录，得在旁边再写一行日志。</p>
+<p>命令模式把这一行换成 <code>new InsertCmd(doc, pos, text)</code>：调用发生的时间和执行的时间分开，这次调用就成了内存里的一个值。</p>
+<p>撤销、排队、记录都建立在这个值上：</p>
+<ul>
+<li><strong>撤销</strong>：入栈，回滚时按逆序对每条执行相反的操作。</li>
+<li><strong>排队</strong>：入队，由另一个线程按自己的节奏取走执行。</li>
+<li><strong>记录与重放</strong>：写进日志或消息，读回来再执行一遍。</li>
+</ul>
+<p>把调用变成对象，代价分两块：对象要占字节，要活到被执行的那一刻，编译器就不能再把它优化掉；跨线程要同步，队列的锁和 park&#x2F;unpark 落在关键路径上。</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    flowchart LR
+    A[&quot;调用点&lt;br&#x2F;&gt;new InsertCmd(doc, pos, text)&quot;] --&gt; B{逃逸分析}
+    B --&gt;|不逃逸| C[&quot;标量替换&lt;br&#x2F;&gt;0 字节 &#x2F; 0 额外时间&quot;]
+    B --&gt;|逃逸| D[&quot;堆上的对象&lt;br&#x2F;&gt;实测 24 到 40 字节&quot;]
+    D --&gt; E[&quot;撤销栈&lt;br&#x2F;&gt;每条 +4 字节引用&quot;]
+    D --&gt; F[&quot;队列&lt;br&#x2F;&gt;每次 put&#x2F;take 一次锁&quot;]
+    D --&gt; G[&quot;日志 &#x2F; 重放&lt;br&#x2F;&gt;+ 序列化&quot;]
+    E --&gt; H[&quot;undo() 逆序回滚&quot;]
+    F --&gt; I[&quot;另一线程 exec()&quot;]
+    G --&gt; J[&quot;读回后 exec()&quot;]
+  </pre></div>
+
+<p>图里左半边是要测的量，右半边是三个用途各自收费的位置。</p>
+<h2 id="二、实验设计"><a href="#二、实验设计" class="headerlink" title="二、实验设计"></a>二、实验设计</h2><p>四个形态一共不到 60 行代码，做同一件事：给一个 long 累加器加一个 1 到 8 之间的增量，循环 10 万次。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 形态一：直接调用</span></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; N; i++) c.add(<span class="number">1</span> + (i &amp; <span class="number">7</span>));</span><br><span class="line"></span><br><span class="line"><span class="comment">// 形态二：命令对象</span></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; N; i++) <span class="keyword">new</span> <span class="title class_">AddCmd</span>(c, <span class="number">1</span> + (i &amp; <span class="number">7</span>)).exec();</span><br><span class="line"></span><br><span class="line"><span class="comment">// 形态三：命令对象 + 撤销快照</span></span><br><span class="line">ArrayDeque&lt;Cmd&gt; stack = <span class="keyword">new</span> <span class="title class_">ArrayDeque</span>&lt;&gt;(N);</span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; N; i++) &#123;</span><br><span class="line">    <span class="type">UndoCmd</span> <span class="variable">cmd</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">UndoCmd</span>(c, <span class="number">1</span> + (i &amp; <span class="number">7</span>));  <span class="comment">// 构造时记下 prev</span></span><br><span class="line">    cmd.exec();</span><br><span class="line">    stack.addLast(cmd);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 形态四：入队，由另一个线程执行</span></span><br><span class="line"><span class="comment">// 生产者</span></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; N; i++) q.put(<span class="keyword">new</span> <span class="title class_">QueueCmd</span>(c, <span class="number">1</span> + (i &amp; <span class="number">7</span>), System.nanoTime(), i));</span><br><span class="line"><span class="comment">// 消费者</span></span><br><span class="line"><span class="keyword">for</span> (;;) &#123; <span class="type">Cmd</span> <span class="variable">cmd</span> <span class="operator">=</span> q.take(); <span class="keyword">if</span> (cmd == SENTINEL) <span class="keyword">break</span>; cmd.exec(); &#125;</span><br></pre></td></tr></table></figure>
+
+<p>四个形态的命令类一共长这样：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">interface</span> <span class="title class_">Cmd</span> &#123; <span class="keyword">void</span> <span class="title function_">exec</span><span class="params">()</span>; &#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">AddCmd</span> <span class="keyword">implements</span> <span class="title class_">Cmd</span> &#123;                  <span class="comment">// 形态二</span></span><br><span class="line">    <span class="keyword">final</span> Counter c; <span class="keyword">final</span> <span class="type">long</span> d;</span><br><span class="line">    AddCmd(Counter c, <span class="type">long</span> d) &#123; <span class="built_in">this</span>.c = c; <span class="built_in">this</span>.d = d; &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">exec</span><span class="params">()</span> &#123; c.add(d); &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">UndoCmd</span> <span class="keyword">implements</span> <span class="title class_">Cmd</span> &#123;                 <span class="comment">// 形态三</span></span><br><span class="line">    <span class="keyword">final</span> Counter c; <span class="keyword">final</span> <span class="type">long</span> d; <span class="keyword">final</span> <span class="type">long</span> prev;</span><br><span class="line">    UndoCmd(Counter c, <span class="type">long</span> d) &#123; <span class="built_in">this</span>.c = c; <span class="built_in">this</span>.d = d; <span class="built_in">this</span>.prev = c.v; &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">exec</span><span class="params">()</span> &#123; c.add(d); &#125;</span><br><span class="line">    <span class="keyword">void</span> <span class="title function_">undo</span><span class="params">()</span> &#123; c.v = prev; &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">QueueCmd</span> <span class="keyword">implements</span> <span class="title class_">Cmd</span> &#123;                <span class="comment">// 形态四</span></span><br><span class="line">    <span class="keyword">final</span> Counter c; <span class="keyword">final</span> <span class="type">long</span> d; <span class="keyword">final</span> <span class="type">long</span> t0; <span class="keyword">final</span> <span class="type">int</span> idx;</span><br><span class="line">    QueueCmd(Counter c, <span class="type">long</span> d, <span class="type">long</span> t0, <span class="type">int</span> idx) &#123; <span class="built_in">this</span>.c = c; <span class="built_in">this</span>.d = d; <span class="built_in">this</span>.t0 = t0; <span class="built_in">this</span>.idx = idx; &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">exec</span><span class="params">()</span> &#123; c.add(d); &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>撤销版本的 <code>prev</code> 在构造时抓取，排队版本的时间戳和序号在入队前写好。四个形态之间唯一的差别，是这两个字段从哪里来。</p>
+<p>形态四生产者循环里那次 <code>System.nanoTime()</code> 是给延迟测量用的：吞吐和分配在去掉它的那一轮测，延迟在带它的那一轮测。带时间戳那一轮的吞吐是 127.0 ns&#x2F;op，不带时间戳的是 125.0 ns&#x2F;op，打点本身在这个形态里测不出额外成本。表格里的吞吐用不带时间戳的那一轮。</p>
+<p>增量写成 <code>1 + (i &amp; 7)</code>，是为了不让 JIT 把循环折掉：增量是常数时，JIT 会把整个循环折成一个乘法，10 万次迭代消失。带上循环变量以后，每次加法都必须执行。每轮跑完打印累加值当校验和（日志里的 <code>checksum=</code>），它每轮不同，说明计算没有被优化掉。</p>
+<p>把调用包成对象只为「换一种算法」，是<a href="/3654303619.html">策略</a>要解决的问题；命令关心的是这一次调用本身能不能被存下来、排队、重放。</p>
+<p>测量条件：</p>
+<ul>
+<li>机器 Apple M1 Pro，macOS 26.6.2（Darwin 25.6.0），arm64。</li>
+<li>JDK <code>21.0.8+12-LTS-250</code> 与 <code>25+37-LTS-3491</code>，各形态单独起一个 JVM。</li>
+<li><code>-Xms512m -Xmx512m</code>，预热 10 轮后测 5 轮，取中位数。</li>
+<li>每操作分配字节用 <code>com.sun.management.ThreadMXBean.getThreadAllocatedBytes</code>；队列形态由生产者和消费者各自在自己的线程里读，两个数相加。</li>
+<li>计时循环持全局文件锁运行。本次有 22 个 agent 在这台机器上并行跑各自的实验，不串行化会因为抢 CPU 把数据搅乱。</li>
+</ul>
+<p>延迟单独测：在每次操作两侧各打一次 <code>System.nanoTime()</code>，10 万个样本排序取分位数。这个测量有地板。空打点循环 10 万次的 p50 是 0ns、p99 是 42ns，这台机器上 <code>nanoTime</code> 的分辨力在 42ns 左右。耗时不到 1ns 到几 ns 的形态，单次延迟测不出来，只能信总时间；延迟分布只对微秒级的形态有分辨力。这个限制决定了后面哪些结论能下、哪些不能下。</p>
+<p>口径与限制：</p>
+<ul>
+<li>本机没有 JMH，这是单机微基准，给的是量级和方向，绝对数字不能当硬件上限看。</li>
+<li>1 到 3ns 之间的差在这台机器上不可靠。直接调用和命令对象落在同一个量级，谁快 1ns 取决于编译器这一轮怎么展开循环，不取决于形态。</li>
+<li>分配字节是精确计数（<code>ThreadMXBean</code> 按线程统计，不受 GC 影响），这一列可以当硬数据看。</li>
+<li>队列形态的延迟在轮与轮之间的波动很大，原因写在第三节。</li>
+<li>每个数字都是一次具体运行的产物，本文所有数值来自本次运行的原始输出，未经挑选。</li>
+</ul>
+<h2 id="三、实测一：四种形态"><a href="#三、实测一：四种形态" class="headerlink" title="三、实测一：四种形态"></a>三、实测一：四种形态</h2><table>
+<thead>
+<tr>
+<th>形态</th>
+<th>JDK 21 ns&#x2F;op</th>
+<th>JDK 25 ns&#x2F;op</th>
+<th>分配字节&#x2F;op</th>
+<th>p50 延迟</th>
+<th>p99 延迟</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>直接调用</td>
+<td>0.71</td>
+<td>0.83</td>
+<td>0.00</td>
+<td>0ns</td>
+<td>42ns</td>
+</tr>
+<tr>
+<td>命令对象（不逃逸）</td>
+<td>0.71</td>
+<td>0.70</td>
+<td>0</td>
+<td>0ns</td>
+<td>42ns</td>
+</tr>
+<tr>
+<td>命令对象（关掉逃逸分析）</td>
+<td>4.46</td>
+<td>4.23</td>
+<td>24</td>
+<td>0ns</td>
+<td>42ns</td>
+</tr>
+<tr>
+<td>命令对象 + 撤销栈</td>
+<td>4.75</td>
+<td>4.76</td>
+<td>36</td>
+<td>0ns</td>
+<td>42ns</td>
+</tr>
+<tr>
+<td>入队 + 另一线程执行</td>
+<td>125.0</td>
+<td>133.2</td>
+<td>52.6</td>
+<td>60.0µs</td>
+<td>0.21ms</td>
+</tr>
+</tbody></table>
+<p>单独量三个命令对象本身的字节数（只创建、放进预分配数组，不入栈不入队）：<code>AddCmd</code> 24 字节，带一个 prev 的 <code>UndoCmd</code> 32 字节，带时间戳和序号的 <code>QueueCmd</code> 40 字节。两个 JDK 上这三个数一样。</p>
+<p><img src="/assets/patterns/command-undo-cost.png" alt="四种形态的耗时与分配，撤销两条路线的内存与回滚时间"></p>
+<h3 id="命令对象在不逃逸时是免费的"><a href="#命令对象在不逃逸时是免费的" class="headerlink" title="命令对象在不逃逸时是免费的"></a>命令对象在不逃逸时是免费的</h3><p>第二行的分配字节是 0.00，精确的零。JIT 把命令对象标量替换了：<code>new AddCmd(c, d)</code> 这个对象从来没有在堆上出现过，被拆成了两个局部变量。耗时和直接调用同一个量级（1ns 上下），谁快谁慢在这台机器的测量分辨力之内。</p>
+<p>同一份代码加 <code>-XX:-DoEscapeAnalysis</code> 关掉逃逸分析，价格马上出现：每个对象 24 字节，耗时从 0.71 涨到 4.46，JDK 21 上涨 6.3 倍，JDK 25 上涨 6.0 倍。</p>
+<p><strong>只要对象不逃逸，把调用包成对象不花什么钱。</strong> 你写的那 40 行命令类，编译器会替你把它变回一个方法调用。</p>
+<h3 id="逃逸之后价格出现，而且不在操作本身"><a href="#逃逸之后价格出现，而且不在操作本身" class="headerlink" title="逃逸之后价格出现，而且不在操作本身"></a>逃逸之后价格出现，而且不在操作本身</h3><p>第四行把命令压进撤销栈，命令对象的引用要活到回滚那一刻，逃逸分析就失效了。分配变成 36 字节&#x2F;操作：<code>UndoCmd</code> 对象 32 字节，撤销栈的引用数组每个槽 4 字节。第五行入队，<code>QueueCmd</code> 40 字节，整条流水线实测 52.6 字节&#x2F;操作。</p>
+<p>撤销功能的全部内存开销，就是一个 24 字节的对象加一个引用槽。</p>
+<h3 id="字段就是账单价"><a href="#字段就是账单价" class="headerlink" title="字段就是账单价"></a>字段就是账单价</h3><p>命令对象的大小可以直接从字段算出来，实测值和算出来的值对得上：</p>
+<table>
+<thead>
+<tr>
+<th>形态</th>
+<th>字段</th>
+<th>算法</th>
+<th>实测字节&#x2F;个</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>AddCmd</code></td>
+<td>接收者引用 + long 增量</td>
+<td>12 + 4 + 8 &#x3D; 24</td>
+<td>24.00</td>
+</tr>
+<tr>
+<td><code>UndoCmd</code></td>
+<td>再加一个 long prev</td>
+<td>12 + 4 + 8 + 8 &#x3D; 32</td>
+<td>32.00</td>
+</tr>
+<tr>
+<td><code>QueueCmd</code></td>
+<td>再加 long 入队时刻 + int 序号</td>
+<td>12 + 4 + 8 + 8 + 4 &#x3D; 36，对齐到 40</td>
+<td>40.00</td>
+</tr>
+</tbody></table>
+<p>对象头 12 字节（压缩类指针），引用 4 字节，字段按对齐规则重排。<code>prev</code> 存的是「撤销需要什么」，时间戳和序号存的是「排队需要什么」；这两个字段是调用变成对象之后才多出来的，不属于业务数据。</p>
+<p>命令对象需要设计的地方也只有字段：撤销信息、排队信息、追踪信息，每加一个，每次操作就多付一份字节。</p>
+<h3 id="排队把延迟交出去"><a href="#排队把延迟交出去" class="headerlink" title="排队把延迟交出去"></a>排队把延迟交出去</h3><p>第五行的耗时是 125.0 ns&#x2F;op，是直接调用的 176 倍。消费者线程做的是同一件事，两个线程没有把工作量变小，队列的锁、<code>put</code> 和 <code>take</code> 的同步、每操作一个 40 字节的对象，全部落在关键路径上。</p>
+<p>队列把生产和消费在时间上解耦，价格记在延迟上：</p>
+<ul>
+<li>p50 延迟 60.0µs，p99 0.21ms，max 0.33ms。</li>
+<li>队列峰值水位打到容量上限（8192&#x2F;8192），生产者被背压挡住过。</li>
+<li>同一份代码在 5 轮之间，p50 差出 7.2 倍。</li>
+</ul>
+<p>延迟由队列水位决定。一条命令在队列里等待的时间，等于排在它前面的所有命令的处理时间之和；水位由生产者和消费者的相对速度决定，和操作本身无关。把容量从 8192 放到 131072 以后，生产者几乎不再被背压挡住，峰值水位涨到 48544，p50 延迟从 60.0µs 涨到 234.6µs，吞吐在同一个水平（125.0 对 152.3 ns&#x2F;op）。</p>
+<p><strong>队列化交出的控制权是「每次操作要等多久」。</strong> 平均延迟、尾延迟、延迟的抖动，全由另一个线程的进度决定。要压住尾部，能调的只有队列容量上限和消费者并行度，这两样都不在调用点的代码里。</p>
+<p>队列不减少工作量。它把两个阶段的时间重叠起来：同步执行时，总时间是两者之和；入队之后，总时间由较慢的那一侧决定，再加上水位乘消费速度。本实验里两个阶段都只做一次加法和一次队列操作，成本同一个量级，重叠省下的部分被同步开销吃掉。队列在消费者明显更慢（写磁盘、发网络请求、调远程接口）时才划算，那时它买到的是「生产者不必陪着消费者等」。</p>
+<p>用队列之前要定三件事：</p>
+<ul>
+<li><strong>容量</strong>。有界队列的容量就是背压的界限。本实验里生产者被挡在 8192 这个水位上，水位越高延迟越大，这两条一起动。</li>
+<li><strong>谁负责重试</strong>。<code>put</code> 被挡住时生产者只能在原地等。生产者的上游如果也不能等（比如网络 IO 线程），就得换成 <code>offer</code> 加丢弃或落盘，或者再加一级缓冲。</li>
+<li><strong>消费者要不要有序</strong>。命令对象可以被多个消费者并行执行，前提是命令之间可交换。有依赖的命令要么进同一个消费者，要么在命令里带上依赖关系。</li>
+</ul>
+<h3 id="延迟分布的形状"><a href="#延迟分布的形状" class="headerlink" title="延迟分布的形状"></a>延迟分布的形状</h3><p>把 5 轮测量的分位数并排看，max 是 p50 的 5.4 倍，而耗时（ns&#x2F;op）5 轮都稳定。同一个程序、同一种操作，延迟可以差一个数量级，吞吐稳定。排队系统的延迟分布长尾：一条命令要等多久，取决于它入队那一刻队伍有多长，而队伍长度是两个线程速度差的积分。</p>
+<p>要让尾延迟收敛，只有一个办法：把水位压住。容量调小、消费者加快、或者干脆让生产者自己按消费者的速度走。这三条都在队列外面，调用点的代码管不了。</p>
+<h3 id="队列容量的选择"><a href="#队列容量的选择" class="headerlink" title="队列容量的选择"></a>队列容量的选择</h3><p>本实验用 8192，这个数字没有调优，作用是让生产者和消费者发生背压：峰值水位打到 8192，说明生产者至少在部分时间里比消费者快，<code>put</code> 被 park 过。容量就是允许积压的深度，选得越大，平均等待时间越长。</p>
+<h3 id="两个-JDK-上的差别"><a href="#两个-JDK-上的差别" class="headerlink" title="两个 JDK 上的差别"></a>两个 JDK 上的差别</h3><p>两个 JDK 上四个形态的耗时都落在同一量级：直接调用 0.71 ns 对 0.83 ns，命令对象 0.71 对 0.70，关掉逃逸分析后 4.46 对 4.23，撤销栈 4.75 对 4.76，队列 125.0 对 133.2（JDK 21 与 JDK 25）。分配字节这一列两套 JDK 一致：直接调用与命令对象都是 0，强制分配时都是 24，撤销栈都是 36，队列是 51.6 对 52.6。撤销实验里快照 4KB 的回滚耗时 JDK 21 是 1.473ms、JDK 25 是 1.409ms，反向操作两边都是 0.038ms。队列形态两个 JDK 的差异同样在这个量级。</p>
+<h2 id="四、撤销栈里放什么"><a href="#四、撤销栈里放什么" class="headerlink" title="四、撤销栈里放什么"></a>四、撤销栈里放什么</h2><p>撤销有两种记法。一种是在改之前给整个状态拍一张快照，回滚时整张拷回去；另一种只记这次改动碰过的东西，回滚时精确还原。快照实现简单，代价与状态大小成正比；反向操作省内存，前提是操作可逆。</p>
+<p>把「状态快照」当成独立模式讨论，是<a href="/4222041279.html">备忘录</a>的范围；这里只关心它在命令对象上挂了几个字段、每个字段多贵。命令对象是一次性的，创建、执行、入栈之后不再复用；要把可变对象重复利用，那是<a href="/550034456.html">对象池</a>的取舍。</p>
+<p>实验：一个 <code>int[]</code> 状态对象，10,000 次 <code>a[i] = v</code>，每次操作前按其中一种方式记一条日志，然后按逆序回滚全部 10,000 条。状态规模取 64 个 int（256 字节）和 1024 个 int（4KB）两种。回滚完成后逐元素比对，两条路线的结果都必须与初始值一致（实测都是 <code>restored=true</code>）。</p>
+<table>
+<thead>
+<tr>
+<th>撤销路线</th>
+<th>状态 256 字节</th>
+<th>状态 4KB</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>快照：日志字节&#x2F;操作</td>
+<td>304</td>
+<td>4144</td>
+</tr>
+<tr>
+<td>快照：10,000 条日志总量</td>
+<td>3.0MB</td>
+<td>41.4MB</td>
+</tr>
+<tr>
+<td>快照：回滚 10,000 次耗时</td>
+<td>0.091ms</td>
+<td>1.409ms</td>
+</tr>
+<tr>
+<td>反向：日志字节&#x2F;操作</td>
+<td>32</td>
+<td>32</td>
+</tr>
+<tr>
+<td>反向：10,000 条日志总量</td>
+<td>320KB</td>
+<td>320KB</td>
+</tr>
+<tr>
+<td>反向：回滚 10,000 次耗时</td>
+<td>0.039ms</td>
+<td>0.038ms</td>
+</tr>
+</tbody></table>
+<p>快照路线里，每条日志是「一个 272 字节的 int[] 拷贝 + 一个 32 字节的命令对象」，状态 4KB 时是「一个 4112 字节的数组 + 32 字节对象」。反向路线里每条日志是「被改的下标 + 改前旧值」，32 字节，和状态多大没有关系。</p>
+<p>代价在几个维度上同时拉开：</p>
+<ul>
+<li><strong>内存</strong>：状态 4KB 时，快照 10,000 条要 41.4MB，反向只要 320KB，差 130 倍。状态再大一点，倍数跟着涨。</li>
+<li><strong>回滚时间</strong>：快照要把每个拷贝整张拷回去，回滚耗时与状态大小成正比（0.091ms 对 1.409ms）；反向只写一个 int，两种状态规模下分别是 0.039ms 和 0.038ms。</li>
+<li><strong>前进时间</strong>：快照在每次操作前多一次全量拷贝，状态 4KB 时前进耗时是反向的 16 倍。</li>
+</ul>
+<p>两条路线的命令类也只有这一点区别：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">SnapCmd</span> <span class="keyword">extends</span> <span class="title class_">UCmd</span> &#123;                   <span class="comment">// 快照</span></span><br><span class="line">    <span class="keyword">final</span> State s; <span class="keyword">final</span> <span class="type">int</span> i; <span class="keyword">final</span> <span class="type">int</span> v; <span class="keyword">final</span> <span class="type">int</span>[] before;</span><br><span class="line">    SnapCmd(State s, <span class="type">int</span> i, <span class="type">int</span> v) &#123; <span class="built_in">this</span>.s = s; <span class="built_in">this</span>.i = i; <span class="built_in">this</span>.v = v; <span class="built_in">this</span>.before = s.a.clone(); &#125;</span><br><span class="line">    <span class="keyword">void</span> <span class="title function_">exec</span><span class="params">()</span> &#123; s.a[i] = v; &#125;</span><br><span class="line">    <span class="keyword">void</span> <span class="title function_">undo</span><span class="params">()</span> &#123; System.arraycopy(before, <span class="number">0</span>, s.a, <span class="number">0</span>, before.length); &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">InvCmd</span> <span class="keyword">extends</span> <span class="title class_">UCmd</span> &#123;                    <span class="comment">// 反向操作</span></span><br><span class="line">    <span class="keyword">final</span> State s; <span class="keyword">final</span> <span class="type">int</span> i; <span class="keyword">final</span> <span class="type">int</span> v; <span class="keyword">final</span> <span class="type">int</span> old;</span><br><span class="line">    InvCmd(State s, <span class="type">int</span> i, <span class="type">int</span> v) &#123; <span class="built_in">this</span>.s = s; <span class="built_in">this</span>.i = i; <span class="built_in">this</span>.v = v; <span class="built_in">this</span>.old = s.a[i]; &#125;</span><br><span class="line">    <span class="keyword">void</span> <span class="title function_">exec</span><span class="params">()</span> &#123; s.a[i] = v; &#125;</span><br><span class="line">    <span class="keyword">void</span> <span class="title function_">undo</span><span class="params">()</span> &#123; s.a[i] = old; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>构造函数的最后一行就是两种策略的全部区别：一行 <code>clone()</code>，或者一次读旧值。回滚方向上，一个整张 <code>arraycopy</code> 回去，一个写一个 int。</p>
+<p>选哪条路，取决于操作能不能反：</p>
+<ul>
+<li><code>a[i] = v</code> 能反，记 <code>(i, 旧值)</code>。</li>
+<li><code>v += d</code> 也能反，记 <code>-d</code>，连旧值都不用。</li>
+<li><code>append(s)</code> 只有在记了长度、而且知道尾部恰好是追加内容时才可逆；一旦操作的是超大文档，反向日志仍然要存那串内容，等于存了增量。</li>
+<li><code>delete(range)</code> 要恢复就必须存被删的内容，退化成快照。</li>
+<li>复合操作（一次用户动作改了三处）要变成一个可逆单元，否则回滚会停在中间状态。</li>
+</ul>
+<h3 id="撤销栈是两个栈"><a href="#撤销栈是两个栈" class="headerlink" title="撤销栈是两个栈"></a>撤销栈是两个栈</h3><p>用户按了撤销之后再输入新内容，被撤销的那条分支就永远回不来了。撤销栈上有一个游标执行这条规则：游标后面是已撤销、还能重做的部分，前面是已经执行的；新操作进来时，游标后面的部分整段丢掉。</p>
+<p><code>UndoManager</code> 的类注释（第 103 到 107 行）把这条规则写死了：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* Adding an edit to an &lt;code&gt;UndoManager&lt;/code&gt; results in</span><br><span class="line">* removing all edits from the index of the next edit to the end of</span><br><span class="line">* the list.  Continuing with the previous example, <span class="keyword">if</span> a <span class="keyword">new</span> <span class="title class_">edit</span>,</span><br><span class="line">* &lt;i&gt;e&lt;/i&gt;, is added the edit &lt;b&gt;D&lt;/b&gt; is removed from the list</span><br><span class="line">* (after having &lt;code&gt;die&lt;/code&gt; invoked on it).  If &lt;i&gt;c&lt;/i&gt; is not</span><br></pre></td></tr></table></figure>
+
+<p>丢掉的那些条目也要占内存：重做深度和撤销深度是两份预算。做撤销功能时通常只算「能撤多少步」，漏掉「能重做多少步」，两份预算同时在。</p>
+<p>数据完整地重放一遍，还有第二个前提：命令对象要能被序列化，而且序列化格式是有版本的公开契约。<code>ForkJoinTask</code> 的类注释（第 196 到 199 行）说得更直接：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* &lt;p&gt;ForkJoinTasks are &#123;<span class="meta">@code</span> Serializable&#125;, which enables them to be</span><br><span class="line">* used in extensions such as remote execution frameworks. It is</span><br><span class="line">* sensible to serialize tasks only before or after, but not during,</span><br><span class="line">* execution. Serialization is not relied on during execution itself.</span><br></pre></td></tr></table></figure>
+
+<p>任务体只在执行前或执行后可以被序列化，执行中的状态不保证能序列化。写日志或者发给别的进程的重放，拿到的都是「还没执行」的那份，改过的字段不在里面。</p>
+<h3 id="记录与重放为什么绕不开命令对象"><a href="#记录与重放为什么绕不开命令对象" class="headerlink" title="记录与重放为什么绕不开命令对象"></a>记录与重放为什么绕不开命令对象</h3><p>日志、审计、事件溯源、跨进程重放，都是事后重新执行一次已经发生过的调用。重放要求把这次调用的全部输入写下来：接收者是谁、参数是什么、顺序是什么。方法调用本身不留这些东西，要在调用发生之前把它们变成数据。</p>
+<p>代价有两块。一块是序列化本身，另一块是版本：命令对象一旦写进日志，它的字段就成了公开契约，加字段、改语义都要考虑读旧日志的程序。这条约束比内存账单更难还。</p>
+<h2 id="五、JDK-里的证据"><a href="#五、JDK-里的证据" class="headerlink" title="五、JDK 里的证据"></a>五、JDK 里的证据</h2><p><strong><code>java.base/java/lang/Runnable.java</code>（JDK 25，全文件 44 行）</strong>，第 28 到 44 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Represents an operation that does not return a result.</span></span><br><span class="line"><span class="comment"> *</span></span><br><span class="line"><span class="comment"> * &lt;p&gt; This is a &#123;<span class="doctag">@linkplain</span> java.util.function functional interface&#125;</span></span><br><span class="line"><span class="comment"> * whose functional method is &#123;<span class="doctag">@link</span> #run()&#125;.</span></span><br><span class="line"><span class="comment"> *</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@author</span>  Arthur van Hoff</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@see</span>     java.util.concurrent.Callable</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@since</span>   1.0</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="meta">@FunctionalInterface</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">Runnable</span> &#123;</span><br><span class="line">    <span class="comment">/**</span></span><br><span class="line"><span class="comment">     * Runs this operation.</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="keyword">void</span> <span class="title function_">run</span><span class="params">()</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>一个无参无返回的方法，加上一个给别人调用的名字。命令对象的最小定义就是这样，剩下的都是往里加字段。</p>
+<p><strong><code>java.base/java/util/concurrent/Executor.java</code> 第 39 到 42 行</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* An object that executes submitted &#123;<span class="meta">@link</span> Runnable&#125; tasks. This</span><br><span class="line">* <span class="keyword">interface</span> <span class="title class_">provides</span> a way of decoupling task submission from the</span><br><span class="line">* mechanics of how each task will be run, including details of thread</span><br><span class="line">* use, scheduling, etc.  An &#123;<span class="meta">@code</span> Executor&#125; is normally used</span><br></pre></td></tr></table></figure>
+
+<p>「把任务的提交和任务怎么跑解耦」，这一句就是队列化的定义。解耦的那一侧是提交点，另一侧是线程模型；两边唯一的接口是那个 Runnable 对象。</p>
+<p><strong><code>java.base/java/util/concurrent/ExecutorService.java</code> 第 57 到 59 行</strong>，以及第 233 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* &lt;p&gt;Method &#123;<span class="meta">@code</span> submit&#125; <span class="keyword">extends</span> <span class="title class_">base</span> method &#123;<span class="meta">@link</span></span><br><span class="line">* Executor#execute(Runnable)&#125; by creating and returning a &#123;<span class="meta">@link</span> Future&#125;</span><br><span class="line">* that can be used to cancel execution and/or wait <span class="keyword">for</span> completion.</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;T&gt; Future&lt;T&gt; <span class="title function_">submit</span><span class="params">(Callable&lt;T&gt; task)</span>;</span><br></pre></td></tr></table></figure>
+
+<p><code>submit</code> 比 <code>execute</code> 多出来的那一个 <code>Future</code>，就是把「这次调用」的句柄交回给提交方。命令对象一旦入队，调用方手里就只剩这个句柄。</p>
+<p><strong><code>java.base/java/util/concurrent/ForkJoinTask.java</code>（JDK 25）</strong>，第 503 到 518 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Runs a task body: Unless done, calls exec and records status if</span></span><br><span class="line"><span class="comment"> * completed, but doesn&#x27;t wait for completion otherwise.</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">final</span> <span class="keyword">void</span> <span class="title function_">doExec</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (status &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="type">boolean</span> <span class="variable">completed</span> <span class="operator">=</span> <span class="literal">false</span>;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            completed = exec();</span><br><span class="line">        &#125; <span class="keyword">catch</span> (Throwable rex) &#123;</span><br><span class="line">            trySetException(rex);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">if</span> (completed)</span><br><span class="line">            setDone();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>第 1285 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">protected</span> <span class="keyword">abstract</span> <span class="type">boolean</span> <span class="title function_">exec</span><span class="params">()</span>;</span><br></pre></td></tr></table></figure>
+
+<p>任务体是子类实现的一个方法（<code>exec</code>，返回「是否已完成」），执行它的是框架的 <code>doExec</code>，外面裹着一层 <code>status</code> 状态机。命令对象进了框架之后，第一件事是管理自己的状态，执行排在第二步。</p>
+<p><strong><code>java.base/java/lang/invoke/LambdaMetafactory.java</code> 第 71 到 77 行</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">*     &lt;p&gt;Capture may involve allocation of a <span class="keyword">new</span> <span class="title class_">function</span> object, or may <span class="keyword">return</span></span><br><span class="line">*     a suitable existing function object. The identity of a function object</span><br><span class="line">*     produced by capture is unpredictable, and therefore identity-sensitive</span><br><span class="line">*     operations (such as reference equality, object locking, and &#123;<span class="meta">@code</span></span><br><span class="line">*     System.identityHashCode()&#125;) may produce different results in different</span><br><span class="line">*     implementations, or even upon different invocations in the same</span><br><span class="line">*     implementation.&lt;/li&gt;</span><br></pre></td></tr></table></figure>
+
+<p>捕获可能分配一个新函数对象，也可能复用一个已有的。这正好对上实测：lambda 形态在不逃逸时分配 0 字节，一旦逃逸就是每个 24 到 40 字节。你没法从源码判断这次捕获分不分配，只能看它有没有逃出去。</p>
+<p>同一段的第 53 到 54 行还写了另一半：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">*     &lt;p&gt;Linkage may involve dynamically loading a <span class="keyword">new</span> <span class="title class_">class</span> that implements</span><br><span class="line">*     the target interface, or re-using a suitable existing class.</span><br></pre></td></tr></table></figure>
+
+<p>链接阶段要么动态加载一个新类，要么复用一个已有的类。这解释了实测里 lambda 和具名类的字节数一模一样：<code>LambdaMetafactory</code> 在链接阶段就把实现类准备好了，每次迭代发生的是一次捕获，产出的实例字段和具名类完全相同。</p>
+<p><strong><code>java.base/java/lang/invoke/MethodHandle.java</code> 第 97 到 104 行</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">* A Java method call expression naming &#123;<span class="meta">@code</span> invokeExact&#125; or &#123;<span class="meta">@code</span> invoke&#125;</span><br><span class="line">* can invoke a method handle from Java source code.</span><br><span class="line">* From the viewpoint of source code, these methods can take any arguments</span><br><span class="line">* and their result can be cast to any <span class="keyword">return</span> type.</span><br><span class="line">* Formally <span class="built_in">this</span> is accomplished by giving the invoker methods</span><br><span class="line">* &#123;<span class="meta">@code</span> Object&#125; <span class="keyword">return</span> types and variable arity &#123;<span class="meta">@code</span> Object&#125; arguments,</span><br><span class="line">* but they have an additional quality called &lt;em&gt;signature polymorphism&lt;/em&gt;</span><br><span class="line">* which connects <span class="built_in">this</span> freedom of invocation directly to the JVM execution stack.</span><br></pre></td></tr></table></figure>
+
+<p>命令对象最后要落到一次调用上。<code>invokeExact</code> 的签名多态把「调用什么」推迟到运行时，<code>LambdaMetafactory</code> 是 <code>invokedynamic</code> 的引导方法。这两个机制合起来，是 JVM 对「把调用变成值」的底层支持：最小的命令对象（44 行的 <code>Runnable</code>）和最快的命令对象（被标量替换掉的 lambda）走的是同一条路。</p>
+<p><strong><code>java.desktop/javax/swing/undo/UndoManager.java</code></strong>。这是 JDK 自带的撤销栈，第 150 到 158 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Creates a new &lt;code&gt;UndoManager&lt;/code&gt;.</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">public</span> <span class="title function_">UndoManager</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="built_in">super</span>();</span><br><span class="line">    indexOfNextAdd = <span class="number">0</span>;</span><br><span class="line">    limit = <span class="number">100</span>;</span><br><span class="line">    edits.ensureCapacity(limit);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>第 288 到 292 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="keyword">void</span> <span class="title function_">setLimit</span><span class="params">(<span class="type">int</span> l)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (!inProgress) <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">RuntimeException</span>(<span class="string">&quot;Attempt to call UndoManager.setLimit() after UndoManager.end() has been called&quot;</span>);</span><br><span class="line">    limit = l;</span><br><span class="line">    trimForLimit();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>默认上限是 100 条。JDK 自己写撤销栈，第一版就带了一个上限和一个淘汰策略：<code>trimForLimit</code>（第 194 行）保留以游标为中心的一段，把两端多出来的旧条目丢掉，丢掉时对每条调用 <code>die()</code>（第 255 行）。</p>
+<h2 id="六、结论"><a href="#六、结论" class="headerlink" title="六、结论"></a>六、结论</h2><h3 id="三样东西各自的价码"><a href="#三样东西各自的价码" class="headerlink" title="三样东西各自的价码"></a>三样东西各自的价码</h3><table>
+<thead>
+<tr>
+<th>买到的东西</th>
+<th>每操作成本</th>
+<th>代价落在哪</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>撤销（反向操作）</td>
+<td>32 字节 + 回滚时间</td>
+<td>撤销栈内存，操作必须可逆</td>
+</tr>
+<tr>
+<td>撤销（快照）</td>
+<td>4 × 状态大小 + 32 字节</td>
+<td>内存与状态成正比，前进和回滚各拷一次</td>
+</tr>
+<tr>
+<td>排队</td>
+<td>40 字节 + 一次锁 + 微秒级延迟</td>
+<td>延迟交给队列水位，调用点控制不了</td>
+</tr>
+<tr>
+<td>记录 &#x2F; 重放</td>
+<td>与撤销同级，另加序列化</td>
+<td>日志体积、版本兼容</td>
+</tr>
+<tr>
+<td>只是包一层（不逃逸）</td>
+<td>0 字节，耗时同量级</td>
+<td>无</td>
+</tr>
+</tbody></table>
+<h3 id="先算预算，再选实现"><a href="#先算预算，再选实现" class="headerlink" title="先算预算，再选实现"></a>先算预算，再选实现</h3><p>做撤销功能先把两个数字定下来：<strong>要能撤多少步</strong>、<strong>每条撤销记录有多大</strong>。两者相乘就是它的常驻内存。</p>
+<p>文档编辑器，状态 4KB，撤销 100 步：快照路线 100 × 4112 字节 ≈ 411KB，反向路线 100 × 32 字节 ≈ 3.2KB。撤销 10,000 步：快照 41.4MB，反向 320KB。41.4MB 是一个进程能感觉到的内存，320KB 是噪声。</p>
+<p>同一个编辑器如果每步操作的是「标点补全」这种小改动，反向记录里还要带上那几个字符，每条从 32 字节涨到 100 字节上下，仍然和 41MB 差两个数量级。快照路线的优势只在状态很小或者操作不可逆时才出现。</p>
+<h3 id="什么时候用"><a href="#什么时候用" class="headerlink" title="什么时候用"></a>什么时候用</h3><ul>
+<li><strong>调用要在执行之前拿到手</strong>：撤销、排队、日志与重放、把操作发给另一个进程。这几种需求都要同一个表示，命令对象是这个表示的标准形态。</li>
+<li><strong>撤销栈</strong>：先看操作可不可逆。可逆就记反向操作，32 字节一条，和状态大小无关。不可逆、或者状态很小（几十字节）而操作很复杂时，用快照。</li>
+<li><strong>排队</strong>：当调用方不能等执行方（UI 事件、任务队列、跨线程的写路径）时才用。用的时候给出队列容量上限，否则水位没有边界。</li>
+</ul>
+<h3 id="什么时候不用"><a href="#什么时候不用" class="headerlink" title="什么时候不用"></a>什么时候不用</h3><ul>
+<li><strong>只需要一个函数值</strong>。<code>Runnable</code>、<code>Consumer</code>、<code>Supplier</code> 这些接口就是命令的抽象，不必再定义一个单方法的 <code>Command</code> 接口。实测里 lambda 形态和具名类形态的分配字节相同（不逃逸都是 0，强制分配都是 24），耗时也在同一个量级，多定义一个接口换不来收益。</li>
+<li><strong>同步调用、只转发一层</strong>。没有栈、没有队列、没有日志，命令对象唯一的产出是多一次对象分配（24 字节）和一层间接调用。</li>
+<li><strong>操作本身很重时，队列的开销占比小，可以用；操作在纳秒级时，队列的开销是操作本身的几十倍。</strong> 判据是两条成本的比例。</li>
+<li><strong>撤销深度不设上限</strong>。状态 4KB、撤销 10,000 步就是 41.4MB 的常驻内存；<code>UndoManager</code> 的默认值 100 是个经验值，不是随便定的。</li>
+</ul>
+<h3 id="一条判断顺序"><a href="#一条判断顺序" class="headerlink" title="一条判断顺序"></a>一条判断顺序</h3><div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    flowchart TD
+    Q0[&quot;一次操作&quot;] --&gt; Q1{&quot;执行之前&lt;br&#x2F;&gt;需要拿到这次调用吗&quot;}
+    Q1 --&gt;|不需要| A1[&quot;直接调用&lt;br&#x2F;&gt;0 字节&quot;]
+    Q1 --&gt;|需要| Q2{&quot;由谁执行&quot;}
+    Q2 --&gt;|同一个线程| A2[&quot;命令对象 + 撤销栈 &#x2F; 日志&quot;]
+    Q2 --&gt;|另一个线程 &#x2F; 进程| A3[&quot;命令对象 + 队列&lt;br&#x2F;&gt;40 字节 + 锁 + 水位延迟&quot;]
+    A2 --&gt; Q3{&quot;操作可逆吗&quot;}
+    Q3 --&gt;|可逆| A4[&quot;记反向操作&lt;br&#x2F;&gt;32 字节一条，与状态无关&quot;]
+    Q3 --&gt;|不可逆| A5[&quot;记快照&lt;br&#x2F;&gt;4 × 状态大小一条&lt;br&#x2F;&gt;必须设上限&quot;]
+  </pre></div>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>10 万次操作四个形态的耗时（JDK 25）：直接调用 0.83 ns，命令对象 0.70 ns，命令对象加撤销栈 4.76 ns，入队后另一线程执行 133.2 ns。</li>
+<li>分配字节&#x2F;操作：直接调用 0，命令对象 0（被标量替换），命令对象加撤销栈 36.0，入队 52.6。三个命令对象本身的实测大小是 24、32、40 字节。</li>
+<li>关掉逃逸分析后，同一个命令对象形态的分配立刻变成 24 字节&#x2F;操作，耗时涨 6.3 倍（JDK 21）与 6.0 倍（JDK 25）。命令对象的价格由「逃没逃出去」决定，跟它是不是对象无关。</li>
+<li>排队形态的 p50 延迟 60.0µs，p99 0.21ms，队列峰值水位 8192（容量 8192），吞吐 125.0 ns&#x2F;op，是直接调用的 176 倍。延迟由水位决定，水位由两个线程的相对速度决定。</li>
+<li>撤销 10,000 次操作：反向操作 32 字节&#x2F;条、总量 320KB、回滚 0.039ms（256 字节状态）与 0.038ms（4KB 状态），与状态大小无关；快照 256 字节状态 304 字节&#x2F;条、总量 3.0MB，4KB 状态 4112 字节&#x2F;条、总量 41.4MB，回滚耗时 1.409ms。</li>
+<li><code>Runnable</code>（JDK 25 的 <code>java.base/java/lang/Runnable.java</code>）全文件 44 行，方法体只有一个 <code>run()</code>。命令的最小定义。</li>
+<li><code>ForkJoinTask.doExec</code>（<code>:507-518</code>）在执行任务体的前后维护 <code>status</code>，<code>exec()</code> 是子类实现的 <code>protected abstract boolean</code>（<code>:1285</code>）。命令对象进框架后第一件事是状态管理。</li>
+<li><code>UndoManager</code> 的默认上限是 100 条（<code>:156</code>），超过就调 <code>trimForLimit</code>（<code>:194</code>）以游标为中心裁掉两端的旧条目，每条调一次 <code>die()</code>（<code>:247</code>、<code>:255</code>）。JDK 自己的撤销栈带淘汰策略。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Runnable.html">Runnable (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/Executor.html">Executor (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/ExecutorService.html">ExecutorService (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/ForkJoinTask.html">ForkJoinTask (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/invoke/LambdaMetafactory.html">LambdaMetafactory (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/invoke/MethodHandle.html">MethodHandle (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.desktop/javax/swing/undo/UndoManager.html">UndoManager (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/ArrayBlockingQueue.html">ArrayBlockingQueue (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/jdk.management/com/sun/management/ThreadMXBean.html">com.sun.management.ThreadMXBean#getThreadAllocatedBytes</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/specs/man/java.html">java 命令参考：-XX:+DoEscapeAnalysis</a></li>
+<li><a href="/3654303619.html">设计模式——策略：换成函数之后没有变快</a></li>
+<li><a href="/4222041279.html">设计模式——备忘录：快照的边界</a></li>
+</ul>
+<blockquote>
+<p>系列索引：<a href="/pattern/">设计模式系列</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/924563661.html">https://lianglliu.github.io/924563661.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a><a class="post-meta__tags" href="/tags/%E5%91%BD%E4%BB%A4%E6%A8%A1%E5%BC%8F/">命令模式</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/3777229427.html" title="设计模式——模板方法：钩子的成本"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">设计模式——模板方法：钩子的成本</div></div><div class="info-2"><div class="info-item-1"> 模板方法把流程写死在父类，把可变的步骤留给子类。子类通常只需要实现一个方法。其余步骤是带默认实现的钩子，默认体在源码里经常是空的，读起来不要钱。本文量两件事：8 个空钩子在 1 亿次调用下的开销，以及 InputStream 的默认实现把一个批量读请求拆成逐字节调用之后，48 MiB 数据要多付多少。  一、骨架与钩子模板方法把一段流程拆成两种方法：父类实现的骨架方法，子类实现的步骤方法。步骤方法里，一部分是抽象方法，子类必须实现；另一部分是带默认实现的钩子，子类想改才改。      classDiagram     direction TB     class Template {         +run() final         #step()*         #hook1()         #hook2()         #hook3()     }     class ImplA     class ImplB     Template &lt;|-- ImplA     Template &lt;|-- ImplB     note for Templa...</div></div></div></a><a class="pagination-related" href="/3654303619.html" title="设计模式——策略：有状态与无状态"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">设计模式——策略：有状态与无状态</div></div><div class="info-2"><div class="info-item-1"> 策略模式把「用哪个算法」从调用点挪开，代价跟着一起挪，落在别的地方。一份共享的无状态实例和直接调用测不出差别；每次新建带状态的策略，成本从调用换成分配；从表里取策略，成本落在查表之后那个无法内联的调用点上。这篇在 JDK 21.0.8 和 JDK 25 上各跑 1 亿次调用，量四种形态的耗时和分配字节。  一、成本落在哪两个地方一个策略调用点要回答两件事：这次执行的是谁（分派），它需要的状态从哪来（持有或分配）。 分派和分配的价格差了好几个量级。分派如果是单态的，JIT 能把接口调用消成一条直接调用，再和调用体一起内联进循环，循环随即被向量化，最后测出来是每调用 0.3 纳秒这个量级。分配只要是逃逸的，每次调用都要付出一个对象的内存，1 亿次就是 2.4 GB 的垃圾。 策略有状态还是无状态，决定成本落在分派还是分配上。      graph TD     CALL[&quot;调用点 p.apply(x)&quot;] --&gt; SEL{&quot;p 从哪里来&quot;}     SEL --&gt;|&quot;static final，一份&quot;| S1[&...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/712561657.html" title="设计模式——解释器：解释还是编译"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——解释器：解释还是编译</div></div><div class="info-2"><div class="info-item-1"> 解释器模式把一门语言的求值写成对象树上的递归。同一棵树可以在构建期换成闭包树，每个节点变成一个捕获了子闭包的函数。两种形态的求值都是每个节点一次调用，差别落在调用点能不能被 JIT 静态化。用 27 节点和 7 节点两个表达式、各 100 万次求值，可以把这句话量出来。  一、两个求值器四则运算的最小文法：数字、变量、加减乘除。节点是一组 record，求值是节点自己的方法： 12345678sealed interface Node &#123; double eval(double[] v); &#125;record Num(double k) implements Node &#123; public double eval(double[] v) &#123; return k; &#125; &#125;record Var(int i) implements Node &#123; public double eval(double[] v) &#123; return v[i]; &#125; &#125;record Add(Node l, Node r) i...</div></div></div></a><a class="pagination-related" href="/3041245071.html" title="设计模式——迭代器：分配与逃逸分析"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——迭代器：分配与逃逸分析</div></div><div class="info-2"><div class="info-item-1"> ArrayList.iterator() 只有一行实现：return new Itr();。按字面读，每轮 for-each 都新建一个对象。实测 1250 万轮遍历：for-each 的分配是 0 字节，把迭代器存进字段的是 400 MB。差值来自 C2 的逃逸分析。把同一段代码丢给 C1，0 字节这一列就没有了。分配消除是当前那个编译版本的性质，同一份代码换个层级，这一列就变。  一、一行 new 和 0 字节的分配ArrayList 的 iterator() 在 JDK 25 里长这样，java.base/java/util/ArrayList.java:1029： 123public Iterator&lt;E&gt; iterator() &#123;    return new Itr();&#125;  Itr 定义在同一个文件 :1036，三个 int 字段加一个构造函数： 1234567private class Itr implements Iterator&lt;E&gt; &#123;    int cursor;       // index of n...</div></div></div></a><a class="pagination-related" href="/3864272964.html" title="设计模式——观察者：从 Observable 到背压"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——观察者：从 Observable 到背压</div></div><div class="info-2"><div class="info-item-1"> 观察者模式在代码层面只有十几行：一个注册表，一次遍历回调。订阅者比发布者快时，这个形态没有可测的代价；慢订阅者占住的是发布者的线程。JDK 1.0 给了 Observable，JDK 9 把它废弃，同一个版本里给出 Flow：四个接口，补上的那一块是 Subscription.request(long)。  一、228 行的废弃类java.util.Observable 从 JDK 1.0 就在。JDK 25 的 src.zip 里它还在，228 行，第 75 行写着： 12@Deprecated(since=&quot;9&quot;)public class Observable &#123;  两个 LTS 过去了，JDK 一直没把它移除。javadoc 给的理由（java.base/java/util/Observable.java:62-74）： 123456789101112* @deprecated* This class and the &#123;@link Observer&#125; interface have been deprecated.* The...</div></div></div></a><a class="pagination-related" href="/2622618202.html" title="设计模式——代理：动态代理的成本与边界"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-8.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——代理：动态代理的成本与边界</div></div><div class="info-2"><div class="info-item-1"> 代理保持调用方手里的类型不变，中间多插一层。日志、鉴权、重试、延迟加载、远程调用都落在这一层上。手写静态代理的问题是类数按「接口数 × 关注点数」涨，每个类里都是逐方法转发的样板。Proxy.newProxyInstance 把这件事挪到运行时：一次调用生成一个实现全部接口的类，一个 InvocationHandler 接管所有方法。代价在生成的字节码里：每个方法开头一次 anewarray，每个基本类型参数一次装箱。下面用 1 亿次调用把这份代价量出来，再单独量类生成与缓存。  一、代理解决的问题静态代理的算术三个接口、四个关注点。日志、鉴权、重试、指标，每个都要包一层，静态写法就得写这么多个类：      classDiagram     direction LR     class OrderService     class UserService     class PayService     class LoggingOrder     class AuthOrder     class RetryOrder     class MetricsOrder     ...</div></div></div></a><a class="pagination-related" href="/2957747751.html" title="设计模式——原型：拷贝的四条路"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——原型：拷贝的四条路</div></div><div class="info-2"><div class="info-item-1"> 原型模式只解决一件事：让一个对象复制出第二个实例。JDK 从 1.0 起就提供了 Object.clone()，它的签名到今天没动过。它的默认语义只有逐字段赋值：字段里的数组、集合、嵌套对象在副本里仍是原来那几个。本文用一个含嵌套数组与集合的对象图，把四条拷贝路各跑 100 万个，量耗时与分配字节，浅拷贝还是深拷贝由运行时的布尔结果给出。  一、原型换到的东西new 的成本有时花在构造器之前：参数要从十个数据源拼出来，或者对象的形状取决于启动阶段读到的配置。原型模式的前提是手上已经有一个配好的对象，接下来只剩复制。 JDK 自己的四个样本JDK 里几处需要「拿到一个和现有对象一样的新对象」的地方，做法各不相同：    位置 复制动作 嵌套引用    Object#clone VM 内建，逐字段赋值 原样带走   ArrayList#clone super.clone() 后 Arrays.copyOf(elementData, size) 原样带走   Arrays.copyOf 基本类型走 arraycopy，引用类型逐元素赋值 原样带走   HashMap 拷贝构造 逐条 ...</div></div></div></a><a class="pagination-related" href="/2495256397.html" title="设计模式——中介者：谁负责协调"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——中介者：谁负责协调</div></div><div class="info-2"><div class="info-item-1"> 中介者把参与者之间的 N(N−1) 条引用换成 N 条，代价是所有人的调用都要经过它。这笔代价有一半是虚构的：JIT 把只做转发的分发路径内联之后，它和直连编译成同一段代码，测不出差别。另一半是真的，来自中介者自己持有的共享状态：一个轮转游标、一个全局序号、一把锁。  一、换掉的是引用，也是决定权8 个参与者互相发事件。直连的写法是每个参与者持有其余 7 个的引用；中介者的写法是每个参与者只认识中介者。      graph TB     subgraph d[&quot;直连：参与者两两持有引用，8 个节点 56 条边&quot;]         direction LR         D1((A)) --- D2((B))         D1 --- D3((C))         D1 --- D4((D))         D2 --- D3         D2 --- D4         D3 --- D4     end     subgraph m[&quot;中介者：每个参与者一条引用，加上中介者的 8 条反向引用共 16 条&quot;]      ...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E6%8A%8A%E8%B0%83%E7%94%A8%E5%8F%98%E6%88%90%E5%AF%B9%E8%B1%A1"><span class="toc-number">1.</span> <span class="toc-text">一、把调用变成对象</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1"><span class="toc-number">2.</span> <span class="toc-text">二、实验设计</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E6%B5%8B%E4%B8%80%EF%BC%9A%E5%9B%9B%E7%A7%8D%E5%BD%A2%E6%80%81"><span class="toc-number">3.</span> <span class="toc-text">三、实测一：四种形态</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%91%BD%E4%BB%A4%E5%AF%B9%E8%B1%A1%E5%9C%A8%E4%B8%8D%E9%80%83%E9%80%B8%E6%97%B6%E6%98%AF%E5%85%8D%E8%B4%B9%E7%9A%84"><span class="toc-number">3.1.</span> <span class="toc-text">命令对象在不逃逸时是免费的</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%80%83%E9%80%B8%E4%B9%8B%E5%90%8E%E4%BB%B7%E6%A0%BC%E5%87%BA%E7%8E%B0%EF%BC%8C%E8%80%8C%E4%B8%94%E4%B8%8D%E5%9C%A8%E6%93%8D%E4%BD%9C%E6%9C%AC%E8%BA%AB"><span class="toc-number">3.2.</span> <span class="toc-text">逃逸之后价格出现，而且不在操作本身</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%AD%97%E6%AE%B5%E5%B0%B1%E6%98%AF%E8%B4%A6%E5%8D%95%E4%BB%B7"><span class="toc-number">3.3.</span> <span class="toc-text">字段就是账单价</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8E%92%E9%98%9F%E6%8A%8A%E5%BB%B6%E8%BF%9F%E4%BA%A4%E5%87%BA%E5%8E%BB"><span class="toc-number">3.4.</span> <span class="toc-text">排队把延迟交出去</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%BB%B6%E8%BF%9F%E5%88%86%E5%B8%83%E7%9A%84%E5%BD%A2%E7%8A%B6"><span class="toc-number">3.5.</span> <span class="toc-text">延迟分布的形状</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%98%9F%E5%88%97%E5%AE%B9%E9%87%8F%E7%9A%84%E9%80%89%E6%8B%A9"><span class="toc-number">3.6.</span> <span class="toc-text">队列容量的选择</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%A4%E4%B8%AA-JDK-%E4%B8%8A%E7%9A%84%E5%B7%AE%E5%88%AB"><span class="toc-number">3.7.</span> <span class="toc-text">两个 JDK 上的差别</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E6%92%A4%E9%94%80%E6%A0%88%E9%87%8C%E6%94%BE%E4%BB%80%E4%B9%88"><span class="toc-number">4.</span> <span class="toc-text">四、撤销栈里放什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%92%A4%E9%94%80%E6%A0%88%E6%98%AF%E4%B8%A4%E4%B8%AA%E6%A0%88"><span class="toc-number">4.1.</span> <span class="toc-text">撤销栈是两个栈</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%AE%B0%E5%BD%95%E4%B8%8E%E9%87%8D%E6%94%BE%E4%B8%BA%E4%BB%80%E4%B9%88%E7%BB%95%E4%B8%8D%E5%BC%80%E5%91%BD%E4%BB%A4%E5%AF%B9%E8%B1%A1"><span class="toc-number">4.2.</span> <span class="toc-text">记录与重放为什么绕不开命令对象</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81JDK-%E9%87%8C%E7%9A%84%E8%AF%81%E6%8D%AE"><span class="toc-number">5.</span> <span class="toc-text">五、JDK 里的证据</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E7%BB%93%E8%AE%BA"><span class="toc-number">6.</span> <span class="toc-text">六、结论</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%89%E6%A0%B7%E4%B8%9C%E8%A5%BF%E5%90%84%E8%87%AA%E7%9A%84%E4%BB%B7%E7%A0%81"><span class="toc-number">6.1.</span> <span class="toc-text">三样东西各自的价码</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%85%88%E7%AE%97%E9%A2%84%E7%AE%97%EF%BC%8C%E5%86%8D%E9%80%89%E5%AE%9E%E7%8E%B0"><span class="toc-number">6.2.</span> <span class="toc-text">先算预算，再选实现</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%94%A8"><span class="toc-number">6.3.</span> <span class="toc-text">什么时候用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%B8%8D%E7%94%A8"><span class="toc-number">6.4.</span> <span class="toc-text">什么时候不用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E6%9D%A1%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">6.5.</span> <span class="toc-text">一条判断顺序</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">7.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">8.</span> <span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  const parseViewBox = viewBox => {
+    if (!viewBox) return null
+    const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return null
+    return parts
+  }
+
+  const getSvgViewBox = svg => {
+    const attr = parseViewBox(svg.getAttribute('viewBox'))
+    if (attr) return attr
+
+    // Fallback: use bbox to build a viewBox
+    try {
+      const bbox = svg.getBBox()
+      if (bbox && bbox.width && bbox.height) return [bbox.x, bbox.y, bbox.width, bbox.height]
+    } catch (e) {
+      // getBBox may fail on some edge cases; ignore
+    }
+
+    const w = Number(svg.getAttribute('width')) || 0
+    const h = Number(svg.getAttribute('height')) || 0
+    if (w > 0 && h > 0) return [0, 0, w, h]
+    return [0, 0, 100, 100]
+  }
+
+  const setSvgViewBox = (svg, vb) => {
+    svg.setAttribute('viewBox', `${vb[0]} ${vb[1]} ${vb[2]} ${vb[3]}`)
+  }
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
+  const openSvgInNewTab = ({ source, initViewBox }) => {
+    const getClonedSvg = () => {
+      if (typeof source === 'string') {
+        const template = document.createElement('template')
+        template.innerHTML = source.trim()
+        const svg = template.content.querySelector('svg')
+        return svg ? svg.cloneNode(true) : null
+      }
+      if (source && typeof source.cloneNode === 'function') {
+        return source.cloneNode(true)
+      }
+      return null
+    }
+
+    const clone = getClonedSvg()
+    if (!clone) return
+    if (initViewBox && initViewBox.length === 4) {
+      clone.setAttribute('viewBox', initViewBox.join(' '))
+    }
+    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    if (!clone.getAttribute('xmlns:xlink') && clone.innerHTML.includes('xlink:')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    }
+    // inject background to match current theme
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const bg = getComputedStyle(document.body).backgroundColor || (isDark ? '#1e1e1e' : '#ffffff')
+    if (!clone.style.background) clone.style.background = bg
+
+    const serializer = new XMLSerializer()
+    const svgSource = serializer.serializeToString(clone)
+    const htmlSource = `<!doctype html><html><head><meta charset="utf-8" />
+      <style>
+        html, body { width: 100%; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; background: ${bg}; }
+        svg { max-width: 100%; max-height: 100%; height: auto; width: auto; }
+      </style>
+      </head><body>${svgSource}</body></html>`
+    const blob = new Blob([htmlSource], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener')
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  const attachMermaidViewerButton = wrap => {
+    let btn = wrap.querySelector('.mermaid-open-btn')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mermaid-open-btn'
+      wrap.appendChild(btn)
+    }
+
+    btn.innerHTML = '<i class="fa fa-search fa-fw" aria-hidden="true"></i>'
+
+    if (!btn.__mermaidViewerBound) {
+      btn.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        const svg = wrap.__mermaidOriginalSvg || wrap.querySelector('svg')
+        if (!svg) return
+        const initViewBox = wrap.__mermaidInitViewBox
+        openSvgInNewTab({ source: svg, initViewBox })
+      })
+      btn.__mermaidViewerBound = true
+    }
+  }
+
+  // Zoom around a point (px, py) in the SVG viewport (in viewBox coordinates)
+  const zoomAtPoint = (vb, factor, px, py) => {
+    const w = vb[2] * factor
+    const h = vb[3] * factor
+    const nx = px - (px - vb[0]) * factor
+    const ny = py - (py - vb[1]) * factor
+    return [nx, ny, w, h]
+  }
+
+  const initMermaidGestures = wrap => {
+    // Clean up previous event listeners and pending frames
+    if (wrap.__mermaidAbortController) {
+      wrap.__mermaidAbortController.abort()
+      if (wrap.__mermaidRafId) cancelAnimationFrame(wrap.__mermaidRafId)
+    }
+    const ac = new AbortController()
+    wrap.__mermaidAbortController = ac
+    const svg = wrap.querySelector('svg')
+    if (!svg) return
+
+    // Ensure viewBox exists so gestures always work
+    const initVb = getSvgViewBox(svg)
+    wrap.__mermaidInitViewBox = initVb
+    wrap.__mermaidCurViewBox = initVb.slice()
+    setSvgViewBox(svg, initVb)
+    // Disable default gestures to prevent scroll chaining and pinch-zoom penetration in Chrome
+    svg.style.touchAction = 'none'
+
+    // Cache BoundingClientRect, throttled on scroll to reduce reflow
+    let cachedRect = svg.getBoundingClientRect()
+    let rectDirty = false
+    const markRectDirty = () => { rectDirty = true }
+    window.addEventListener('resize', markRectDirty, { signal: ac.signal })
+    window.addEventListener('scroll', markRectDirty, { signal: ac.signal, capture: true })
+    const getRect = () => {
+      if (rectDirty) {
+        cachedRect = svg.getBoundingClientRect()
+        rectDirty = false
+      }
+      return cachedRect
+    }
+
+    // Precompute clamp bounds from initial viewBox
+    const minW = initVb[2] * 0.1
+    const maxW = initVb[2] * 10
+    const minH = initVb[3] * 0.1
+    const maxH = initVb[3] * 10
+    const clampVb = vb => {
+      const out = vb.slice()
+      out[2] = clamp(out[2], minW, maxW)
+      out[3] = clamp(out[3], minH, maxH)
+      return out
+    }
+
+    // Throttle DOM updates using requestAnimationFrame
+    let pendingVb = null
+    let rafId = null
+    const applyVb = () => {
+      if (pendingVb) {
+        wrap.__mermaidCurViewBox = pendingVb
+        setSvgViewBox(svg, pendingVb)
+        pendingVb = null
+      }
+      rafId = null
+      wrap.__mermaidRafId = null
+    }
+    const setCurVb = vb => {
+      pendingVb = clampVb(vb)
+      if (!rafId) {
+        rafId = requestAnimationFrame(applyVb)
+        wrap.__mermaidRafId = rafId
+      }
+    }
+
+    const state = {
+      pointers: new Map(),
+      startVb: null,
+      startDist: 0,
+      lastPointerX: 0,
+      lastPointerY: 0
+    }
+
+    const onPointerDown = e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      svg.setPointerCapture(e.pointerId)
+      const curVb = wrap.__mermaidCurViewBox
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 1) {
+        state.startVb = curVb.slice()
+        state.lastPointerX = e.clientX
+        state.lastPointerY = e.clientY
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        state.startDist = Math.hypot(dx, dy)
+        state.startVb = curVb.slice()
+      }
+    }
+
+    const onPointerMove = e => {
+      if (!state.pointers.has(e.pointerId)) return
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      if (state.pointers.size === 1 && state.startVb) {
+        const p = state.pointers.values().next().value
+        const dxClient = p.x - state.lastPointerX
+        const dyClient = p.y - state.lastPointerY
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+        const dx = dxClient * (curVb[2] / rect.width)
+        const dy = dyClient * (curVb[3] / rect.height)
+        setCurVb([curVb[0] - dx, curVb[1] - dy, curVb[2], curVb[3]])
+        return
+      }
+      if (state.pointers.size === 2 && state.startVb && state.startDist > 0) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        const dist = Math.hypot(dx, dy)
+        if (!dist) return
+        const factor = state.startDist / dist
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const px = curVb[0] + (cx - rect.left) * (curVb[2] / rect.width)
+        const py = curVb[1] + (cy - rect.top) * (curVb[3] / rect.height)
+        setCurVb(zoomAtPoint(state.startVb, factor, px, py))
+      }
+    }
+
+    const onPointerUpOrCancel = e => {
+      // Release PointerCapture to avoid event capture anomalies
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) {
+        svg.releasePointerCapture(e.pointerId)
+      }
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size === 0) {
+        state.startVb = null
+        state.startDist = 0
+      } else if (state.pointers.size === 1) {
+        const p = state.pointers.values().next().value
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+      }
+    }
+
+    const onWheel = e => {
+      // Prevent event bubbling from triggering external scroll
+      e.preventDefault()
+      e.stopPropagation()
+      // Normalize deltaY across deltaMode (Chrome uses pixels, Safari uses lines)
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= 400
+
+      // Continuous zoom factor: smoother than fixed 1.1/0.9 steps
+      const zoomFactor = Math.pow(1.001, delta)
+
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      const px = curVb[0] + (e.clientX - rect.left) * (curVb[2] / rect.width)
+      const py = curVb[1] + (e.clientY - rect.top) * (curVb[3] / rect.height)
+      setCurVb(zoomAtPoint(curVb, zoomFactor, px, py))
+    }
+
+    const onDblClick = () => {
+      const init = wrap.__mermaidInitViewBox
+      if (init) setCurVb(init)
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown, { signal: ac.signal })
+    svg.addEventListener('pointermove', onPointerMove, { signal: ac.signal })
+    svg.addEventListener('pointerup', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('pointercancel', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('wheel', onWheel, { passive: false, signal: ac.signal })
+    svg.addEventListener('dblclick', onDblClick, { signal: ac.signal })
+  }
+
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      // Clean up event listeners before removing old SVG
+      if (item.__mermaidAbortController) {
+        item.__mermaidAbortController.abort()
+      }
+      const oldSvg = item.querySelector('svg')
+      if (oldSvg) oldSvg.remove()
+      let config = {}
+      try {
+        config = mermaidSrc.dataset.config ? JSON.parse(mermaidSrc.dataset.config) : {}
+      } catch (e) {
+        console.warn('[mermaid] failed to parse dataset.config:', e)
+      }
+      if (!config.theme) {
+        config.theme = theme
+      }
+      const mermaidThemeConfig = `%%{init: ${JSON.stringify(config)}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+        if (true) initMermaidGestures(item)
+        item.__mermaidOriginalSvg = svg
+        if (true) attachMermaidViewerButton(item)
+      }
+
+      const handleError = err => {
+        console.error(`[mermaid] render failed for block #${index}:`, err)
+        const errorEl = document.createElement('div')
+        errorEl.className = 'mermaid-error'
+        errorEl.textContent = `Mermaid render error: ${err.message || err}`
+        mermaidSrc.insertAdjacentElement('afterend', errorEl)
+      }
+
+      try {
+        const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+        // mermaid v9 and v10 compatibility
+        if (typeof renderFn === 'string') {
+          renderMermaid(renderFn)
+        } else {
+          renderFn.then(({ svg }) => renderMermaid(svg)).catch(handleError)
+        }
+      } catch (err) {
+        handleError(err)
+      }
+    })
+  }
+
+  const codeToMermaid = $article => {
+    const codeMermaidEle = $article.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    const $article = document.getElementById('article-container')
+    if (!$article) return
+
+    if (false) codeToMermaid($article)
+    const $mermaid = $article.querySelectorAll('.mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

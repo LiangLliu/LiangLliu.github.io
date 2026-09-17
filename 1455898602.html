@@ -1,0 +1,1080 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式——不可变与防御性拷贝 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="把「共享不可变对象」和「每次防御性拷贝」两笔账分开量：1 亿次读取下耗时差 27 到 33 倍，分配是 0 对 104 GB；再量 List.copyOf 与 unmodifiableList 的构造与访问成本，并用布尔结果验证 record 持有可变组件时拷贝防住了什么。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="设计模式——不可变与防御性拷贝">
+<meta property="og:url" content="https://lianglliu.github.io/1455898602.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="把「共享不可变对象」和「每次防御性拷贝」两笔账分开量：1 亿次读取下耗时差 27 到 33 倍，分配是 0 对 104 GB；再量 List.copyOf 与 unmodifiableList 的构造与访问成本，并用布尔结果验证 record 持有可变组件时拷贝防住了什么。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png">
+<meta property="article:published_time" content="2026-09-17T11:30:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T11:30:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="不可变性">
+<meta property="article:tag" content="设计模式">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "设计模式——不可变与防御性拷贝",
+  "url": "https://lianglliu.github.io/1455898602.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png",
+  "datePublished": "2026-09-17T11:30:00.000Z",
+  "dateModified": "2026-09-17T11:30:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/1455898602.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '设计模式——不可变与防御性拷贝',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">设计模式——不可变与防御性拷贝</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">设计模式——不可变与防御性拷贝</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">6.6k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>24分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>不可变有两个动作：造的时候不让别人改，交出去的时候把边界封住。<br>共享和拷贝是两笔账：共享把成本压在构造那一刻，拷贝把成本摊到每一次读取上。<br>1 亿次读取、1024 元素的列表、一组布尔验证，把这两笔账分开算，跑在两个 LTS 上：JDK 21.0.8 与 JDK 25。</p>
+</blockquote>
+<h2 id="一、两笔账记在谁头上"><a href="#一、两笔账记在谁头上" class="headerlink" title="一、两笔账记在谁头上"></a>一、两笔账记在谁头上</h2><p>对象内部持有 1024 字节的数组，上层有很多只读的调用方，写法有两种。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">SharedRepo</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span>[] data = <span class="keyword">new</span> <span class="title class_">int</span>[<span class="number">256</span>];</span><br><span class="line">    <span class="type">int</span>[] data() &#123; <span class="keyword">return</span> data; &#125;                       <span class="comment">// 交出引用</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">CopyRepo</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span>[] data = <span class="keyword">new</span> <span class="title class_">int</span>[<span class="number">256</span>];</span><br><span class="line">    <span class="type">int</span>[] data() &#123; <span class="keyword">return</span> Arrays.copyOf(data, data.length); &#125;   <span class="comment">// 每次拷一份</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>两个 <code>data()</code> 都是安全的：字段是 <code>final</code>，外部改不到 <code>SharedRepo</code> 的状态。差别在记账方式：<code>SharedRepo</code> 的成本在构造时付清，之后每次读取都是零；<code>CopyRepo</code> 的 1024 字节按调用次数收费。</p>
+<p>边界不止 getter 一处：构造器收下的可变参数、setter 写进字段的对象、方法的返回值、传给别的组件的参数，都是「引用离开自己控制」的位置。同一个数组从构造器进来要拷一次，从访问器出去要拷第二次，两个方向都堵上才叫封装。第三种做法是把内部表示换成不可变类型，<code>Date</code> 换成 <code>Instant</code>，<code>int[]</code> 换成一个只读接口，边界不会产生，拷贝也就不需要了。</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph TD
+    CALL[&quot;调用方 data()&quot;] --&gt; Q{&quot;交出的是引用还是副本&quot;}
+    Q --&gt;|引用| S1[&quot;同一块数组&quot;]
+    S1 --&gt; S2[&quot;读取成本 &#x3D; 一次数组访问&quot;]
+    S1 --&gt; S3[&quot;分配 0 字节，读者之间共享缓存行&quot;]
+    Q --&gt;|副本| C1[&quot;每次 new 一块 1040 字节&quot;]
+    C1 --&gt; C2[&quot;读取成本 &#x3D; 分配 + 拷贝 + 清零&quot;]
+    C1 --&gt; C3[&quot;1 亿次 &#x3D; 104 GB 垃圾，年轻代回收 81 次&quot;]
+  </pre></div>
+
+<p>集合库里同一个需求有第二种形态。要对外返回「不可修改的列表」，JDK 给了两个入口：<code>List.copyOf</code> 复制一份数据，<code>Collections.unmodifiableList</code> 返回一个转发读操作的视图：</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph LR
+    MUT[&quot;ArrayList x&quot;] --&gt; A[&quot;List.copyOf(x)&quot;]
+    MUT --&gt; B[&quot;unmodifiableList(x)&quot;]
+    A --&gt; A1[&quot;新数组 + ListN 对象&lt;br&#x2F;&gt;改动 x 不影响它&quot;]
+    B --&gt; B1[&quot;一个 24 字节包装对象&lt;br&#x2F;&gt;读操作转发给 x&quot;]
+    MUT -.-&gt;|&quot;之后 add&quot;| B1
+  </pre></div>
+
+<p>两个入口的语义和成本都不是一回事：第三节和第四节给出这两组数字，第五节验证 record 持有可变字段时拷贝防住了什么。</p>
+<h2 id="二、实验设计与局限"><a href="#二、实验设计与局限" class="headerlink" title="二、实验设计与局限"></a>二、实验设计与局限</h2><ul>
+<li>机器：Apple M1 Pro，macOS 26.6.2，arm64</li>
+<li>JDK：<code>21.0.8+12-LTS-250</code> 与 <code>25+37-LTS-3491</code>，各自用自己的 <code>javac</code> 编译</li>
+<li>计时：<code>System.nanoTime()</code>，每轮新起进程，预热后重复 3 轮取中位数</li>
+<li>分配字节：<code>com.sun.management.ThreadMXBean.getThreadAllocatedBytes(threadId)</code>，线程级精确计数，不受采样影响</li>
+<li>GC：<code>GarbageCollectorMXBean</code> 的计数与累计暂停时间，按收集器归因</li>
+<li>exp1 用 <code>-Xms2g -Xmx2g</code>，固定堆大小，两次测量条件一致</li>
+<li>测量期间独占一个全局锁（<code>mkdir /tmp/pattern-bench.lock</code>），机器上有并行任务在跑，不持锁计时会被抢 CPU</li>
+<li>这次测量没用 JMH（本机也没有现成安装）：单机微基准，只用来判断量级，不当作硬件上限</li>
+</ul>
+<p>分配字节的取法就三行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">var</span> <span class="variable">tmx</span> <span class="operator">=</span> (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();</span><br><span class="line"><span class="type">long</span> <span class="variable">before</span> <span class="operator">=</span> tmx.getThreadAllocatedBytes(Thread.currentThread().threadId());</span><br><span class="line"><span class="comment">/* 被测代码 */</span></span><br><span class="line"><span class="type">long</span> <span class="variable">bytes</span> <span class="operator">=</span> tmx.getThreadAllocatedBytes(Thread.currentThread().threadId()) - before;</span><br></pre></td></tr></table></figure>
+
+<p>这个计数器每个线程一份，精确累加，不采样、不分代，跑一次就是全部。GC 的计数和累计暂停时间从 <code>GarbageCollectorMXBean</code> 读，按收集器名字归因。</p>
+<p>分配如果不逃逸，逃逸分析（EA）会把 <code>Arrays.copyOf</code> 的结果整个消掉，量出来的「拷贝成本」就是零。代码里每 1024 次迭代把数组引用写进静态字段，结果累加进另一个静态字段，并在末尾打印。分配字节数做交叉验证：拷贝分支每次 1040 字节，与 <code>int[256]</code> 的对象大小分毫不差，EA 没有把这次分配消掉。</p>
+<p>每轮里的第一次重复会慢一截：JIT 到那时还没把循环编译到最佳状态，预热只跑了正式量的 5%。所有表格都取三次的中位数，这点方差改变不了量级差。</p>
+<p>共享分支的循环体里没有可变状态，JIT 可以把不变量提到循环外，共享侧的时间应看成下界。分配字节数和 GC 次数不受这种优化影响，是这组实验里更硬的证据。</p>
+<h2 id="三、实测一：1-亿次读取"><a href="#三、实测一：1-亿次读取" class="headerlink" title="三、实测一：1 亿次读取"></a>三、实测一：1 亿次读取</h2><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span>[] a = repo.data();</span><br><span class="line">s += a[i &amp; <span class="number">255</span>];</span><br></pre></td></tr></table></figure>
+
+<p>两个变体各跑 1 亿次，取三次中位数：</p>
+<table>
+<thead>
+<tr>
+<th>变体</th>
+<th>JDK 21</th>
+<th>JDK 25</th>
+<th>每次分配</th>
+<th>1 亿次总分配</th>
+<th>Young GC</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>共享不可变数组</td>
+<td>1.134 ns（113 ms）</td>
+<td>0.901 ns（90 ms）</td>
+<td>0 字节</td>
+<td>0</td>
+<td>0 次</td>
+</tr>
+<tr>
+<td>每次 <code>Arrays.copyOf</code></td>
+<td>31.097 ns（3.11 s）</td>
+<td>30.014 ns（3.00 s）</td>
+<td>1040 字节</td>
+<td>104 GB</td>
+<td>81 次</td>
+</tr>
+</tbody></table>
+<p><img src="/assets/patterns/immutability-copy-cost.png" alt="1 亿次读取：共享 vs 每次拷贝"></p>
+<p>三次重复的原始数据在两个 JDK 上都很稳：JDK 21 共享侧 1.346 &#x2F; 1.133 &#x2F; 1.134 ns，拷贝侧 31.451 &#x2F; 31.097 &#x2F; 30.250 ns；JDK 25 是 0.777 &#x2F; 0.909 &#x2F; 0.901 ns 和 30.014 &#x2F; 30.361 &#x2F; 29.437 ns。时间比 27.4 倍（JDK 21）与 33.3 倍（JDK 25）。</p>
+<p>1040 字节是 16 字节对象头加 1024 字节数据，1 亿次乘出来 104,000,000,000 字节。GC 计数按收集器归因：81 次全部落在 <code>G1 Young Generation</code>，<code>G1 Old Generation</code> 与 <code>G1 Concurrent GC</code> 一次都没有。累计暂停时间在两个 JDK 上差了近 3 倍：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>Young GC 次数</th>
+<th>JDK 21 累计暂停</th>
+<th>JDK 25 累计暂停</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1 亿次拷贝（三次重复）</td>
+<td>81</td>
+<td>243 &#x2F; 258 &#x2F; 202 ms</td>
+<td>86 &#x2F; 85 &#x2F; 77 ms</td>
+</tr>
+</tbody></table>
+<p>暂停时间只占拷贝总耗时的 2% 到 8%，其余开销都在分配和拷贝上。104 GB 除以 3.0 秒是 34.7 GB&#x2F;s 的分配吞吐。同一次操作还要把源数组读一遍，真实内存流量翻倍之后接近 M1 Pro 单核内存带宽的量级。<code>Arrays.copyOf</code> 在这条路径上编译成走向量化指令的整块数组拷贝，没有 256 次 int 赋值。</p>
+<p>把 30 ns 摊开：从 TLAB 里切一段、清零 1 KiB、拷 1 KiB、返回引用。清零和拷贝按内存带宽计价，成本与数组字节数成正比。<code>new</code> 几乎免费，指针加一下就完了。</p>
+<p>共享侧 1 ns 上下，已经低到循环开销的量级：这轮循环里有取数组、加一个 <code>int</code>、每 1024 次一次写。JIT 能把不变的部分提出去，所以这个数不能读成「读一次数组要 1 纳秒」，只能读成「这条路径在这个循环里测不出额外成本」。分配字节 0 是确定的。</p>
+<p>只读路径上共享一个不可变对象，比每次拷一份 1 KiB 省下 27 到 33 倍的耗时，分配上是 104 GB 对 0。读取次数越多，这笔账越贵。</p>
+<p>把每次 1040 字节换算成分配速率：</p>
+<table>
+<thead>
+<tr>
+<th>读取速率</th>
+<th>拷贝方案的分配速率</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>10 万次&#x2F;秒</td>
+<td>104 MB&#x2F;s</td>
+</tr>
+<tr>
+<td>100 万次&#x2F;秒</td>
+<td>1.04 GB&#x2F;s</td>
+</tr>
+<tr>
+<td>1000 万次&#x2F;秒</td>
+<td>10.4 GB&#x2F;s</td>
+</tr>
+<tr>
+<td>本次实验（约 3300 万次&#x2F;秒）</td>
+<td>34.7 GB&#x2F;s，对应 81 次 Young GC</td>
+</tr>
+</tbody></table>
+<p>每秒百万次这个量级，年轻代回收会稳定出现在火焰图上。同一份数据改走共享，这一列全部归零。</p>
+<h2 id="四、实测二：同一句「返回不可修改列表」"><a href="#四、实测二：同一句「返回不可修改列表」" class="headerlink" title="四、实测二：同一句「返回不可修改列表」"></a>四、实测二：同一句「返回不可修改列表」</h2><h3 id="构造端"><a href="#构造端" class="headerlink" title="构造端"></a>构造端</h3><p>列表固定 1024 个 <code>Integer</code>，<code>List.copyOf</code> 与 <code>Collections.unmodifiableList</code> 各构造 20 万次，取三次中位数：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>JDK 21</th>
+<th>JDK 25</th>
+<th>分配&#x2F;次</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>List.copyOf(可变 ArrayList)</code></td>
+<td>1334 ns</td>
+<td>1410 ns</td>
+<td>8248 字节</td>
+</tr>
+<tr>
+<td><code>Collections.unmodifiableList(可变 ArrayList)</code></td>
+<td>2.3 ns</td>
+<td>2.7 ns</td>
+<td>24 字节</td>
+</tr>
+<tr>
+<td><code>List.copyOf(已是不可变列表)</code></td>
+<td>3.0 ns</td>
+<td>2.9 ns</td>
+<td>0 字节</td>
+</tr>
+<tr>
+<td><code>Collections.unmodifiableList(已是不可变列表)</code></td>
+<td>37 ns</td>
+<td>25 ns</td>
+<td>24 字节</td>
+</tr>
+</tbody></table>
+<p>第一行和第二行的差是 574 倍耗时、344 倍内存。最后一行三轮的离散度很大（JDK 21 上 59 &#x2F; 37 &#x2F; 3.2 ns，JDK 25 上 56 &#x2F; 9.6 &#x2F; 25.5 ns），这条路径的编译状态在测量期间反复重建，只有「照样分配 24 字节」是确定的。</p>
+<p>8248 比一个数组大，拆开就清楚了。单独数分配字节的探针，两个 JDK 结果一致：</p>
+<table>
+<thead>
+<tr>
+<th>表达式</th>
+<th>字节&#x2F;次</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>base.toArray()</code></td>
+<td>4112</td>
+<td>一个 1024 长的 <code>Object[]</code></td>
+</tr>
+<tr>
+<td><code>List.of(base.toArray())</code></td>
+<td>8248</td>
+<td>又来一遍</td>
+</tr>
+<tr>
+<td><code>List.copyOf(可变 ArrayList)</code></td>
+<td>8248</td>
+<td>同上，走的就是这条路</td>
+</tr>
+<tr>
+<td><code>new ArrayList&lt;&gt;(base)</code></td>
+<td>4136</td>
+<td>4112 + 24 的对象头</td>
+</tr>
+<tr>
+<td><code>Collections.unmodifiableList(base)</code></td>
+<td>24</td>
+<td>只有包装对象</td>
+</tr>
+<tr>
+<td><code>List.copyOf(List.copyOf(x))</code></td>
+<td>0</td>
+<td>直接返回入参</td>
+</tr>
+<tr>
+<td><code>Arrays.copyOf(int[256])</code></td>
+<td>1040</td>
+<td>16 字节头 + 1024 字节数据</td>
+</tr>
+<tr>
+<td><code>List.of(1, 2, 3)</code></td>
+<td>56</td>
+<td>一个 <code>Object[3]</code> 加一个 <code>ListN</code>，没有第二块</td>
+</tr>
+<tr>
+<td><code>List.copyOf(2 元素 ArrayList)</code></td>
+<td>48</td>
+<td><code>Object[2]</code> 加 <code>List12</code></td>
+</tr>
+<tr>
+<td><code>List.of(1, 2)</code></td>
+<td>24</td>
+<td>只有 <code>List12</code>，没有数组</td>
+</tr>
+</tbody></table>
+<p><code>List.copyOf</code> 走 <code>ArrayList.toArray()</code> 拿到第一块数组，<code>ImmutableCollections.listFromArray</code> 为了防 TOCTOU 又拷了第二块，再加 24 字节的 <code>ListN</code> 对象，4112 + 4112 + 24 &#x3D; 8248。同一份数据在构造端搬了两遍。</p>
+<p>两次搬数据的效率差很多。第三节里 <code>Arrays.copyOf</code> 搬 1 KiB 花 30 ns，分配吞吐 34.7 GB&#x2F;s；这里 <code>List.copyOf</code> 摊到 1334 ns，分配吞吐只有 8248 &#x2F; 1334 ns &#x3D; 6.2 GB&#x2F;s。慢的那一遍是 <code>listFromArray</code> 的逐元素循环：1024 次判空、赋值、过写屏障，不受 <code>arraycopy</code> 向量化照顾。按 1024 次迭代摊，每次约 1.3 ns，与一次带判空的引用赋值对得上。</p>
+<p>第二块数组负责另一件事：拒绝 null 元素。<code>List.copyOf</code> 的契约不接受 null，检查只能逐元素做，而逐元素检查必须在自己的数组上进行，否则别的线程可能在检查完到使用之间把数据改掉。安全检查和拷贝在这里是同一段代码。</p>
+<p>拷贝的代价随元素个数线性增长，视图那一侧的 24 字节不随元素个数变。两个元素时 <code>List.copyOf</code> 分配 48 字节（一个 <code>Object[2]</code> 加一个 <code>List12</code>），1024 个元素时是 8248 字节。<code>List.of(1, 2)</code> 只分配 24 字节，元素存在 <code>List12</code> 的两个字段里（<code>ImmutableCollections.java:576-579</code>），连数组都不要。列表越长，两个选择的差距越大；长度只有个位数的配置列表，两边的分配都是几十字节。</p>
+<h3 id="两个共享快路径互不认账"><a href="#两个共享快路径互不认账" class="headerlink" title="两个共享快路径互不认账"></a>两个共享快路径互不认账</h3><p><code>List.copyOf</code> 对已经是 <code>ListN</code>&#x2F;<code>List12</code> 的入参直接返回，<code>Collections.unmodifiableList</code> 对已经是自己的包装类的入参也直接返回。四条恒等判断在两个 JDK 上一致：</p>
+<table>
+<thead>
+<tr>
+<th>表达式</th>
+<th>结果</th>
+<th>分配</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>List.copyOf(List.copyOf(x)) == List.copyOf(x)</code></td>
+<td>true</td>
+<td>0 字节</td>
+</tr>
+<tr>
+<td><code>unmodifiableList(unmodifiableList(x)) == unmodifiableList(x)</code></td>
+<td>true</td>
+<td>0 字节</td>
+</tr>
+<tr>
+<td><code>unmodifiableList(List.copyOf(x)) == List.copyOf(x)</code></td>
+<td>false</td>
+<td>24 字节</td>
+</tr>
+<tr>
+<td><code>List.copyOf(unmodifiableList(x)) == unmodifiableList(x)</code></td>
+<td>false</td>
+<td>8248 字节</td>
+</tr>
+</tbody></table>
+<p>两条共享路径都只认自己的类型。把一个不可变列表再包一层视图，或者把一个视图再拷一份，两个库都不会省下这一趟。</p>
+<h3 id="访问端"><a href="#访问端" class="headerlink" title="访问端"></a>访问端</h3><p>同两个列表各 <code>get</code> 1 亿次，索引在 1024 上取模：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>JDK 21</th>
+<th>JDK 25</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>List.copyOf(x).get</code>（<code>ListN</code> 直接索引）</td>
+<td>0.710 ns</td>
+<td>0.672 ns</td>
+</tr>
+<tr>
+<td><code>unmodifiableList(x).get</code>（转发给 <code>ArrayList</code>）</td>
+<td>0.728 ns</td>
+<td>0.692 ns</td>
+</tr>
+<tr>
+<td><code>unmodifiableList(List.copyOf(x)).get</code>（转发两层）</td>
+<td>0.737 ns</td>
+<td>0.693 ns</td>
+</tr>
+</tbody></table>
+<p>三者最大差 0.065 ns，相对差 10%。这条循环的下界是从数组里取一个元素、拆箱、累加，三条路径都贴着它。访问端测不出量级差，「包装一层会拖慢读取」在这个规模上不成立。</p>
+<h3 id="语义差别"><a href="#语义差别" class="headerlink" title="语义差别"></a>语义差别</h3><p>成本差两个数量级以上，语义差一个方向。四个布尔结果在两个 JDK 上一致：</p>
+<table>
+<thead>
+<tr>
+<th>检查</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>unmodifiableList(m).size()</code> 在 <code>m.add(&quot;b&quot;)</code> 之后变成 2</td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>List.copyOf(m).size()</code> 在 <code>m.add(&quot;b&quot;)</code> 之后仍是 1</td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>List.copyOf(Arrays.asList(&quot;a&quot;, null))</code> 抛 <code>NullPointerException</code></td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>unmodifiableList(Arrays.asList(&quot;a&quot;, null)).size()</code> 等于 2，不检查元素</td>
+<td>true</td>
+</tr>
+</tbody></table>
+<p>视图跟着底层走，是零成本的引用；拷贝是快照，顺带在构造时把 null 元素挡掉。选哪个取决于要的是「同一个数据的只读入口」还是「这一刻的数据」。</p>
+<p>把视图当快照传出去，是这类 API 最常见的用法错误：接收方拿到 <code>unmodifiableList</code> 的返回值，按名字理解成「不会变」。看上表第一行：底层列表之后每改一次，接收方看到的都跟着变。要快照就用 <code>List.copyOf</code>。名字相差几个字，一个是快照、一个是视图，成本差两个数量级以上。</p>
+<h2 id="五、实测三：record-持有可变组件"><a href="#五、实测三：record-持有可变组件" class="headerlink" title="五、实测三：record 持有可变组件"></a>五、实测三：record 持有可变组件</h2><p>record 自动生成的 <code>equals</code> &#x2F; <code>hashCode</code> &#x2F; <code>toString</code> 看着像值对象，组件是可变类型时这个假设要验证。被测的四个 record：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">record</span> <span class="title class_">BadKey</span><span class="params">(<span class="type">int</span>[] k)</span> &#123; &#125;                  <span class="comment">// 什么也不做</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">record</span> <span class="title class_">GoodKey</span><span class="params">(<span class="type">int</span>[] k)</span> &#123;</span><br><span class="line">    GoodKey &#123; k = k.clone(); &#125;                          <span class="comment">// 入口拷贝</span></span><br><span class="line">    <span class="meta">@Override</span> <span class="keyword">public</span> <span class="type">int</span>[] k() &#123; <span class="keyword">return</span> k.clone(); &#125;    <span class="comment">// 出口拷贝</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">record</span> <span class="title class_">BadList</span><span class="params">(List&lt;String&gt; l)</span> &#123; &#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">record</span> <span class="title class_">GoodList</span><span class="params">(List&lt;String&gt; l)</span> &#123;</span><br><span class="line">    GoodList &#123; l = List.copyOf(l); &#125;                    <span class="comment">// 构造器里定下快照</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>19 项布尔检查，两个 JDK 结果一致。</p>
+<p>组件是 <code>int[]</code>：</p>
+<table>
+<thead>
+<tr>
+<th>检查</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>外部改 <code>src[0] = 99</code> 后，<code>bad.k()[0]</code> 变成 99</td>
+<td>true</td>
+</tr>
+<tr>
+<td>内容改了，<code>bad.hashCode()</code> 不变</td>
+<td>true</td>
+</tr>
+<tr>
+<td>改动后拿同一个实例去 <code>HashMap</code> 查，仍然查得到</td>
+<td>true</td>
+</tr>
+<tr>
+<td>两个内容相同的 <code>record</code> 互相 <code>equals</code></td>
+<td>false</td>
+</tr>
+<tr>
+<td>拿同内容的新实例去查同一个 <code>HashMap</code></td>
+<td>查不到（返回 null），true</td>
+</tr>
+</tbody></table>
+<p>头三行是值的穿透，后两行说明 <code>record</code> 生成的 <code>equals</code>&#x2F;<code>hashCode</code> 对数组组件按引用比较，不看内容。所以 <code>int[]</code> 组件既没有值语义，也不会因内容漂移搞坏哈希表。</p>
+<p>组件是 <code>Date</code> 或者 <code>List</code> 时，方向反过来。这两个类的 <code>equals</code>&#x2F;<code>hashCode</code> 由内容定义：</p>
+<table>
+<thead>
+<tr>
+<th>检查</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>new Window(d, d2)</code> 之后 <code>d.setTime(9999)</code>，<code>w.from().getTime()</code> 变成 9999</td>
+<td>true</td>
+</tr>
+<tr>
+<td>改动前 <code>HashMap.get(w)</code> 查得到</td>
+<td>true</td>
+</tr>
+<tr>
+<td>改动后 <code>HashMap.get(w)</code> 查不到，<code>size()</code> 仍是 1</td>
+<td>true</td>
+</tr>
+<tr>
+<td>未拷贝的 <code>List</code> 组件在外面 <code>add(&quot;b&quot;)</code> 之后看到 2 个元素</td>
+<td>true</td>
+</tr>
+<tr>
+<td>在构造器里 <code>List.copyOf</code> 过的 <code>List</code> 组件仍是 1 个元素</td>
+<td>true</td>
+</tr>
+<tr>
+<td>上面那个未拷贝的 <code>List</code> 组件改动后，<code>HashMap</code> 也查不到</td>
+<td>true</td>
+</tr>
+</tbody></table>
+<p>键还在桶里，取不出来了。<code>size()</code> 保持 1，<code>get</code> 返回 null，这是可变组件最典型的故障形态。</p>
+<p>入口和出口两个方向都要堵。<code>GoodKey</code> 在规范构造器里 <code>k.clone()</code>，在访问器里再 <code>k.clone()</code>：</p>
+<table>
+<thead>
+<tr>
+<th>检查</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>改 <code>src2[1]</code> 之后，<code>good.k()[1]</code> 不等于 77</td>
+<td>true</td>
+</tr>
+<tr>
+<td>改 <code>good.k()</code> 返回的数组之后，<code>good.k()[2]</code> 不等于 55</td>
+<td>true</td>
+</tr>
+</tbody></table>
+<p>只堵一个方向，另一边照样能把状态改掉。访问器不拷贝时，拿到返回值的人一改，对象内部就变了；构造器不拷贝时，传数组进来的人在构造之后一改，对象也跟着变。</p>
+<p>还有一条性质：<code>List.copyOf(new ArrayList&lt;&gt;(...))</code> 是浅拷贝。</p>
+<table>
+<thead>
+<tr>
+<th>检查</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>List&lt;StringBuilder&gt;</code> 拷贝后改元素本身，拷贝里的元素跟着变</td>
+<td>true</td>
+</tr>
+</tbody></table>
+<p>列表结构不可改，元素还是可变的。要让整棵树不可变，得逐层处理。</p>
+<h2 id="六、JDK-源码里的几个决策点"><a href="#六、JDK-源码里的几个决策点" class="headerlink" title="六、JDK 源码里的几个决策点"></a>六、JDK 源码里的几个决策点</h2><h3 id="List-copyOf-的三条分支"><a href="#List-copyOf-的三条分支" class="headerlink" title="List.copyOf 的三条分支"></a><code>List.copyOf</code> 的三条分支</h3><p>JDK 25 <code>java.base/java/util/List.java:1190-1192</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> &lt;E&gt; List&lt;E&gt; <span class="title function_">copyOf</span><span class="params">(Collection&lt;? extends E&gt; coll)</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> ImmutableCollections.listCopy(coll);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>javadoc 里已经写明有共享路径，<code>List.java:1182</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">* calling copyOf will generally not create a copy.</span><br></pre></td></tr></table></figure>
+
+<p>实现落在 <code>java.base/java/util/ImmutableCollections.java:185-192</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> &lt;E&gt; List&lt;E&gt; <span class="title function_">listCopy</span><span class="params">(Collection&lt;? extends E&gt; coll)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (coll <span class="keyword">instanceof</span> List12 || (coll <span class="keyword">instanceof</span> ListN&lt;?&gt; c &amp;&amp; !c.allowNulls)) &#123;</span><br><span class="line">        <span class="keyword">return</span> (List&lt;E&gt;)coll;</span><br><span class="line">    &#125; <span class="keyword">else</span> <span class="keyword">if</span> (coll.isEmpty()) &#123; <span class="comment">// implicit nullcheck of coll</span></span><br><span class="line">        <span class="keyword">return</span> List.of();</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> (List&lt;E&gt;)List.of(coll.toArray());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>三条分支：入参已经是不可变列表就原样返回；空集合返回共享的空列表；其余情况走拷贝。第四节恒等判断表的第一行对应第一条分支。</p>
+<h3 id="拷贝为什么要来两遍"><a href="#拷贝为什么要来两遍" class="headerlink" title="拷贝为什么要来两遍"></a>拷贝为什么要来两遍</h3><p><code>ImmutableCollections.java:204-211</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> &lt;E&gt; List&lt;E&gt; <span class="title function_">listFromArray</span><span class="params">(E... input)</span> &#123;</span><br><span class="line">    <span class="comment">// copy and check manually to avoid TOCTOU</span></span><br><span class="line">    <span class="meta">@SuppressWarnings(&quot;unchecked&quot;)</span></span><br><span class="line">    E[] tmp = (E[])<span class="keyword">new</span> <span class="title class_">Object</span>[input.length]; <span class="comment">// implicit nullcheck of input</span></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; input.length; i++) &#123;</span><br><span class="line">        tmp[i] = Objects.requireNonNull(input[i]);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">ListN</span>&lt;&gt;(tmp, <span class="literal">false</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>注释写着 TOCTOU：先分配、再逐个判空并搬进新数组。入参数组在检查和使用之间可能被另一个线程改掉，所以不能直接用。这就是 8248 里第二块 4112 的来源。</p>
+<p>同一个文件里还有一条相反的路径，<code>ImmutableCollections.java:219</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">* safely reused as the List<span class="string">&#x27;s internal storage, avoiding a defensive copy. The array&#x27;</span>s</span><br></pre></td></tr></table></figure>
+
+<p>这是 <code>listFromTrustedArray</code> 的 javadoc，信任调用方不再持有数组时，直接把数组当内部存储，省掉一次拷贝。<code>List.of(a, b, c)</code> 走的是定长重载（<code>List.java:969-971</code>），数组由库自己造、外部拿不到引用，<code>ListN</code> 直接收下了这个数组。同一次测量里它的 56 字节就是一个 <code>Object[3]</code> 加一个 <code>ListN</code>，没有第二块数组。</p>
+<p>存下来的数组此后只读。<code>ImmutableCollections.java:698-726</code> 里 <code>ListN</code> 的实现：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">final</span> E[] elements;</span><br><span class="line">...</span><br><span class="line"><span class="keyword">public</span> E <span class="title function_">get</span><span class="params">(<span class="type">int</span> index)</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> elements[index];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>实现里没有边界检查、同步和防御性拷贝：读操作就是一次数组访问，不可变的收益在这里兑现。<code>List12</code> 在 <code>:573-613</code> 用两个字段存 1 到 2 个元素（<code>:576-579</code> 是 <code>e0</code> 与 <code>e1</code>），这个规模下连数组都不分配，<code>size()</code> 靠 <code>e1 != EMPTY</code> 这个哨兵区分 1 个还是 2 个元素。</p>
+<h3 id="视图的语义写在-javadoc-里"><a href="#视图的语义写在-javadoc-里" class="headerlink" title="视图的语义写在 javadoc 里"></a>视图的语义写在 javadoc 里</h3><p>JDK 25 <code>java.base/java/util/Collections.java:1459-1462</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* Returns an &lt;a href=<span class="string">&quot;Collection.html#unmodview&quot;</span>&gt;unmodifiable view&lt;/a&gt; of the</span><br><span class="line">* specified list. Query operations on the returned list <span class="string">&quot;read through&quot;</span> to the</span><br><span class="line">* specified list, and attempts to modify the returned list, whether</span><br><span class="line">* direct or via its iterator, result in an</span><br><span class="line">* &#123;<span class="meta">@code</span> UnsupportedOperationException&#125;.&lt;p&gt;</span><br></pre></td></tr></table></figure>
+
+<p><code>read through</code> 三个词定义了视图：读操作穿透到原列表。同一段 javadoc 的 <code>:1469</code> 还写着「This method may return its argument if the argument is already unmodifiable」，实现按具体类判断，<code>Collections.java:1475-1478</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> &lt;T&gt; List&lt;T&gt; <span class="title function_">unmodifiableList</span><span class="params">(List&lt;? extends T&gt; list)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (list.getClass() == UnmodifiableList.class || list.getClass() == UnmodifiableRandomAccessList.class) &#123;</span><br><span class="line">       <span class="keyword">return</span> (List&lt;T&gt;) list;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+
+<p>只认自己的两个包装类。<code>ListN</code> 是不可变的，但不是这两个类之一，所以还要再包一层，就是恒等表里第三行的 24 字节。转发成本落在读取端，<code>Collections.java:1505</code> 里 <code>UnmodifiableList.get</code> 的全部实现是一行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> E <span class="title function_">get</span><span class="params">(<span class="type">int</span> index)</span> &#123;<span class="keyword">return</span> list.get(index);&#125;</span><br></pre></td></tr></table></figure>
+
+<p>多一层接口调用、多读一个字段。第四节访问端的表里，这些都摊平在 0.065 ns 的差里。</p>
+<h3 id="Date-那篇-javadoc-没写的话"><a href="#Date-那篇-javadoc-没写的话" class="headerlink" title="Date 那篇 javadoc 没写的话"></a><code>Date</code> 那篇 javadoc 没写的话</h3><p><code>java.base/java/util/Date.java</code> 全文只有一处提到 copy，在 <code>:276</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">* Return a copy of <span class="built_in">this</span> object.</span><br></pre></td></tr></table></figure>
+
+<p>这是 <code>clone()</code> 的 javadoc（<code>:278</code> 是 <code>public Object clone()</code>）。类文档里讲了 UTC、闰秒、年月日偏移，一个字都没提醒调用方：把 <code>Date</code> 交给别人之前要拷一份。JDK 把这条忠告写在了另一个地方，<code>java.base/java/lang/Record.java:57-60</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* &lt;p&gt;The primary reasons to provide an explicit declaration <span class="keyword">for</span> the</span><br><span class="line">* canonical constructor or accessor methods are to validate constructor</span><br><span class="line">* arguments, perform defensive copies on mutable components, or normalize groups</span><br><span class="line">* of <span class="title function_">components</span> <span class="params">(such as reducing a rational number to lowest terms.)</span></span><br></pre></td></tr></table></figure>
+
+<p>「perform defensive copies on mutable components」。第五节的 <code>GoodKey</code> 就是这句话的展开。同文件 <code>:62-68</code> 还要求：用 <code>new R(r.c1(), r.c2())</code> 重建出来的实例必须与原件 <code>equals</code>。数组组件不拷贝时这条不变量成立（引用比较），但值语义没了；<code>Date</code> 组件不拷贝时，外部改动会破坏这条不变量。</p>
+<p>record 的自动方法由 <code>java.base/java/lang/runtime/ObjectMethods.java</code> 生成。引用类型组件的比较与哈希走这两个句柄（<code>:162-172</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> MethodHandle <span class="title function_">equalator</span><span class="params">(Class&lt;?&gt; clazz)</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> (clazz.isPrimitive()</span><br><span class="line">            ? primitiveEquals.get(clazz)</span><br><span class="line">            : OBJECTS_EQUALS.asType(MethodType.methodType(<span class="type">boolean</span>.class, clazz, clazz)));</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> MethodHandle <span class="title function_">hasher</span><span class="params">(Class&lt;?&gt; clazz)</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> (clazz.isPrimitive()</span><br><span class="line">            ? primitiveHashers.get(clazz)</span><br><span class="line">            : OBJECTS_HASHCODE.asType(MethodType.methodType(<span class="type">int</span>.class, clazz)));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>OBJECTS_EQUALS</code> 是 <code>Objects.equals</code>，<code>OBJECTS_HASHCODE</code> 是 <code>Objects.hashCode</code>。数组是一等引用类型，不会展开成逐元素比较，第五节 A5 的 false 就是这么来的。</p>
+<h2 id="七、结论"><a href="#七、结论" class="headerlink" title="七、结论"></a>七、结论</h2><h3 id="什么时候共享"><a href="#什么时候共享" class="headerlink" title="什么时候共享"></a>什么时候共享</h3><ul>
+<li>对象不可变：字段全部 <code>final</code>，字段类型也不可变，或者至少外部拿不到可变引用。数组、<code>Date</code>、可变集合都不能直接暴露。</li>
+<li>这个对象处在只读热路径上。第三节的账本（JDK 21）：共享 113 ms &#x2F; 0 字节，拷贝 3.11 s &#x2F; 104 GB。</li>
+<li>需要「同一份数据的最新状态」时，视图就是零成本入口，24 字节。</li>
+</ul>
+<h3 id="什么时候必须拷贝"><a href="#什么时候必须拷贝" class="headerlink" title="什么时候必须拷贝"></a>什么时候必须拷贝</h3><ul>
+<li>构造器接收可变参数并在之后长期持有。第五节的 C1 到 D3 全是这类穿透。</li>
+<li>访问器返回内部的数组或可变集合。出口不拷贝，调用方改返回值就是改内部状态。</li>
+<li>对象要当 <code>HashMap</code> 的键，组件是 <code>Date</code>、可变集合这类「内容定义 hashCode」的类型。改动后 <code>get</code> 返回 null，<code>size()</code> 不变，排查起来看不到异常。</li>
+<li>跨线程传可变对象，且没有其他同步手段。这里拷贝买到的是确定性。</li>
+</ul>
+<h3 id="不拷贝的第三条路"><a href="#不拷贝的第三条路" class="headerlink" title="不拷贝的第三条路"></a>不拷贝的第三条路</h3><p>把可变组件换成不可变表示。<code>Date</code> 换成 <code>Instant</code> 或者 <code>long</code> 时间戳，<code>int[]</code> 换成一个只读接口包装的实例，边界上的拷贝和包装都不再需要。第五节的 C 组说明漂移的根源是「内容定义哈希」这个性质，换掉组件的类型，故障形态从源头消失。<code>java.time</code> 里的类型大多不可变，替换掉 <code>Date</code> 之后，防御性拷贝那一行可以从构造器里删掉。</p>
+<h3 id="四个实测过的误用"><a href="#四个实测过的误用" class="headerlink" title="四个实测过的误用"></a>四个实测过的误用</h3><ul>
+<li>在访问器里 <code>List.copyOf</code> 当保险。1024 个元素每次 1334 ns、8248 字节，热路径上一秒百万次就是 8 GB&#x2F;s 的分配（第四节）。快照应该在构造器里定下来，别放在读取路径上。</li>
+<li>把 <code>unmodifiableList</code> 的返回值当快照存起来。它随后续修改而变（第四节第一行布尔结果）。</li>
+<li>用 record 包住 <code>int[]</code> 就当值对象传。生成的 <code>equals</code> 比的是数组对象，两个内容相同的实例不相等（A5）。</li>
+<li>用 <code>List.copyOf</code> 包住 <code>List&lt;StringBuilder&gt;</code> 就当深不可变。元素还能照改（F3）。</li>
+</ul>
+<h3 id="判断顺序"><a href="#判断顺序" class="headerlink" title="判断顺序"></a>判断顺序</h3><div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph TD
+    S[&quot;一个不可变或可变对象要越出边界&quot;] --&gt; Q1{&quot;接收方会不会改它&quot;}
+    Q1 --&gt;|会改，或者改成什么样不确定| CP[&quot;边界上拷一份&lt;br&#x2F;&gt;入口 copyOf &#x2F; clone，出口再拷一次&quot;]
+    Q1 --&gt;|只读| Q2{&quot;内部持有的类型暴露出去后还能被改吗&quot;}
+    Q2 --&gt;|能，比如数组、Date、可变集合| CP
+    Q2 --&gt;|不能，或者只暴露只读视图| Q3{&quot;这是每次调用的热路径吗&quot;}
+    Q3 --&gt;|是| SH[&quot;共享同一个实例&lt;br&#x2F;&gt;成本在构造时付清&quot;]
+    Q3 --&gt;|不是| EITHER[&quot;两种都行&lt;br&#x2F;&gt;选语义清楚的那个&quot;]
+  </pre></div>
+
+<p>三步：先问接收方会不会改，再问内部的可变引用有没有暴露出去，最后问这条路径是不是每次调用都会走到。前两问决定要不要拷贝，第三问只在两者都安全时才算成本。</p>
+<h3 id="数量级门槛"><a href="#数量级门槛" class="headerlink" title="数量级门槛"></a>数量级门槛</h3><p>1024 字节的对象，每次拷贝 30 ns、1040 字节。调用 1000 万次是 10 GB 垃圾，1000 次是 10 MB。QPS 1 万的服务里，一个请求拷两次就是每秒 2 万次、每秒 20 MB 的分配，年轻代扛得住。每秒 100 万次就是 1 GB&#x2F;s，GC 会开始出现在火焰图上。</p>
+<p>共享不可变对象在读取端没有成本可优化，成本是零。这条只对不可变对象成立：<code>List.copyOf</code> 是浅拷贝，元素可变的话，共享的就是一棵会变的树。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>两笔账分开记：共享的成本在构造时付清（113 ms &#x2F; 0 字节 &#x2F; 0 GC），每次拷贝的成本按调用次数收（3.11 s &#x2F; 104 GB &#x2F; 81 次 Young GC）。1 亿次读取下，耗时差 27 到 33 倍，分配是 0 对 104 GB。</li>
+<li>拷贝的 30 ns 里大头是内存带宽：104 GB &#x2F; 3.0 s &#x3D; 34.7 GB&#x2F;s，贴着 M1 Pro 单核带宽。<code>new</code> 在 TLAB 里几乎免费，贵的是那 1 KiB 的读和写。</li>
+<li><code>List.copyOf(1024 元素的 ArrayList)</code> 每次分配 8248 字节，是 1024 长 <code>Object[]</code> 的两倍再加 24。多出来的一遍来自 <code>ImmutableCollections.listFromArray</code> 里标注 TOCTOU 的那次拷贝（<code>ImmutableCollections.java:204-211</code>）。</li>
+<li><code>Collections.unmodifiableList</code> 每次构造只分配 24 字节，构造耗时 2.3 到 2.7 ns，比 <code>List.copyOf</code> 的 1334 到 1410 ns 快 574 倍。</li>
+<li>访问端三者最大差 0.065 ns（10%），测不出量级差。<code>ListN.get</code> 直接索引数组，视图转发给 <code>ArrayList.get</code>，都贴着循环的下界。</li>
+<li>两个共享快路径互不认账：<code>unmodifiableList(List.copyOf(x))</code> 仍分配 24 字节，<code>List.copyOf(unmodifiableList(x))</code> 照样拷一份新的。</li>
+<li>语义差别是方向性的：<code>unmodifiableList</code> 的读操作穿透到底层列表，<code>List.copyOf</code> 是快照，并在构造时拒绝 null 元素。</li>
+<li><code>record</code> 的自动 <code>equals</code>&#x2F;<code>hashCode</code> 对 <code>int[]</code> 组件用引用语义（<code>ObjectMethods.java:162-172</code> 走 <code>Objects.equals</code>&#x2F;<code>Objects.hashCode</code>）：内容改了哈希不变，两个内容相同的实例不相等。</li>
+<li><code>record</code> 持有 <code>Date</code> 或可变 <code>List</code> 时，外部改动会让哈希值漂移，<code>HashMap</code> 里键还在、取不出来（<code>get</code> 返回 null，<code>size()</code> 仍是 1）。</li>
+<li>入口和出口是两条独立的边界，各自都要拷贝。<code>Record.java:57-60</code> 把「perform defensive copies on mutable components」写成了显式声明规范构造器与访问器的首要理由。</li>
+<li><code>List.copyOf</code> 是浅拷贝。元素可变时，拷贝出来的列表里的元素照样能改。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/List.html#copyOf(java.util.Collection)">List.copyOf (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/Collections.html#unmodifiableList(java.util.List)">Collections.unmodifiableList (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/ImmutableCollections.html">ImmutableCollections (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/Collection.html#unmodview">Unmodifiable View Collections</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Record.html">Record (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/Date.html">Date (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/jdk.management/com/sun/management/ThreadMXBean.html#getThreadAllocatedBytes(long)">ThreadMXBean.getThreadAllocatedBytes</a></li>
+<li>本系列其它篇目：<a href="/2957747751.html">原型</a> 讲拷贝有四条路可以走；<a href="/2630879553.html">享元</a> 共享的是不可变的内在状态；<a href="/550034456.html">对象池</a> 复用可变对象，与本篇的共享不可变对象是一组对照。</li>
+</ul>
+<blockquote>
+<p>系列索引：<a href="/pattern/">设计模式系列</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/1455898602.html">https://lianglliu.github.io/1455898602.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a><a class="post-meta__tags" href="/tags/%E4%B8%8D%E5%8F%AF%E5%8F%98%E6%80%A7/">不可变性</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">设计模式——装饰器：缓冲链的代价</div></div><div class="info-2"><div class="info-item-1"> 装饰器把「给一个对象加能力」变成了廉价操作：new BufferedInputStream(new FileInputStream(f)) 只是多写一层。但每一层都会改写下层被调用的形态——调用次数、每次的块大小、flush 与 close 的语义。这些改动在源码里看不到，只能测。本文用一个 48 MiB 文件、libc 层的真实 read(2) 计数，和两个 JDK（21.0.8 与 25）回答一个问题：这条链上多包一层，到底买到了什么，代价在哪。  一、装饰器换到的东西继承式的算术给一个数据源加「缓冲」和「校验」两种能力。如果用继承，每多一种能力就要多一层子类，而两种能力的叠加顺序又各自是一个类：      classDiagram     direction TB     class FileDataSource     class BufferedFile     class ChecksumFile     class BufferedChecksumFile     class ChecksumBufferedFile     FileDataSource &lt;...</div></div></div></a><a class="pagination-related" href="/550034456.html" title="设计模式——对象池：什么时候是负优化"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">设计模式——对象池：什么时候是负优化</div></div><div class="info-2"><div class="info-item-1"> 对象池把「分配」换成了「借还」。分配走线程私有的 TLAB，借还抢所有线程共用的队列。收益只能来自免掉构造与初始化，代价是同步。构造越贵，这笔交换越划算；构造越便宜，省下的越少，而同步开销照付。三种构造成本（1 KiB 数组、DirectByteBuffer(1 KiB)、SecureRandom 初始化）乘三种取法（每次 new、ThreadLocal 池、ReentrantLock 池），在 1、8、16 线程下各计时 1 秒，JDK 21 与 JDK 25 都跑，找出池化从赚到亏的那条线。  一、池化把什么换成了什么new 是一条线程私有路径。HotSpot 给每个线程一块 TLAB，分配对象就是把指针往前挪一段，再零初始化。 池化把这条路径改成：从共享队列取一个对象、重置它的状态、用完还回去。取和还都要同步。      graph TD     subgraph A[&quot;每次 new：线程私有&quot;]       A1[&quot;线程本地 TLAB&quot;] --&gt;|&quot;指针加法 + 清零&quot;| A2[&quot;可用的新对象&...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/4222041279.html" title="设计模式——备忘录：快照的代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-5.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——备忘录：快照的代价</div></div><div class="info-2"><div class="info-item-1"> 备忘录把「回到过去」变成两个方法调用：save() 存下一版，restore() 回到某一版。存一版花多少时间、占多少内存，模式定义里没有答案。全量深拷贝、增量日志、写时拷贝三条路都能实现回滚，代价相差两个数量级。本文用 1 万条记录（含标签集合）的状态、1000 个事务、每事务改 10 条，量三条路的每事务耗时与分配字节，再量历史上限 10&#x2F;100&#x2F;1000 版时的保留内存和回滚耗时。  一、回滚能力买的是什么发起人（Originator）把状态装进一个备忘录对象，管理者（Caretaker）把备忘录收进版本链，需要时再把某一版交回发起人恢复。快照粒度、版本存放位置、版本何时失效，这些都不在模式定义里。 三个问题决定价格：  存的是全部状态，还是这一版改动的增量。 版本链保留多少版。 代价在存的那一刻付，还是在每次改动时付。  第一个问题把实现分成三条路，后两个问题决定账单什么时候来。 三条路全量深拷贝：save() 把当前状态整份复制一份挂到链上，回滚时把复制出来的那份换回来。 增量日志：save() 只记一个位置，每次改动之前把旧值写进日志，回滚时按逆...</div></div></div></a><a class="pagination-related" href="/204879800.html" title="设计模式——状态：状态位还是状态类"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——状态：状态位还是状态类</div></div><div class="info-2"><div class="info-item-1"> FutureTask 管一个任务从提交到结束的全部状态，字段是 volatile int state，七个常量，靠 CAS 迁移。ExecutorService 和 CompletableFuture 都建在它上面，JDK 没给它写七个状态类。GoF 的状态模式走另一条路：一个状态一个类，事件交给多态处理，状态自己决定下一步。书上那个 TCP 连接例子好写，代价没有现成数字。本文把同一个四状态状态机写成五种形式，在 JDK 21 与 25 上各跑 5033 万次事件，量耗时与分配，再用字节码和 JIT 日志解释差距从哪来。  一、状态放在哪里状态的存储方式和迁移的决策方式可以拆开看。GoF 把两件事绑在一起：状态是一个对象，迁移由虚调用决定。JDK 里常见的是另一种组合：状态是一个 int，迁移是一串比较和位运算。 两边的差别用一台四状态、五事件的状态机就能摆出来，后面所有实验共用它：      stateDiagram-v2     [*] --&gt; NEW     NEW --&gt; RUN : START     NEW --&gt; FAIL : CANCEL  ...</div></div></div></a><a class="pagination-related" href="/3864272964.html" title="设计模式——观察者：从 Observable 到背压"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——观察者：从 Observable 到背压</div></div><div class="info-2"><div class="info-item-1"> 观察者模式在代码层面只有十几行：一个注册表，一次遍历回调。订阅者比发布者快时，这个形态没有可测的代价；慢订阅者占住的是发布者的线程。JDK 1.0 给了 Observable，JDK 9 把它废弃，同一个版本里给出 Flow：四个接口，补上的那一块是 Subscription.request(long)。  一、228 行的废弃类java.util.Observable 从 JDK 1.0 就在。JDK 25 的 src.zip 里它还在，228 行，第 75 行写着： 12@Deprecated(since=&quot;9&quot;)public class Observable &#123;  两个 LTS 过去了，JDK 一直没把它移除。javadoc 给的理由（java.base/java/util/Observable.java:62-74）： 123456789101112* @deprecated* This class and the &#123;@link Observer&#125; interface have been deprecated.* The...</div></div></div></a><a class="pagination-related" href="/4240986029.html" title="设计模式——抽象工厂：产品族的一致性"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——抽象工厂：产品族的一致性</div></div><div class="info-2"><div class="info-item-1"> 抽象工厂常被描述成「创建一族对象」的接口，可是创建不值钱：new、Supplier、Map 查表、switch 都能做。值钱的那部分在编译期：一个族少实现一个产品，javac 直接拒绝编译；族与产品的对应关系写进接口，不用靠人记。本文用 Button&#x2F;Checkbox 两套主题、三种写法，量 100 万次创建的耗时与类加载数量，并贴出 javac 与运行期的输出。  一、产品族的一致性是谁的责任两套主题，两个产品。每个主题要同时提供 Button 和 Checkbox，同一个界面里的两个控件必须来自同一套主题。      classDiagram     direction TB     class GuiFactory {         &lt;&lt;interface&gt;&gt;         +button() Button         +checkbox() Checkbox     }     class MacFactory     class WinFactory     class Button {         &lt;&lt;int...</div></div></div></a><a class="pagination-related" href="/3520122771.html" title="设计模式——责任链：三种形态"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——责任链：三种形态</div></div><div class="info-2"><div class="info-item-1"> 责任链把「谁处理这个请求」从调用点挪到了运行时。调用方发出一次，节点自己决定接不接。JDK 里这条链有三种落地形态，表达「拦住了」的方式各不相同：处理链返回 boolean，过滤链返回替换对象或 null，Stream 的 stage 链用反向询问的取消标记。本文用 1 亿个元素量三种形态的每元素成本随链长的变化，用 8 节点链量命中位置的影响，再从 JDK 源码指出差别出自哪一行。  一、三种形态，三种收场一个请求要穿过若干检查点，每个检查点各自判断：这个我能处理，或者这不归我管，交给下一个。责任链（Chain of Responsibility）把这条传递路径做成对象结构，但「传递」本身在 JDK 里有三条不同的实现路线。 处理链的节点返回 boolean。命中返回 true，调用方知道事情办完了；全部返回 false 就是没人管。停下来的信号沿返回值传回调用方。 过滤链的节点不报告「办没办成」，返回一个替换对象或者 null。返回新对象表示这一层改写了请求、需要重发；返回 null 表示这一层放行，继续看下一个节点。java.net.http 用这个形状：请求过滤器正序遍...</div></div></div></a><a class="pagination-related" href="/1016344466.html" title="设计模式——外观：批量接口的价值"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——外观：批量接口的价值</div></div><div class="info-2"><div class="info-item-1"> 外观模式的公开描述是「为子系统提供统一接口」。这句话在评审里没有用，谁也说不清「统一」到什么粒度。换一个可测量的说法：外观把 N 次细粒度调用收成 1 次粗粒度调用，收益上限就是省下的那 N-1 次调用的固定成本。本文写一万条小记录：逐条裸写、套缓冲、内存拼装后单次写，用 write(2) 计数和两种 JDK 的耗时给这三条路的差价结账，再看 JDK 自己怎么做外观。  一、把「统一接口」换成调用次数外观模式的介绍通常画一张图：客户端指向一个 Facade 类，Facade 再指向三个子系统的类。图里没有数字，读完记不住任何可执行的东西。 把接口设计换成计费问题就具体了。每次调用都有一条固定成本：跨边界的开销。这个边界可能在进程之间、网络之间、内核与应用之间，也可能就在模块之间。外观把 N 次调用合并成 1 次，收益就是省下的 N-1 条固定成本；代价是这次合并本身要付参数打包、错误语义合并、内存占用的账。 写文件的例子把这两种成本都摆了出来。同样一万条记录、同样的字节，三种写法：  逐条 FileOutputStream.write(byte[])，每条一次系统调用。 套一层...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E4%B8%A4%E7%AC%94%E8%B4%A6%E8%AE%B0%E5%9C%A8%E8%B0%81%E5%A4%B4%E4%B8%8A"><span class="toc-number">1.</span> <span class="toc-text">一、两笔账记在谁头上</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%B1%80%E9%99%90"><span class="toc-number">2.</span> <span class="toc-text">二、实验设计与局限</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E6%B5%8B%E4%B8%80%EF%BC%9A1-%E4%BA%BF%E6%AC%A1%E8%AF%BB%E5%8F%96"><span class="toc-number">3.</span> <span class="toc-text">三、实测一：1 亿次读取</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%AE%9E%E6%B5%8B%E4%BA%8C%EF%BC%9A%E5%90%8C%E4%B8%80%E5%8F%A5%E3%80%8C%E8%BF%94%E5%9B%9E%E4%B8%8D%E5%8F%AF%E4%BF%AE%E6%94%B9%E5%88%97%E8%A1%A8%E3%80%8D"><span class="toc-number">4.</span> <span class="toc-text">四、实测二：同一句「返回不可修改列表」</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%9E%84%E9%80%A0%E7%AB%AF"><span class="toc-number">4.1.</span> <span class="toc-text">构造端</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%A4%E4%B8%AA%E5%85%B1%E4%BA%AB%E5%BF%AB%E8%B7%AF%E5%BE%84%E4%BA%92%E4%B8%8D%E8%AE%A4%E8%B4%A6"><span class="toc-number">4.2.</span> <span class="toc-text">两个共享快路径互不认账</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%AE%BF%E9%97%AE%E7%AB%AF"><span class="toc-number">4.3.</span> <span class="toc-text">访问端</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%AF%AD%E4%B9%89%E5%B7%AE%E5%88%AB"><span class="toc-number">4.4.</span> <span class="toc-text">语义差别</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%AE%9E%E6%B5%8B%E4%B8%89%EF%BC%9Arecord-%E6%8C%81%E6%9C%89%E5%8F%AF%E5%8F%98%E7%BB%84%E4%BB%B6"><span class="toc-number">5.</span> <span class="toc-text">五、实测三：record 持有可变组件</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81JDK-%E6%BA%90%E7%A0%81%E9%87%8C%E7%9A%84%E5%87%A0%E4%B8%AA%E5%86%B3%E7%AD%96%E7%82%B9"><span class="toc-number">6.</span> <span class="toc-text">六、JDK 源码里的几个决策点</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#List-copyOf-%E7%9A%84%E4%B8%89%E6%9D%A1%E5%88%86%E6%94%AF"><span class="toc-number">6.1.</span> <span class="toc-text">List.copyOf 的三条分支</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8B%B7%E8%B4%9D%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A6%81%E6%9D%A5%E4%B8%A4%E9%81%8D"><span class="toc-number">6.2.</span> <span class="toc-text">拷贝为什么要来两遍</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%A7%86%E5%9B%BE%E7%9A%84%E8%AF%AD%E4%B9%89%E5%86%99%E5%9C%A8-javadoc-%E9%87%8C"><span class="toc-number">6.3.</span> <span class="toc-text">视图的语义写在 javadoc 里</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Date-%E9%82%A3%E7%AF%87-javadoc-%E6%B2%A1%E5%86%99%E7%9A%84%E8%AF%9D"><span class="toc-number">6.4.</span> <span class="toc-text">Date 那篇 javadoc 没写的话</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E7%BB%93%E8%AE%BA"><span class="toc-number">7.</span> <span class="toc-text">七、结论</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E5%85%B1%E4%BA%AB"><span class="toc-number">7.1.</span> <span class="toc-text">什么时候共享</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E5%BF%85%E9%A1%BB%E6%8B%B7%E8%B4%9D"><span class="toc-number">7.2.</span> <span class="toc-text">什么时候必须拷贝</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%8D%E6%8B%B7%E8%B4%9D%E7%9A%84%E7%AC%AC%E4%B8%89%E6%9D%A1%E8%B7%AF"><span class="toc-number">7.3.</span> <span class="toc-text">不拷贝的第三条路</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9B%9B%E4%B8%AA%E5%AE%9E%E6%B5%8B%E8%BF%87%E7%9A%84%E8%AF%AF%E7%94%A8"><span class="toc-number">7.4.</span> <span class="toc-text">四个实测过的误用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">7.5.</span> <span class="toc-text">判断顺序</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%95%B0%E9%87%8F%E7%BA%A7%E9%97%A8%E6%A7%9B"><span class="toc-number">7.6.</span> <span class="toc-text">数量级门槛</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">8.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">9.</span> <span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  const parseViewBox = viewBox => {
+    if (!viewBox) return null
+    const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return null
+    return parts
+  }
+
+  const getSvgViewBox = svg => {
+    const attr = parseViewBox(svg.getAttribute('viewBox'))
+    if (attr) return attr
+
+    // Fallback: use bbox to build a viewBox
+    try {
+      const bbox = svg.getBBox()
+      if (bbox && bbox.width && bbox.height) return [bbox.x, bbox.y, bbox.width, bbox.height]
+    } catch (e) {
+      // getBBox may fail on some edge cases; ignore
+    }
+
+    const w = Number(svg.getAttribute('width')) || 0
+    const h = Number(svg.getAttribute('height')) || 0
+    if (w > 0 && h > 0) return [0, 0, w, h]
+    return [0, 0, 100, 100]
+  }
+
+  const setSvgViewBox = (svg, vb) => {
+    svg.setAttribute('viewBox', `${vb[0]} ${vb[1]} ${vb[2]} ${vb[3]}`)
+  }
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
+  const openSvgInNewTab = ({ source, initViewBox }) => {
+    const getClonedSvg = () => {
+      if (typeof source === 'string') {
+        const template = document.createElement('template')
+        template.innerHTML = source.trim()
+        const svg = template.content.querySelector('svg')
+        return svg ? svg.cloneNode(true) : null
+      }
+      if (source && typeof source.cloneNode === 'function') {
+        return source.cloneNode(true)
+      }
+      return null
+    }
+
+    const clone = getClonedSvg()
+    if (!clone) return
+    if (initViewBox && initViewBox.length === 4) {
+      clone.setAttribute('viewBox', initViewBox.join(' '))
+    }
+    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    if (!clone.getAttribute('xmlns:xlink') && clone.innerHTML.includes('xlink:')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    }
+    // inject background to match current theme
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const bg = getComputedStyle(document.body).backgroundColor || (isDark ? '#1e1e1e' : '#ffffff')
+    if (!clone.style.background) clone.style.background = bg
+
+    const serializer = new XMLSerializer()
+    const svgSource = serializer.serializeToString(clone)
+    const htmlSource = `<!doctype html><html><head><meta charset="utf-8" />
+      <style>
+        html, body { width: 100%; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; background: ${bg}; }
+        svg { max-width: 100%; max-height: 100%; height: auto; width: auto; }
+      </style>
+      </head><body>${svgSource}</body></html>`
+    const blob = new Blob([htmlSource], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener')
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  const attachMermaidViewerButton = wrap => {
+    let btn = wrap.querySelector('.mermaid-open-btn')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mermaid-open-btn'
+      wrap.appendChild(btn)
+    }
+
+    btn.innerHTML = '<i class="fa fa-search fa-fw" aria-hidden="true"></i>'
+
+    if (!btn.__mermaidViewerBound) {
+      btn.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        const svg = wrap.__mermaidOriginalSvg || wrap.querySelector('svg')
+        if (!svg) return
+        const initViewBox = wrap.__mermaidInitViewBox
+        openSvgInNewTab({ source: svg, initViewBox })
+      })
+      btn.__mermaidViewerBound = true
+    }
+  }
+
+  // Zoom around a point (px, py) in the SVG viewport (in viewBox coordinates)
+  const zoomAtPoint = (vb, factor, px, py) => {
+    const w = vb[2] * factor
+    const h = vb[3] * factor
+    const nx = px - (px - vb[0]) * factor
+    const ny = py - (py - vb[1]) * factor
+    return [nx, ny, w, h]
+  }
+
+  const initMermaidGestures = wrap => {
+    // Clean up previous event listeners and pending frames
+    if (wrap.__mermaidAbortController) {
+      wrap.__mermaidAbortController.abort()
+      if (wrap.__mermaidRafId) cancelAnimationFrame(wrap.__mermaidRafId)
+    }
+    const ac = new AbortController()
+    wrap.__mermaidAbortController = ac
+    const svg = wrap.querySelector('svg')
+    if (!svg) return
+
+    // Ensure viewBox exists so gestures always work
+    const initVb = getSvgViewBox(svg)
+    wrap.__mermaidInitViewBox = initVb
+    wrap.__mermaidCurViewBox = initVb.slice()
+    setSvgViewBox(svg, initVb)
+    // Disable default gestures to prevent scroll chaining and pinch-zoom penetration in Chrome
+    svg.style.touchAction = 'none'
+
+    // Cache BoundingClientRect, throttled on scroll to reduce reflow
+    let cachedRect = svg.getBoundingClientRect()
+    let rectDirty = false
+    const markRectDirty = () => { rectDirty = true }
+    window.addEventListener('resize', markRectDirty, { signal: ac.signal })
+    window.addEventListener('scroll', markRectDirty, { signal: ac.signal, capture: true })
+    const getRect = () => {
+      if (rectDirty) {
+        cachedRect = svg.getBoundingClientRect()
+        rectDirty = false
+      }
+      return cachedRect
+    }
+
+    // Precompute clamp bounds from initial viewBox
+    const minW = initVb[2] * 0.1
+    const maxW = initVb[2] * 10
+    const minH = initVb[3] * 0.1
+    const maxH = initVb[3] * 10
+    const clampVb = vb => {
+      const out = vb.slice()
+      out[2] = clamp(out[2], minW, maxW)
+      out[3] = clamp(out[3], minH, maxH)
+      return out
+    }
+
+    // Throttle DOM updates using requestAnimationFrame
+    let pendingVb = null
+    let rafId = null
+    const applyVb = () => {
+      if (pendingVb) {
+        wrap.__mermaidCurViewBox = pendingVb
+        setSvgViewBox(svg, pendingVb)
+        pendingVb = null
+      }
+      rafId = null
+      wrap.__mermaidRafId = null
+    }
+    const setCurVb = vb => {
+      pendingVb = clampVb(vb)
+      if (!rafId) {
+        rafId = requestAnimationFrame(applyVb)
+        wrap.__mermaidRafId = rafId
+      }
+    }
+
+    const state = {
+      pointers: new Map(),
+      startVb: null,
+      startDist: 0,
+      lastPointerX: 0,
+      lastPointerY: 0
+    }
+
+    const onPointerDown = e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      svg.setPointerCapture(e.pointerId)
+      const curVb = wrap.__mermaidCurViewBox
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 1) {
+        state.startVb = curVb.slice()
+        state.lastPointerX = e.clientX
+        state.lastPointerY = e.clientY
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        state.startDist = Math.hypot(dx, dy)
+        state.startVb = curVb.slice()
+      }
+    }
+
+    const onPointerMove = e => {
+      if (!state.pointers.has(e.pointerId)) return
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      if (state.pointers.size === 1 && state.startVb) {
+        const p = state.pointers.values().next().value
+        const dxClient = p.x - state.lastPointerX
+        const dyClient = p.y - state.lastPointerY
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+        const dx = dxClient * (curVb[2] / rect.width)
+        const dy = dyClient * (curVb[3] / rect.height)
+        setCurVb([curVb[0] - dx, curVb[1] - dy, curVb[2], curVb[3]])
+        return
+      }
+      if (state.pointers.size === 2 && state.startVb && state.startDist > 0) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        const dist = Math.hypot(dx, dy)
+        if (!dist) return
+        const factor = state.startDist / dist
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const px = curVb[0] + (cx - rect.left) * (curVb[2] / rect.width)
+        const py = curVb[1] + (cy - rect.top) * (curVb[3] / rect.height)
+        setCurVb(zoomAtPoint(state.startVb, factor, px, py))
+      }
+    }
+
+    const onPointerUpOrCancel = e => {
+      // Release PointerCapture to avoid event capture anomalies
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) {
+        svg.releasePointerCapture(e.pointerId)
+      }
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size === 0) {
+        state.startVb = null
+        state.startDist = 0
+      } else if (state.pointers.size === 1) {
+        const p = state.pointers.values().next().value
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+      }
+    }
+
+    const onWheel = e => {
+      // Prevent event bubbling from triggering external scroll
+      e.preventDefault()
+      e.stopPropagation()
+      // Normalize deltaY across deltaMode (Chrome uses pixels, Safari uses lines)
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= 400
+
+      // Continuous zoom factor: smoother than fixed 1.1/0.9 steps
+      const zoomFactor = Math.pow(1.001, delta)
+
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      const px = curVb[0] + (e.clientX - rect.left) * (curVb[2] / rect.width)
+      const py = curVb[1] + (e.clientY - rect.top) * (curVb[3] / rect.height)
+      setCurVb(zoomAtPoint(curVb, zoomFactor, px, py))
+    }
+
+    const onDblClick = () => {
+      const init = wrap.__mermaidInitViewBox
+      if (init) setCurVb(init)
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown, { signal: ac.signal })
+    svg.addEventListener('pointermove', onPointerMove, { signal: ac.signal })
+    svg.addEventListener('pointerup', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('pointercancel', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('wheel', onWheel, { passive: false, signal: ac.signal })
+    svg.addEventListener('dblclick', onDblClick, { signal: ac.signal })
+  }
+
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      // Clean up event listeners before removing old SVG
+      if (item.__mermaidAbortController) {
+        item.__mermaidAbortController.abort()
+      }
+      const oldSvg = item.querySelector('svg')
+      if (oldSvg) oldSvg.remove()
+      let config = {}
+      try {
+        config = mermaidSrc.dataset.config ? JSON.parse(mermaidSrc.dataset.config) : {}
+      } catch (e) {
+        console.warn('[mermaid] failed to parse dataset.config:', e)
+      }
+      if (!config.theme) {
+        config.theme = theme
+      }
+      const mermaidThemeConfig = `%%{init: ${JSON.stringify(config)}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+        if (true) initMermaidGestures(item)
+        item.__mermaidOriginalSvg = svg
+        if (true) attachMermaidViewerButton(item)
+      }
+
+      const handleError = err => {
+        console.error(`[mermaid] render failed for block #${index}:`, err)
+        const errorEl = document.createElement('div')
+        errorEl.className = 'mermaid-error'
+        errorEl.textContent = `Mermaid render error: ${err.message || err}`
+        mermaidSrc.insertAdjacentElement('afterend', errorEl)
+      }
+
+      try {
+        const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+        // mermaid v9 and v10 compatibility
+        if (typeof renderFn === 'string') {
+          renderMermaid(renderFn)
+        } else {
+          renderFn.then(({ svg }) => renderMermaid(svg)).catch(handleError)
+        }
+      } catch (err) {
+        handleError(err)
+      }
+    })
+  }
+
+  const codeToMermaid = $article => {
+    const codeMermaidEle = $article.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    const $article = document.getElementById('article-container')
+    if (!$article) return
+
+    if (false) codeToMermaid($article)
+    const $mermaid = $article.querySelectorAll('.mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

@@ -1,0 +1,1120 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式——迭代器：分配与逃逸分析 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="用 ThreadMXBean 分配字节计数、JIT 开关对照和 JDK 25 源码测 1 亿次元素访问：for-each 的迭代器不逃逸时被标量替换成 0 字节，逃逸时每轮 32 字节；跑在 C1 上的代码不做逃逸分析，同一份代码会有 400 MB 的偏差。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="设计模式——迭代器：分配与逃逸分析">
+<meta property="og:url" content="https://lianglliu.github.io/3041245071.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="用 ThreadMXBean 分配字节计数、JIT 开关对照和 JDK 25 源码测 1 亿次元素访问：for-each 的迭代器不逃逸时被标量替换成 0 字节，逃逸时每轮 32 字节；跑在 C1 上的代码不做逃逸分析，同一份代码会有 400 MB 的偏差。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png">
+<meta property="article:published_time" content="2026-09-17T10:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T10:00:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="设计模式">
+<meta property="article:tag" content="逃逸分析">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "设计模式——迭代器：分配与逃逸分析",
+  "url": "https://lianglliu.github.io/3041245071.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png",
+  "datePublished": "2026-09-17T10:00:00.000Z",
+  "dateModified": "2026-09-17T10:00:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/3041245071.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '设计模式——迭代器：分配与逃逸分析',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">设计模式——迭代器：分配与逃逸分析</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">设计模式——迭代器：分配与逃逸分析</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T10:00:00.000Z" title="发表于 2026-09-17 18:00:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">6.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>26分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p><code>ArrayList.iterator()</code> 只有一行实现：<code>return new Itr();</code>。按字面读，每轮 for-each 都新建一个对象。<br>实测 1250 万轮遍历：for-each 的分配是 0 字节，把迭代器存进字段的是 400 MB。差值来自 C2 的逃逸分析。<br>把同一段代码丢给 C1，0 字节这一列就没有了。分配消除是当前那个编译版本的性质，同一份代码换个层级，这一列就变。</p>
+</blockquote>
+<h2 id="一、一行-new-和-0-字节的分配"><a href="#一、一行-new-和-0-字节的分配" class="headerlink" title="一、一行 new 和 0 字节的分配"></a>一、一行 <code>new</code> 和 0 字节的分配</h2><p><code>ArrayList</code> 的 <code>iterator()</code> 在 JDK 25 里长这样，<code>java.base/java/util/ArrayList.java:1029</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> Iterator&lt;E&gt; <span class="title function_">iterator</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Itr</span>();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>Itr</code> 定义在同一个文件 <code>:1036</code>，三个 int 字段加一个构造函数：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">class</span> <span class="title class_">Itr</span> <span class="keyword">implements</span> <span class="title class_">Iterator</span>&lt;E&gt; &#123;</span><br><span class="line">    <span class="type">int</span> cursor;       <span class="comment">// index of next element to return</span></span><br><span class="line">    <span class="type">int</span> <span class="variable">lastRet</span> <span class="operator">=</span> -<span class="number">1</span>; <span class="comment">// index of last element returned; -1 if no such</span></span><br><span class="line">    <span class="type">int</span> <span class="variable">expectedModCount</span> <span class="operator">=</span> modCount;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// prevent creating a synthetic constructor</span></span><br><span class="line">    Itr() &#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>按这份源码的字面意思，一次 <code>for (int x : list)</code> 遍历 8 个元素会新建 1 个 <code>Itr</code>。1250 万轮就是 1250 万个对象。</p>
+<p><code>javac</code> 把 for-each 编译成了迭代器调用。用 <code>javap -c</code> 看同一段代码的两个版本：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">static long foreachList(java.util.List&lt;java.lang.Integer&gt;);</span><br><span class="line">   2: aload_0</span><br><span class="line">   3: invokeinterface #7,  1      // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;</span><br><span class="line">   8: astore_3</span><br><span class="line">   9: aload_3</span><br><span class="line">  10: invokeinterface #13,  1     // InterfaceMethod java/util/Iterator.hasNext:()Z</span><br><span class="line">  15: ifeq          41</span><br><span class="line">  18: aload_3</span><br><span class="line">  19: invokeinterface #19,  1     // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;</span><br></pre></td></tr></table></figure>
+
+<p>同一份 <code>javap</code> 输出里，<code>int[]</code> 的 for-each 编译成了下标循环，没有迭代器对象：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">static long foreachArray(int[]);</span><br><span class="line">   5: arraylength</span><br><span class="line">   6: istore        4</span><br><span class="line">  11: iload         5</span><br><span class="line">  13: iload         4</span><br><span class="line">  15: if_icmpge     36</span><br><span class="line">  21: iaload</span><br></pre></td></tr></table></figure>
+
+<p>数组上的 for-each 不分配对象，这件事在编译期就定了。集合上的 for-each 里躺着一条 <code>new Itr()</code> 指令，每次编译都在，会不会执行得看运行期。</p>
+<p>系列总览那篇（<a href="/2097900514.html">被语言吃掉的那些模式</a>）讲的是语法层面的接管：for-each 把 <code>hasNext</code> &#x2F; <code>next</code> 的手写循环交给编译器。编译器接管了语法，没接管分配。<code>new</code> 就写在源码里，JIT 得在运行期证明这个对象用不着，才能把它删掉。</p>
+<h2 id="二、实验设计与口径"><a href="#二、实验设计与口径" class="headerlink" title="二、实验设计与口径"></a>二、实验设计与口径</h2><p>实验测的是同一个集合上的同一次遍历，只改迭代器引用的去向。集合用 <code>ArrayList&lt;Integer&gt;</code>，8 个元素，值取 0 到 7，落在 <code>Integer</code> 缓存区间里，排除装箱带来的额外分配。一轮 &#x3D; 一次 <code>iterator()</code> 调用加走完 8 次 <code>hasNext</code> &#x2F; <code>next</code>。</p>
+<p>三种用法：</p>
+<ul>
+<li><strong>不逃逸</strong>：<code>for (int x : l) sum += x;</code>，迭代器是方法内的临时变量。</li>
+<li><strong>逃逸（字段）</strong>：<code>Iterator&lt;Integer&gt; it = l.iterator(); ESCAPED = it;</code> 存进静态字段，再作为参数传进 <code>drain(Iterator)</code>。</li>
+<li><strong>逃逸（lambda）</strong>：<code>CAPTURED = () -&gt; SINK = drain(it);</code> lambda 本身存进静态字段，再调用一次。</li>
+</ul>
+<p>三个对照：<code>int[]</code> 的 for-each（没有迭代器对象）、<code>List.of(...)</code> 的 for-each（换一份迭代器实现 <code>ImmutableCollections.ListItr</code>）、以及把迭代器只作为参数传给方法但不存字段（<code>argescape</code>）。</p>
+<p>另加一组跨线程：迭代器在调用线程创建，交给每次新建的虚拟线程遍历。</p>
+<p>集合取 8 个元素，是为了让每轮遍历的开销露出来。一次遍历分配一个迭代器，这个开销按元素个数摊薄：8 个元素摊到每元素 4 字节，26 万个元素摊到 0.0001 字节。第三节把长度从 4 扫到 262144，量这条曲线在什么位置变得无所谓。</p>
+<p>测量口径：</p>
+<ul>
+<li>耗时：<code>System.nanoTime()</code> 包住整个循环，先热 5 轮再计时 5 轮，取中位数。每轮的值都记进日志，不只看中位数。</li>
+<li>分配字节：<code>com.sun.management.ThreadMXBean.getThreadAllocatedBytes(currentThread)</code> 在每轮前后各读一次。这个计数来自 JVM 的分配计数器，不受 GC 影响。</li>
+<li>规模：主表每种用法跑 1250 万轮，合计 1 亿次元素访问。虚拟线程那组每轮要建线程，降到 20 万轮。</li>
+<li>机器：Apple M1 Pro，macOS Darwin 25.6.0，JDK 21.0.8+12-LTS-250 与 25+37-LTS-3491，都是 arm64，默认 G1 与默认分层编译。</li>
+<li>每个用法都在独立 JVM 里跑。同一个 JVM 里跑多个用法会让它们互相污染编译配置，这一点在第三节会看到后果。</li>
+</ul>
+<p>这份测量的局限：本机没有 JMH，这是单机微基准，只用来判断量级，不能当硬件上限。计时循环里包着逃逸版本每轮 400 MB 的分配，G1 的回收成本算在耗时里，这一部分没有单独拆出来。</p>
+<p>最直接的那条证据这次拿不到。<code>-XX:+PrintEliminateAllocations</code> 在 product 版 JVM 上会被拒绝：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ java -XX:+UnlockDiagnosticVMOptions -XX:+PrintEliminateAllocations -version</span><br><span class="line">Error: VM option &#x27;PrintEliminateAllocations&#x27; is develop and is available only in debug version of VM.</span><br><span class="line">Improperly specified VM option &#x27;PrintEliminateAllocations&#x27;</span><br></pre></td></tr></table></figure>
+
+<p>本机四个 JDK（11、17、21、25）都是 product 版，没有 debug 构建。替代方案是四条：分配字节计数、<code>-XX:-EliminateAllocations</code> 开关、编译层级开关、以及 <code>-XX:+PrintCompilation</code> 的层级轨迹。字节码一个字不改，只换 VM 开关，分配从 0 变成 400 MB，这个差值只能来自编译器的分配消除。</p>
+<p>内联证据来自 <code>-XX:+PrintInlining</code>。标量替换的前提是构造与读取全部内联展开，下面这段输出说明 <code>Itr</code> 的构造函数和内层方法都进了内联：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">@ 13  java.util.ArrayList::iterator (9 bytes) inline (hot)</span><br><span class="line">        @ 5  java.util.ArrayList$Itr::&lt;init&gt; (31 bytes) inline (hot)</span><br><span class="line">@ 22  java.util.ArrayList$Itr::hasNext (20 bytes) inline (hot)</span><br><span class="line">@ 32  java.util.ArrayList$Itr::next (66 bytes) inline (hot)</span><br><span class="line">        @ 1  java.util.ArrayList$Itr::checkForComodification (23 bytes) inline (hot)</span><br></pre></td></tr></table></figure>
+
+<p>复现用的命令是一个单文件程序，编译和运行各一行：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$ JH25=$(/usr/libexec/java_home -v 25)</span><br><span class="line">$ $JH25/bin/javac -d out25 IteratorBench.java</span><br><span class="line">$ $JH25/bin/java -cp out25 IteratorBench foreach 12500000 5 5 8</span><br><span class="line">mode=foreach jvm=25 reps=12500000 elems=100000000 medMs=66 minMs=65 medBytes=0 nsPerElem=0.66 bytesPerElem=0.000 msList=[65, 66, 66, 66, 66] bytesList=[0, 0, 0, 0, 0] sink=3500000000</span><br><span class="line">$ $JH25/bin/java -cp out25 IteratorBench escape 12500000 5 5 8</span><br><span class="line">mode=escape jvm=25 reps=12500000 elems=100000000 medMs=104 minMs=103 medBytes=400000000 nsPerElem=1.04 bytesPerElem=4.000 msList=[105, 104, 104, 103, 104] bytesList=[400000000, 400000000, 400000000, 400000000, 400000000] sink=3500000000</span><br></pre></td></tr></table></figure>
+
+<p>参数依次是：用法、轮数、热轮数、计时轮数、集合长度。</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph TD
+    A[&quot;l.iterator() 里的 new Itr()&quot;] --&gt; B{&quot;迭代器引用去了哪&quot;}
+    B --&gt;|&quot;只在本方法里用，用完即弃&quot;| C[&quot;不逃逸：NoEscape&quot;]
+    B --&gt;|&quot;存进静态字段 &#x2F; 传给别的方法&quot;| D[&quot;逃逸：全局可见&quot;]
+    B --&gt;|&quot;被 lambda 捕获，lambda 本身逃逸&quot;| E[&quot;随 lambda 对象一起逃逸&quot;]
+    B --&gt;|&quot;交给另一个线程&quot;| F[&quot;跨线程逃逸&quot;]
+    C --&gt; G[&quot;标量替换：对象拆成局部变量，分配被删掉&quot;]
+    D --&gt; H[&quot;堆上分配：每次遍历 32 字节&quot;]
+    E --&gt; H
+    F --&gt; H
+  </pre></div>
+
+<h2 id="三、实测"><a href="#三、实测" class="headerlink" title="三、实测"></a>三、实测</h2><p>集合 8 个元素，一轮 &#x3D; 一次 <code>iterator()</code> 加走完 8 个元素，1250 万轮 &#x3D; 1 亿次元素访问。每种用法在独立 JVM 里热 5 轮、计时 5 轮，下表取中位数；括号里是那一列的单位。</p>
+<table>
+<thead>
+<tr>
+<th>用法</th>
+<th>分配字节&#x2F;轮 (21)</th>
+<th>(25)</th>
+<th>分配字节&#x2F;元素 (21)</th>
+<th>(25)</th>
+<th>ns&#x2F;元素 (21)</th>
+<th>(25)</th>
+<th>中位耗时 ms (21)</th>
+<th>(25)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>for-each（<code>ArrayList</code>）</td>
+<td>0</td>
+<td>0</td>
+<td>0.00</td>
+<td>0.00</td>
+<td>0.78</td>
+<td>0.66</td>
+<td>78</td>
+<td>66</td>
+</tr>
+<tr>
+<td>for-each（<code>int[]</code>）</td>
+<td>0</td>
+<td>0</td>
+<td>0.00</td>
+<td>0.00</td>
+<td>0.66</td>
+<td>0.65</td>
+<td>66</td>
+<td>65</td>
+</tr>
+<tr>
+<td>for-each（<code>List.of</code>）</td>
+<td>0</td>
+<td>0</td>
+<td>0.00</td>
+<td>0.00</td>
+<td>0.68</td>
+<td>0.65</td>
+<td>68</td>
+<td>65</td>
+</tr>
+<tr>
+<td>逃逸：存静态字段 + 传参</td>
+<td>400000000</td>
+<td>400000000</td>
+<td>4.00</td>
+<td>4.00</td>
+<td>1.20</td>
+<td>1.04</td>
+<td>120</td>
+<td>104</td>
+</tr>
+<tr>
+<td>逃逸：<code>List.of</code> 的迭代器</td>
+<td>400000000</td>
+<td>400000000</td>
+<td>4.00</td>
+<td>4.00</td>
+<td>1.16</td>
+<td>0.93</td>
+<td>116</td>
+<td>93</td>
+</tr>
+<tr>
+<td>逃逸：lambda 捕获</td>
+<td>600000000</td>
+<td>600000000</td>
+<td>6.00</td>
+<td>6.00</td>
+<td>1.59</td>
+<td>1.17</td>
+<td>159</td>
+<td>117</td>
+</tr>
+</tbody></table>
+<p><img src="/assets/patterns/iterator-escape-allocation.png" alt="迭代器分配与逃逸：分配字节、耗时、编译层级与集合长度"></p>
+<h3 id="三个不逃逸的写法都是-0-字节"><a href="#三个不逃逸的写法都是-0-字节" class="headerlink" title="三个不逃逸的写法都是 0 字节"></a>三个不逃逸的写法都是 0 字节</h3><p>三个不逃逸的写法在分配这一列上都是 0 字节，5 轮全是 0。<code>ArrayList</code> 的 <code>Itr</code> 和 <code>List.of</code> 的 <code>ListItr</code> 是两个不同的类、两份不同的实现，分配计数都是 0。按源码字面读，1250 万轮该造出 1250 万个迭代器，实测一个都没有。</p>
+<p>耗时这一列上，集合版本贴在 <code>int[]</code> 的下标循环上：JDK 25 上 0.66 对 0.65 ns&#x2F;元素，差 1.5%；JDK 21 上 0.78 对 0.66，差 15.4%。指针跟随、边界判断、<code>Integer.intValue()</code> 这些开销还在，迭代器对象不在了。</p>
+<h3 id="逃逸之后，每次遍历固定-32-字节"><a href="#逃逸之后，每次遍历固定-32-字节" class="headerlink" title="逃逸之后，每次遍历固定 32 字节"></a>逃逸之后，每次遍历固定 32 字节</h3><p>逃逸那三行的分配字节是整数：每轮 400000000 字节，两个 JDK 一致。除以 8 个元素是 4.00 字节&#x2F;元素，乘 1250 万轮正好 400000000。这就是源码里那条 <code>new Itr()</code>，前面它躺在字节码里不执行，现在每轮执行一次。<code>List.of</code> 的迭代器被存进字段时也是同样的 400000000 字节，对象体积一样，类的来源不同。</p>
+<p>耗时从 0.66 涨到 1.04 ns&#x2F;元素（JDK 25），1.58 倍。这个倍数里除了分配本身，还包括这 400 MB 垃圾的回收成本，G1 的 young GC 就停在计时循环里（本节最后有次数）。</p>
+<h3 id="对象体积是量出来的"><a href="#对象体积是量出来的" class="headerlink" title="对象体积是量出来的"></a>对象体积是量出来的</h3><p>有了分配计数，对象体积可以直接换算。单独跑一个探针，每次分配都存进静态字段保证活到测量之后，计数除以次数：</p>
+<table>
+<thead>
+<tr>
+<th>表达式</th>
+<th>分配字节 &#x2F; 次</th>
+<th>布局</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>() -&gt; &#123;&#125;</code>（不捕获）</td>
+<td>0.0</td>
+<td>不捕获的 lambda 实例被 <code>invokedynamic</code> 的 call site 缓存，不重复分配</td>
+</tr>
+<tr>
+<td><code>() -&gt; SINK(it)</code>（捕获一个引用）</td>
+<td>16.0</td>
+<td>12 字节对象头 + 4 字节被捕获的引用</td>
+</tr>
+<tr>
+<td><code>l.iterator()</code>（<code>ArrayList</code>）</td>
+<td>32.0</td>
+<td>12 + 3 个 int + <code>this$0</code> 引用，补齐到 32</td>
+</tr>
+<tr>
+<td><code>imm.iterator()</code>（<code>List.of</code>）</td>
+<td>32.0</td>
+<td>12 + 1 个引用 + 2 个 int + 1 个 boolean，补齐到 32</td>
+</tr>
+</tbody></table>
+<p>两个 JDK 上的读数一致。这也解释了 <code>capture</code> 那一列每轮多出来的 16 字节：32 字节的迭代器，加上捕获它的 lambda 实例。迭代器本来能停在方法里，只要被 lambda 捕获，lambda 类就多了一个字段，实例缓存不了，每次都要新建。</p>
+<h3 id="反证一：关掉标量替换"><a href="#反证一：关掉标量替换" class="headerlink" title="反证一：关掉标量替换"></a>反证一：关掉标量替换</h3><table>
+<thead>
+<tr>
+<th>开关</th>
+<th>用法</th>
+<th>分配字节&#x2F;轮 (21)</th>
+<th>(25)</th>
+<th>ns&#x2F;元素 (21)</th>
+<th>(25)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>默认</td>
+<td>for-each</td>
+<td>0</td>
+<td>0</td>
+<td>0.78</td>
+<td>0.66</td>
+</tr>
+<tr>
+<td><code>-XX:-EliminateAllocations</code></td>
+<td>for-each</td>
+<td>400000000</td>
+<td>400000000</td>
+<td>0.92</td>
+<td>0.95</td>
+</tr>
+<tr>
+<td><code>-XX:-DoEscapeAnalysis</code></td>
+<td>for-each</td>
+<td>400000000</td>
+<td>400000000</td>
+<td>0.99</td>
+<td>0.96</td>
+</tr>
+<tr>
+<td>默认</td>
+<td>逃逸</td>
+<td>400000000</td>
+<td>400000000</td>
+<td>1.20</td>
+<td>1.04</td>
+</tr>
+<tr>
+<td><code>-XX:-EliminateAllocations</code></td>
+<td>逃逸</td>
+<td>400000000</td>
+<td>400000000</td>
+<td>1.14</td>
+<td>1.04</td>
+</tr>
+<tr>
+<td>默认（<code>drain</code> 可内联）</td>
+<td>传参</td>
+<td>0</td>
+<td>0</td>
+<td>0.78</td>
+<td>0.61</td>
+</tr>
+<tr>
+<td><code>-XX:CompileCommand=dontinline</code></td>
+<td>传参</td>
+<td>400000000</td>
+<td>400000000</td>
+<td>1.31</td>
+<td>1.31</td>
+</tr>
+</tbody></table>
+<p><code>-XX:-EliminateAllocations</code> 只关掉标量替换。字节码一个字没改，for-each 的分配从 0 变成 400000000 字节&#x2F;轮，耗时从 0.66 涨到 0.95 ns&#x2F;元素（JDK 25）。<code>-XX:-DoEscapeAnalysis</code> 关得更靠上游，连逃逸分析本身都不跑，结果在同一量级：400000000 字节&#x2F;轮、0.96 ns&#x2F;元素。逃逸那一列在这两个开关下不动（400000000 字节&#x2F;轮），它本来就在分配。</p>
+<p>表里最后两行是另一条边界。同一个 <code>drain(it)</code> 传参，什么都不改，只把 <code>drain</code> 标成不可内联，分配从 0 变成 400000000 字节&#x2F;轮。逃逸分析跑在内联之后的代码上，方法一旦内联不进来，参数就落到堆上。迭代器可以只在方法之间流动而仍然不逃逸，前提是 JIT 把沿途每个调用都内联展开。</p>
+<h3 id="反证二：跑在-C1-上就没有消除"><a href="#反证二：跑在-C1-上就没有消除" class="headerlink" title="反证二：跑在 C1 上就没有消除"></a>反证二：跑在 C1 上就没有消除</h3><p><code>-XX:TieredStopAtLevel=1</code> 把编译停在第 1 层，只用 C1。同一个程序、同一份字节码，分配字节从 0 变成每轮 400 MB，两个 JDK 一致，30 轮测量里一次例外都没有。耗时从 0.66 涨到 4.96 ns&#x2F;元素。</p>
+<p>反过来，<code>-XX:-TieredCompilation</code> 只允许 C2 编译，分配是 0 字节，两个 JDK 各 3 次运行、每次 5 轮都没有例外。</p>
+<p>原因在分层编译的分工上：逃逸分析和标量替换是 C2 的优化，C1 不做。同一段循环，先被 C1 编译（tier 3，带 profiling），再被 C2 编译（tier 4）。跑在哪个版本上，分配就不一样。<code>-XX:+PrintCompilation</code> 的轨迹能看到这次交接：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">=== JDK25 编译层级轨迹（-XX:+PrintCompilation，只看 Plain::plain）===</span><br><span class="line">38   88 %     3       Plain::plain @ 24 (69 bytes)</span><br><span class="line">39   89       3       Plain::plain (69 bytes)</span><br><span class="line">39   90 %     4       Plain::plain @ 24 (69 bytes)</span><br><span class="line">41   88 %     3       Plain::plain @ 24 (69 bytes)   made not entrant: OSR invalidation of lower levels</span><br><span class="line">289   90 %     4       Plain::plain @ 24 (69 bytes)   made not entrant: uncommon trap</span><br></pre></td></tr></table></figure>
+
+<p>第 3 行是 tier 3 的 OSR 编译，也就是第一次把这个循环编译成机器码的那个版本，它分配。第 4 行的 <code>% 4</code> 是 tier 4（C2）的 OSR 编译，第 5 行的 <code>made not entrant: OSR invalidation of lower levels</code> 表示 tier 3 那个版本被换掉。之后同一个循环是 0 字节。</p>
+<p>这和 <code>-XX:-EliminateAllocations</code> 那一行不是一回事。C2 不做标量替换时，每轮耗时 95 ms（0.95 ns&#x2F;元素）；C1 跑同样的分配时是 496 ms。两个都分配 400 MB，速度差 5.2 倍。分配字节相同，代码质量差在别处。</p>
+<table>
+<thead>
+<tr>
+<th>编译配置</th>
+<th>跑的是谁</th>
+<th>分配字节&#x2F;轮</th>
+<th>ns&#x2F;元素</th>
+<th>每轮耗时 ms</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>-XX:TieredStopAtLevel=1</code></td>
+<td>只有 C1</td>
+<td>400000000</td>
+<td>4.96</td>
+<td>496</td>
+</tr>
+<tr>
+<td>默认分层（5 轮之后）</td>
+<td>C2</td>
+<td>0</td>
+<td>0.66</td>
+<td>66</td>
+</tr>
+<tr>
+<td>默认分层（还没轮到 C2）</td>
+<td>C1（tier 3）</td>
+<td>400000000</td>
+<td>2.29</td>
+<td>229</td>
+</tr>
+<tr>
+<td>默认 + <code>-XX:-EliminateAllocations</code></td>
+<td>C2，不做标量替换</td>
+<td>400000000</td>
+<td>0.95</td>
+<td>95</td>
+</tr>
+<tr>
+<td>默认 + 逃逸用法</td>
+<td>C2，对象逃逸</td>
+<td>400000000</td>
+<td>1.04</td>
+<td>104</td>
+</tr>
+</tbody></table>
+<h3 id="同一份代码，8-次运行里有-2-到-3-次没消除"><a href="#同一份代码，8-次运行里有-2-到-3-次没消除" class="headerlink" title="同一份代码，8 次运行里有 2 到 3 次没消除"></a>同一份代码，8 次运行里有 2 到 3 次没消除</h3><table>
+<thead>
+<tr>
+<th>用法</th>
+<th>JDK 21 测到 0 字节</th>
+<th>测到 400 MB</th>
+<th>JDK 25 测到 0 字节</th>
+<th>测到 400 MB</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>for-each（<code>ArrayList</code>）</td>
+<td>6&#x2F;8</td>
+<td>2&#x2F;8</td>
+<td>5&#x2F;8</td>
+<td>3&#x2F;8</td>
+</tr>
+<tr>
+<td>for-each（<code>List.of</code>）</td>
+<td>7&#x2F;8</td>
+<td>1&#x2F;8</td>
+<td>6&#x2F;8</td>
+<td>2&#x2F;8</td>
+</tr>
+<tr>
+<td>逃逸：存静态字段 + 传参</td>
+<td>0&#x2F;8</td>
+<td>8&#x2F;8</td>
+<td>0&#x2F;8</td>
+<td>8&#x2F;8</td>
+</tr>
+</tbody></table>
+<p>上面三节测的是「这台机器、这一次运行」的结果。把同样的参数拆成独立 JVM 各跑一次，每次热 5 轮只测 1 轮，结果分成了两堆：大多数运行从第一轮起就是 0 字节，少数运行前 3 轮是 400 MB，第 4 轮跳回 0。后者就是 C1 版本被 C2 替换掉的那个时刻。</p>
+<p>另写一个最小程序（<code>main</code> 里直接调用，没有方法引用分派）跑 16 次，复现了同一件事：JDK 21 有 5 次、JDK 25 有 0 次出现「前 3 轮每轮 400 MB、耗时 229 ms，之后降到 0 字节、66 ms」，每次都在同一轮数上切换。</p>
+<table>
+<thead>
+<tr>
+<th>运行</th>
+<th>第 1 轮</th>
+<th>第 2 轮</th>
+<th>第 3 轮</th>
+<th>第 4 轮</th>
+<th>第 5 轮</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JDK 21 典型失败</td>
+<td>400 MB &#x2F; 229 ms</td>
+<td>400 MB &#x2F; 229 ms</td>
+<td>400 MB &#x2F; 228 ms</td>
+<td>0 &#x2F; 76 ms</td>
+<td>0 &#x2F; 77 ms</td>
+</tr>
+<tr>
+<td>JDK 25 正常</td>
+<td>0 &#x2F; 66 ms</td>
+<td>0 &#x2F; 65 ms</td>
+<td>0 &#x2F; 65 ms</td>
+<td>0 &#x2F; 65 ms</td>
+<td>0 &#x2F; 66 ms</td>
+</tr>
+</tbody></table>
+<p>逃逸那一列 16 次全部是 400 MB，没有一次例外，也没有一次中途改变。不逃逸的对象能不能被消掉取决于编译状态，逃逸的对象没有这个不确定性。</p>
+<p>一次跑出 0 字节不能当成保证：要断言「这段代码不分配」，得先确认它跑在 C2 上，再看多轮结果是否一致。本文主表里每一轮的分配值都相同（要么 5 轮全 0，要么 5 轮全 400 MB），没有混合状态，中位数才有意义。</p>
+<h3 id="逃逸的去处：lambda-与跨线程"><a href="#逃逸的去处：lambda-与跨线程" class="headerlink" title="逃逸的去处：lambda 与跨线程"></a>逃逸的去处：lambda 与跨线程</h3><table>
+<thead>
+<tr>
+<th>用法（20 万轮）</th>
+<th>主线程分配字节&#x2F;轮 (21)</th>
+<th>(25)</th>
+<th>ns&#x2F;元素 (21)</th>
+<th>(25)</th>
+<th>中位耗时 ms (21)</th>
+<th>(25)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>迭代器交给虚拟线程</td>
+<td>107172208</td>
+<td>113580672</td>
+<td>715</td>
+<td>670</td>
+<td>1144</td>
+<td>1072</td>
+</tr>
+<tr>
+<td>对照：线程里没有迭代器</td>
+<td>99175752</td>
+<td>105566144</td>
+<td>641</td>
+<td>865</td>
+<td>1025</td>
+<td>1384</td>
+</tr>
+</tbody></table>
+<p>每轮新建一个虚拟线程再 join，每元素成本从纳秒级跳到几百纳秒：JDK 25 上 670 ns&#x2F;元素，是同一线程逃逸版本（1.04 ns&#x2F;元素）的 644 倍。对照组把线程里的遍历换成数组下标求和，还有 865 ns&#x2F;元素（JDK 21 上 641 对 715，方向在两个 JDK 之间是反的）。</p>
+<p>迭代器那一份分配被线程成本淹没了。这一列里两个版本的差值在噪声里，测不出迭代器分配的影响；能确定的是，跨线程传递迭代器的成本大头在线程上。分配字节这一列统计主线程，包含 <code>Thread</code> 对象、lambda 和结果数组，对照组给出这批脚手架的量，两者之差才是迭代器。</p>
+<h3 id="集合变长以后，这件事自己消失"><a href="#集合变长以后，这件事自己消失" class="headerlink" title="集合变长以后，这件事自己消失"></a>集合变长以后，这件事自己消失</h3><table>
+<thead>
+<tr>
+<th>集合长度</th>
+<th>轮数</th>
+<th>for-each 分配&#x2F;轮 (21)</th>
+<th>(25)</th>
+<th>逃逸 分配&#x2F;轮 (21)</th>
+<th>(25)</th>
+<th>for-each ns&#x2F;元素 (21)</th>
+<th>(25)</th>
+<th>逃逸 ns&#x2F;元素 (21)</th>
+<th>(25)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4</td>
+<td>25000000</td>
+<td>0</td>
+<td>0</td>
+<td>800000000</td>
+<td>800000000</td>
+<td>1.03</td>
+<td>0.81</td>
+<td>1.97</td>
+<td>1.54</td>
+</tr>
+<tr>
+<td>16</td>
+<td>6250000</td>
+<td>0</td>
+<td>0</td>
+<td>200000000</td>
+<td>200000000</td>
+<td>0.66</td>
+<td>0.66</td>
+<td>0.79</td>
+<td>0.80</td>
+</tr>
+<tr>
+<td>1024</td>
+<td>97656</td>
+<td>3124992</td>
+<td>0</td>
+<td>3124992</td>
+<td>3124992</td>
+<td>2.30</td>
+<td>0.65</td>
+<td>0.65</td>
+<td>0.64</td>
+</tr>
+<tr>
+<td>262144</td>
+<td>381</td>
+<td>0</td>
+<td>0</td>
+<td>12192</td>
+<td>12192</td>
+<td>0.66</td>
+<td>0.64</td>
+<td>0.65</td>
+<td>0.66</td>
+</tr>
+</tbody></table>
+<p>分配这一列按 32 除以长度走：长度 4 时每元素摊到 8.00 字节，长度 16 时 2.00，长度 1024 时 0.0312，长度 262144 时 0.00012。同一个 32 字节的迭代器，摊进 1 亿次元素访问就没了。</p>
+<p>耗时那一列同样收敛。长度 4 时两个用法是 0.81 对 1.54 ns&#x2F;元素；长度 262144 时是 0.64 对 0.66，两条线合上了。</p>
+<p>这张表还拍到两次编译层级切换。JDK 25 长度 4 的那一次，第一个计时轮是 800 MB、之后两轮是 0，原始日志里是 <code>bytesList=[800000000, 0, 0]</code>；JDK 21 长度 1024 的那一次反过来，三轮全是 3,124,992 字节，也就是 97,656 个迭代器，全程没等到 C2。同一台机器上的两次运行，一个在第三轮切换成功，一个整轮没等到。</p>
+<h3 id="这些垃圾真的要回收"><a href="#这些垃圾真的要回收" class="headerlink" title="这些垃圾真的要回收"></a>这些垃圾真的要回收</h3><p>逃逸版本一轮 1250 万次遍历分配 400 MB，够触发好几次 G1 的 young GC。打开 <code>-Xlog:gc</code> 单独跑一轮：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[0.005s][info][gc] Using G1</span><br><span class="line">[0.059s][info][gc] GC(0) Pause Young (Normal) (G1 Evacuation Pause) 49M-&gt;1M(258M) 0.775ms</span><br><span class="line">[0.101s][info][gc] GC(1) Pause Young (Normal) (G1 Evacuation Pause) 119M-&gt;1M(258M) 0.556ms</span><br></pre></td></tr></table></figure>
+
+<p>一轮里 young GC 停在 6 次（JDK 21）与 6 次（JDK 25），每次回收前堆里约 150 MB，暂停时间在 0.5 ms 到 3 ms 之间。for-each 版本在这段时间里没有任何东西要回收。</p>
+<p>遍历次数越多，逃逸版本的垃圾按比例增长，for-each 版本这一列一直是 0。</p>
+<h2 id="四、JDK-源码里的几份迭代器"><a href="#四、JDK-源码里的几份迭代器" class="headerlink" title="四、JDK 源码里的几份迭代器"></a>四、JDK 源码里的几份迭代器</h2><h3 id="ArrayList-Itr-是重写版"><a href="#ArrayList-Itr-是重写版" class="headerlink" title="ArrayList.Itr 是重写版"></a><code>ArrayList.Itr</code> 是重写版</h3><p><code>ArrayList</code> 没有用 <code>AbstractList</code> 的迭代器，自己写了一份。注释写在类定义上方，JDK 25 <code>ArrayList.java:1034</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * An optimized version of AbstractList.Itr</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">private</span> <span class="keyword">class</span> <span class="title class_">Itr</span> <span class="keyword">implements</span> <span class="title class_">Iterator</span>&lt;E&gt; &#123;</span><br></pre></td></tr></table></figure>
+
+<p>被替换掉的那份在 <code>java.base/java/util/AbstractList.java:345</code>。<code>ArrayList.Itr</code> 的 <code>next()</code> 直接读 <code>elementData</code>，跳过了 <code>AbstractList.get(int)</code> 的虚调用。接口一样，每次遍历省一次虚调用，代价是多维护一份代码。</p>
+<h3 id="Itr-的-32-字节是怎么来的"><a href="#Itr-的-32-字节是怎么来的" class="headerlink" title="Itr 的 32 字节是怎么来的"></a><code>Itr</code> 的 32 字节是怎么来的</h3><p><code>Itr</code> 是非静态内部类，<code>javap -p</code> 能看到一个合成字段：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">class java.util.ArrayList$Itr implements java.util.Iterator&lt;E&gt; &#123;</span><br><span class="line">  int cursor;</span><br><span class="line">  int lastRet;</span><br><span class="line">  int expectedModCount;</span><br><span class="line">  final java.util.ArrayList this$0;</span><br></pre></td></tr></table></figure>
+
+<p>对象头 12 字节（压缩指针）+ 三个 int 共 12 字节 + <code>this$0</code> 引用 4 字节 &#x3D; 28 字节，按 8 字节对齐后是 32 字节。实测逃逸那一列每轮 32 字节，与布局吻合。把它改成 <code>static class</code> 能省掉 <code>this$0</code>，但它要读外层 <code>ArrayList</code> 的 <code>size</code>、<code>elementData</code>、<code>modCount</code> 三个字段，静态化之后每次访问都要多传一个参数。</p>
+<h3 id="List-of-用的是另一份实现"><a href="#List-of-用的是另一份实现" class="headerlink" title="List.of 用的是另一份实现"></a><code>List.of</code> 用的是另一份实现</h3><p><code>List.of(...)</code> 返回 <code>ImmutableCollections.List12</code> 或 <code>ListN</code>，它们的 <code>iterator()</code> 在 <code>java.base/java/util/ImmutableCollections.java:301</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">public</span> Iterator&lt;E&gt; <span class="title function_">iterator</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">ListItr</span>&lt;E&gt;(<span class="built_in">this</span>, size());</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>ListItr</code> 在 <code>:363</code>，字段带 <code>@Stable</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">ListItr</span>&lt;E&gt; <span class="keyword">implements</span> <span class="title class_">ListIterator</span>&lt;E&gt; &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Stable</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> List&lt;E&gt; list;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Stable</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> size;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Stable</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">boolean</span> isListIterator;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> cursor;</span><br></pre></td></tr></table></figure>
+
+<p>另一份实现、另一个类、另一组字段，跟 <code>ArrayList.Itr</code> 没有继承关系。两份实现在 C2 上的结果一样：for-each 里 0 字节，逃逸时每轮 32 字节。<strong>标量替换判定的是「这个对象有没有逃出方法」，跟它属于哪个类无关。</strong> JDK 21 的 <code>ImmutableCollections.java</code> 与 JDK 25 逐行相同（<code>:344</code> 对 <code>:363</code>），差别不在源码里。</p>
+<h3 id="Spliterators-iterator-每次调用都分配"><a href="#Spliterators-iterator-每次调用都分配" class="headerlink" title="Spliterators.iterator 每次调用都分配"></a><code>Spliterators.iterator</code> 每次调用都分配</h3><p><code>java.base/java/util/Spliterators.java:654</code> 是从 <code>Spliterator</code> 造 <code>Iterator</code> 的工厂：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span>&lt;T&gt; Iterator&lt;T&gt; <span class="title function_">iterator</span><span class="params">(Spliterator&lt;? extends T&gt; spliterator)</span> &#123;</span><br><span class="line">    Objects.requireNonNull(spliterator);</span><br><span class="line">    <span class="keyword">class</span> <span class="title class_">Adapter</span> <span class="keyword">implements</span> <span class="title class_">Iterator</span>&lt;T&gt;, Consumer&lt;T&gt; &#123;</span><br><span class="line">        <span class="type">boolean</span> <span class="variable">valueReady</span> <span class="operator">=</span> <span class="literal">false</span>;</span><br><span class="line">        T nextElement;</span><br></pre></td></tr></table></figure>
+
+<p>方法体末尾 <code>:698</code> 是 <code>return new Adapter();</code>。<code>Adapter</code> 有状态（<code>valueReady</code>、<code>nextElement</code>），没法共享，每次调用新建一个。在 for-each 里它同样可能被标量替换，但这个工厂的用途就是把迭代器返回给调用方，它必然逃逸，分配躲不掉。</p>
+<h3 id="能共享的迭代器长什么样"><a href="#能共享的迭代器长什么样" class="headerlink" title="能共享的迭代器长什么样"></a>能共享的迭代器长什么样</h3><p><code>java.base/java/util/Collections.java:4631</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> &lt;T&gt; Iterator&lt;T&gt; <span class="title function_">emptyIterator</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> (Iterator&lt;T&gt;) EmptyIterator.EMPTY_ITERATOR;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>空迭代器没有状态，一个静态实例发给所有调用方，零分配。<code>Itr</code>、<code>ListItr</code>、<code>Adapter</code> 都有 <code>cursor</code> 之类的状态，一个实例同时只能服务一次遍历，共享不了。能不能省掉这次分配，取决于两件事：它逃不逃逸，它有没有状态。</p>
+<h2 id="五、什么时候该在意这-32-字节"><a href="#五、什么时候该在意这-32-字节" class="headerlink" title="五、什么时候该在意这 32 字节"></a>五、什么时候该在意这 32 字节</h2><p>先看集合长度，成本按 32 字节除以元素个数摊，长度到几百以上这一项就不值得看一眼。长度是个位数，再问迭代器会不会离开当前方法。会逃逸，就只能改写法，<code>for-each</code>、<code>Iterable.forEach</code>、<code>forEachRemaining</code> 这三种都不把迭代器交出去。不逃逸，还要确认这段代码有没有热到进 C2：实测 C1 编译的版本每轮分配 400 MB，C2 的版本是 0。三个条件都满足，这 32 字节可以忘掉。</p>
+<p>长度 8 时逃逸版本是 1.04 ns&#x2F;元素（JDK 25），长度 262144 时两种写法都是 0.66 上下，差 3.0%，长度这一维自己就把问题消掉了。同一段循环在 C1 与 C2 之间差 400 MB 每轮，编译层级这一维绕不过去。16 次独立运行里 for-each 有 5 次没有消除。</p>
+<h3 id="不用管的情况"><a href="#不用管的情况" class="headerlink" title="不用管的情况"></a>不用管的情况</h3><ul>
+<li><strong>集合够长。</strong> 一次遍历只分配一个迭代器，成本被元素个数摊薄。26 万个元素的集合，每元素摊到 0.00012 字节。</li>
+<li><strong>代码只跑在 C2 上。</strong> 服务端 JVM 默认分层编译，热点循环最终都会进 C2，逃逸分析在那里生效。前提是这段代码热到了被重新编译的程度。</li>
+<li><strong>每次遍历干的活比几次虚调用重。</strong> 迭代器开销是每元素两次调用加一次 <code>Integer.intValue()</code>。元素上只要有一次字符串拼接或者 map 查找，这部分就淹没了。</li>
+</ul>
+<h3 id="需要管的情况"><a href="#需要管的情况" class="headerlink" title="需要管的情况"></a>需要管的情况</h3><ul>
+<li><strong>短集合 × 高频遍历。</strong> 8 元素集合遍历一亿次，逃逸版本一轮丢掉 400 MB 垃圾，for-each 版本是 0。</li>
+<li><strong>迭代器被存起来或者传出去。</strong> 存进字段、装进集合、作为回调参数传进不可内联的方法、塞进 lambda、交给别的线程，任何一种都会把它钉在堆上。调 JVM 参数救不回来，只能改写法。</li>
+<li><strong>冷启动路径。</strong> 一个只在启动时跑几十毫秒的遍历逻辑，可能从头到尾都在 C1 甚至解释器里。这种代码的分配量按 C1 的规则算：每一轮都分配。</li>
+<li><strong>跨线程传递。</strong> 跨线程交给别人遍历时，每元素 670 ns（JDK 25），把线程里的遍历换成数组下标求和的对照组是 865 ns。两者差值落在噪声里，这一层该省的是线程。</li>
+</ul>
+<h3 id="自己写迭代器时，这笔账一样算"><a href="#自己写迭代器时，这笔账一样算" class="headerlink" title="自己写迭代器时，这笔账一样算"></a>自己写迭代器时，这笔账一样算</h3><p>业务代码里手写 <code>Iterator</code> 的地方多在分页游标上：一次拿一批，取完再拉下一页。这类迭代器自带状态（游标、当前批次、连接或语句句柄），按上面的判据落位：</p>
+<ul>
+<li>方法把迭代器交给调用方，比如 <code>Iterable&lt;Row&gt; rows()</code>，它必然逃逸，每次遍历一次分配。32 字节跟它持有的资源比起来不算什么，优化方向在别处。</li>
+<li>迭代器只在本方法里消费，比如 <code>for (Row r : page)</code>，它有机会被标量替换。能不能成功，看它的字段数量和构造过程：<code>ArrayList.Itr</code> 能被拆掉，靠的是三个 int 加一个外层引用，拆完就是一串局部变量。</li>
+</ul>
+<p>拿不准就用同一套办法量：把这段遍历跑几百万轮，前后各读一次 <code>getThreadAllocatedBytes</code>，差值为 0 就是被消掉了。这比读汇编便宜得多。</p>
+<h3 id="一条判断顺序"><a href="#一条判断顺序" class="headerlink" title="一条判断顺序"></a>一条判断顺序</h3><div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    flowchart TD
+    S[&quot;一次遍历要不要为迭代器分配操心&quot;] --&gt; A{&quot;集合长度有多长&quot;}
+    A --&gt;|&quot;长：遍历成本远大于 32 字节&quot;| Z[&quot;不用管&quot;]
+    A --&gt;|&quot;短，且这段代码在热点路径上&quot;| B{&quot;迭代器会逃逸吗&quot;}
+    B --&gt;|&quot;不会：for-each 或方法内局部变量&quot;| C{&quot;这段代码进 C2 了吗&quot;}
+    B --&gt;|&quot;会：字段、回调、跨线程&quot;| D[&quot;每次遍历一次分配，改写法才是出路&quot;]
+    C --&gt;|&quot;进了：稳定 0 字节&quot;| E[&quot;不用管&quot;]
+    C --&gt;|&quot;没进：还在 C1 或解释器&quot;| F[&quot;每次遍历 32 字节，按 C1 的规则算&quot;]
+  </pre></div>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li><code>ArrayList.iterator()</code> 的实现是 <code>return new Itr();</code>（JDK 25 <code>ArrayList.java:1029</code>），1250 万轮遍历、1 亿次元素访问的实测分配是 0 字节，5 轮全 0。</li>
+<li>逃逸之后每轮固定 400,000,000 字节（4.00 字节&#x2F;元素）：<code>Itr</code> 是非静态内部类，12 字节对象头 + 3 个 int + <code>this$0</code> 引用，补齐到 32。探针实测 32.0 字节，两个 JDK 一致。</li>
+<li>同一份字节码加 <code>-XX:-EliminateAllocations</code>，for-each 从 0 变成每轮 400,000,000 字节，耗时从 0.66 涨到 0.95 ns&#x2F;元素（JDK 25）。</li>
+<li><code>-XX:TieredStopAtLevel=1</code>（只有 C1）跑同一段循环，每轮 400 MB、4.96 ns&#x2F;元素，30 轮测量无例外；<code>-XX:-TieredCompilation</code>（只有 C2）是 0 字节、0.66 ns&#x2F;元素。C1 不做逃逸分析。</li>
+<li>默认分层编译下会出现两种状态：C1 版本每轮 400 MB &#x2F; 229 ms，C2 版本 0 &#x2F; 66 ms，切换点由编译进度决定。16 次最小程序运行里有 5 次拍到前 3 轮是 C1 版本。</li>
+<li>独立 JVM 重复运行：for-each 在 JDK 21 上 8 次里 2 次、JDK 25 上 8 次里 3 次没有消除；逃逸用法 16 次全部 400 MB，一次例外都没有。</li>
+<li>传参的边界在内联上：<code>drain</code> 可内联时分配 0 字节，<code>-XX:CompileCommand=dontinline</code> 之后变成每轮 400,000,000 字节。</li>
+<li><code>List.of</code> 用另一份实现（<code>ImmutableCollections.ListItr</code>），C2 上 for-each 同样是 0，逃逸时同样每轮 400 MB。判定依据是逃不逃逸，跟类无关。</li>
+<li>捕获一个引用的 lambda 是 16 字节，不捕获的由 <code>invokedynamic</code> 缓存、0 字节；<code>capture</code> 那一列每轮 48 字节&#x2F;遍历 &#x3D; 迭代器 32 + lambda 16。</li>
+<li>集合长度到 262144 时每元素摊到 0.00012 字节，两种写法的耗时差 3.0%，这个尺寸上不必优化。</li>
+<li>逃逸版本一轮 1 亿次元素访问触发 6 次 G1 young GC，for-each 版本 0 次。</li>
+<li><code>-XX:+PrintEliminateAllocations</code> 属于 develop 选项，product 版 JVM 直接拒绝启动；判断有没有发生标量替换，用分配字节计数加编译层级对照。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/ArrayList.html">ArrayList (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/Iterator.html">Iterator (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Iterable.html">Iterable (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/List.html">List (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/Spliterators.html">Spliterators (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/Collections.html">Collections (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/jdk.management/com/sun/management/ThreadMXBean.html">ThreadMXBean.getThreadAllocatedBytes</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/401">JEP 401: Value Classes and Objects (Preview)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/169">JEP 169: Value Objects（已撤回）</a></li>
+</ul>
+<blockquote>
+<p>系列索引：<a href="/pattern/">设计模式系列</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/3041245071.html">https://lianglliu.github.io/3041245071.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a><a class="post-meta__tags" href="/tags/%E9%80%83%E9%80%B8%E5%88%86%E6%9E%90/">逃逸分析</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/2151391806.html" title="设计模式——访问者：类型与操作的矩阵"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">设计模式——访问者：类型与操作的矩阵</div></div><div class="info-2"><div class="info-item-1"> 访问者模式的经典卖点是「加操作容易、加类型难」：操作轴加一个类，类型轴改遍所有操作。sealed interface 与模式匹配之后，这笔账要重算：switch 也有穷尽性检查，加类型时编译器同样点名。4 类型 × 4 操作的矩阵两种写法都写一遍，量耗时、量两个扩展方向的真实 diff，再看 JDK 24+ 的 ClassFile API 为什么选了访问者这一侧。  一、问题出在哪访问者的机制是双分派。第一次分派给节点，第二次分派给操作： 12345678910111213141516// 节点侧public record Add(Expr left, Expr right) implements Expr &#123;    @Override    public &lt;R&gt; R accept(ExprVisitor&lt;R&gt; visitor) &#123;        return visitor.visitAdd(this);    &#125;&#125;// 操作侧public final class EvalVisitor implements E...</div></div></div></a><a class="pagination-related" href="/4036126103.html" title="Java——JFR 实战：录制、事件与开销实测"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Java——JFR 实战：录制、事件与开销实测</div></div><div class="info-2"><div class="info-item-1"> JFR 是 JDK 自带的记录器：常态开着也不贵，出事时能把现场和过去几分钟的事件一起拿走。这篇只讲怎么用：录制从哪里发起、录完拿什么读、五百多个事件里先看哪几个。jfr 命令行工具不能发起录制，它只处理录制文件；纯 CPU 负载上 default 与 profile 的开销落在测量噪声里（三档吞吐都是 131k ops&#x2F;s 上下）；分配型负载上，配置之间的差异（0.4%3%）比测量系统自己的轮间漂移（2%4%）还小。数据来自本机（Apple M1 Pro &#x2F; JDK 25，对照版本 JDK 21.0.8），原始输出贴在每段下面，失效的地方直接写出来。  实验环境与口径12345678910111213$ sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize kern.osversionApple M1 Pro101717986918425G83$ java -versionjava version &quot;25&quot; 2025-09-16 LTSJava(TM) SE Runtime Envi...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/3777229427.html" title="设计模式——模板方法：钩子的成本"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——模板方法：钩子的成本</div></div><div class="info-2"><div class="info-item-1"> 模板方法把流程写死在父类，把可变的步骤留给子类。子类通常只需要实现一个方法。其余步骤是带默认实现的钩子，默认体在源码里经常是空的，读起来不要钱。本文量两件事：8 个空钩子在 1 亿次调用下的开销，以及 InputStream 的默认实现把一个批量读请求拆成逐字节调用之后，48 MiB 数据要多付多少。  一、骨架与钩子模板方法把一段流程拆成两种方法：父类实现的骨架方法，子类实现的步骤方法。步骤方法里，一部分是抽象方法，子类必须实现；另一部分是带默认实现的钩子，子类想改才改。      classDiagram     direction TB     class Template {         +run() final         #step()*         #hook1()         #hook2()         #hook3()     }     class ImplA     class ImplB     Template &lt;|-- ImplA     Template &lt;|-- ImplB     note for Templa...</div></div></div></a><a class="pagination-related" href="/2151391806.html" title="设计模式——访问者：类型与操作的矩阵"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——访问者：类型与操作的矩阵</div></div><div class="info-2"><div class="info-item-1"> 访问者模式的经典卖点是「加操作容易、加类型难」：操作轴加一个类，类型轴改遍所有操作。sealed interface 与模式匹配之后，这笔账要重算：switch 也有穷尽性检查，加类型时编译器同样点名。4 类型 × 4 操作的矩阵两种写法都写一遍，量耗时、量两个扩展方向的真实 diff，再看 JDK 24+ 的 ClassFile API 为什么选了访问者这一侧。  一、问题出在哪访问者的机制是双分派。第一次分派给节点，第二次分派给操作： 12345678910111213141516// 节点侧public record Add(Expr left, Expr right) implements Expr &#123;    @Override    public &lt;R&gt; R accept(ExprVisitor&lt;R&gt; visitor) &#123;        return visitor.visitAdd(this);    &#125;&#125;// 操作侧public final class EvalVisitor implements E...</div></div></div></a><a class="pagination-related" href="/1016344466.html" title="设计模式——外观：批量接口的价值"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——外观：批量接口的价值</div></div><div class="info-2"><div class="info-item-1"> 外观模式的公开描述是「为子系统提供统一接口」。这句话在评审里没有用，谁也说不清「统一」到什么粒度。换一个可测量的说法：外观把 N 次细粒度调用收成 1 次粗粒度调用，收益上限就是省下的那 N-1 次调用的固定成本。本文写一万条小记录：逐条裸写、套缓冲、内存拼装后单次写，用 write(2) 计数和两种 JDK 的耗时给这三条路的差价结账，再看 JDK 自己怎么做外观。  一、把「统一接口」换成调用次数外观模式的介绍通常画一张图：客户端指向一个 Facade 类，Facade 再指向三个子系统的类。图里没有数字，读完记不住任何可执行的东西。 把接口设计换成计费问题就具体了。每次调用都有一条固定成本：跨边界的开销。这个边界可能在进程之间、网络之间、内核与应用之间，也可能就在模块之间。外观把 N 次调用合并成 1 次，收益就是省下的 N-1 条固定成本；代价是这次合并本身要付参数打包、错误语义合并、内存占用的账。 写文件的例子把这两种成本都摆了出来。同样一万条记录、同样的字节，三种写法：  逐条 FileOutputStream.write(byte[])，每条一次系统调用。 套一层...</div></div></div></a><a class="pagination-related" href="/2630879553.html" title="设计模式——享元：共享不可变状态"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——享元：共享不可变状态</div></div><div class="info-2"><div class="info-item-1"> Integer.valueOf(500) 每次调用返回一个新对象，Integer.valueOf(5) 每次返回同一个。两者的方法体一样，差别在 IntegerCache 的区间上，而这个区间由启动参数决定。享元模式做的就这一件事：把不变的部分抽出来放进池子共享，把每次都不同的部分当参数传进去。Integer 的值是内在状态，调用方要哪个数是外在状态。1 亿次调用、一组 JVM 参数和两个 JDK 量出这条分界线的两个后果：分配字节从每次 16 变成 0，耗时只差 1.5 倍左右。差额的去处在 TLAB 和 GC 里。  一、享元拆开了什么享元把对象的字段拆成两半。实例之间重复的那部分字段，JDK 里的说法是内在状态，抽出来放进池子，每个值只留一个实例。随调用变化的那部分叫外在状态，留在对象外面，每次调用时当参数传进来。      classDiagram     direction LR     class FlyweightFactory {         -Map pool         +get(Key) Flyweight     }     class Flyw...</div></div></div></a><a class="pagination-related" href="/2495256397.html" title="设计模式——中介者：谁负责协调"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——中介者：谁负责协调</div></div><div class="info-2"><div class="info-item-1"> 中介者把参与者之间的 N(N−1) 条引用换成 N 条，代价是所有人的调用都要经过它。这笔代价有一半是虚构的：JIT 把只做转发的分发路径内联之后，它和直连编译成同一段代码，测不出差别。另一半是真的，来自中介者自己持有的共享状态：一个轮转游标、一个全局序号、一把锁。  一、换掉的是引用，也是决定权8 个参与者互相发事件。直连的写法是每个参与者持有其余 7 个的引用；中介者的写法是每个参与者只认识中介者。      graph TB     subgraph d[&quot;直连：参与者两两持有引用，8 个节点 56 条边&quot;]         direction LR         D1((A)) --- D2((B))         D1 --- D3((C))         D1 --- D4((D))         D2 --- D3         D2 --- D4         D3 --- D4     end     subgraph m[&quot;中介者：每个参与者一条引用，加上中介者的 8 条反向引用共 16 条&quot;]      ...</div></div></div></a><a class="pagination-related" href="/2622618202.html" title="设计模式——代理：动态代理的成本与边界"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-8.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——代理：动态代理的成本与边界</div></div><div class="info-2"><div class="info-item-1"> 代理保持调用方手里的类型不变，中间多插一层。日志、鉴权、重试、延迟加载、远程调用都落在这一层上。手写静态代理的问题是类数按「接口数 × 关注点数」涨，每个类里都是逐方法转发的样板。Proxy.newProxyInstance 把这件事挪到运行时：一次调用生成一个实现全部接口的类，一个 InvocationHandler 接管所有方法。代价在生成的字节码里：每个方法开头一次 anewarray，每个基本类型参数一次装箱。下面用 1 亿次调用把这份代价量出来，再单独量类生成与缓存。  一、代理解决的问题静态代理的算术三个接口、四个关注点。日志、鉴权、重试、指标，每个都要包一层，静态写法就得写这么多个类：      classDiagram     direction LR     class OrderService     class UserService     class PayService     class LoggingOrder     class AuthOrder     class RetryOrder     class MetricsOrder     ...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E4%B8%80%E8%A1%8C-new-%E5%92%8C-0-%E5%AD%97%E8%8A%82%E7%9A%84%E5%88%86%E9%85%8D"><span class="toc-number">1.</span> <span class="toc-text">一、一行 new 和 0 字节的分配</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%8F%A3%E5%BE%84"><span class="toc-number">2.</span> <span class="toc-text">二、实验设计与口径</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E6%B5%8B"><span class="toc-number">3.</span> <span class="toc-text">三、实测</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%89%E4%B8%AA%E4%B8%8D%E9%80%83%E9%80%B8%E7%9A%84%E5%86%99%E6%B3%95%E9%83%BD%E6%98%AF-0-%E5%AD%97%E8%8A%82"><span class="toc-number">3.1.</span> <span class="toc-text">三个不逃逸的写法都是 0 字节</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%80%83%E9%80%B8%E4%B9%8B%E5%90%8E%EF%BC%8C%E6%AF%8F%E6%AC%A1%E9%81%8D%E5%8E%86%E5%9B%BA%E5%AE%9A-32-%E5%AD%97%E8%8A%82"><span class="toc-number">3.2.</span> <span class="toc-text">逃逸之后，每次遍历固定 32 字节</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%AF%B9%E8%B1%A1%E4%BD%93%E7%A7%AF%E6%98%AF%E9%87%8F%E5%87%BA%E6%9D%A5%E7%9A%84"><span class="toc-number">3.3.</span> <span class="toc-text">对象体积是量出来的</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8F%8D%E8%AF%81%E4%B8%80%EF%BC%9A%E5%85%B3%E6%8E%89%E6%A0%87%E9%87%8F%E6%9B%BF%E6%8D%A2"><span class="toc-number">3.4.</span> <span class="toc-text">反证一：关掉标量替换</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8F%8D%E8%AF%81%E4%BA%8C%EF%BC%9A%E8%B7%91%E5%9C%A8-C1-%E4%B8%8A%E5%B0%B1%E6%B2%A1%E6%9C%89%E6%B6%88%E9%99%A4"><span class="toc-number">3.5.</span> <span class="toc-text">反证二：跑在 C1 上就没有消除</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%90%8C%E4%B8%80%E4%BB%BD%E4%BB%A3%E7%A0%81%EF%BC%8C8-%E6%AC%A1%E8%BF%90%E8%A1%8C%E9%87%8C%E6%9C%89-2-%E5%88%B0-3-%E6%AC%A1%E6%B2%A1%E6%B6%88%E9%99%A4"><span class="toc-number">3.6.</span> <span class="toc-text">同一份代码，8 次运行里有 2 到 3 次没消除</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%80%83%E9%80%B8%E7%9A%84%E5%8E%BB%E5%A4%84%EF%BC%9Alambda-%E4%B8%8E%E8%B7%A8%E7%BA%BF%E7%A8%8B"><span class="toc-number">3.7.</span> <span class="toc-text">逃逸的去处：lambda 与跨线程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%9B%86%E5%90%88%E5%8F%98%E9%95%BF%E4%BB%A5%E5%90%8E%EF%BC%8C%E8%BF%99%E4%BB%B6%E4%BA%8B%E8%87%AA%E5%B7%B1%E6%B6%88%E5%A4%B1"><span class="toc-number">3.8.</span> <span class="toc-text">集合变长以后，这件事自己消失</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%BF%99%E4%BA%9B%E5%9E%83%E5%9C%BE%E7%9C%9F%E7%9A%84%E8%A6%81%E5%9B%9E%E6%94%B6"><span class="toc-number">3.9.</span> <span class="toc-text">这些垃圾真的要回收</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81JDK-%E6%BA%90%E7%A0%81%E9%87%8C%E7%9A%84%E5%87%A0%E4%BB%BD%E8%BF%AD%E4%BB%A3%E5%99%A8"><span class="toc-number">4.</span> <span class="toc-text">四、JDK 源码里的几份迭代器</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ArrayList-Itr-%E6%98%AF%E9%87%8D%E5%86%99%E7%89%88"><span class="toc-number">4.1.</span> <span class="toc-text">ArrayList.Itr 是重写版</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Itr-%E7%9A%84-32-%E5%AD%97%E8%8A%82%E6%98%AF%E6%80%8E%E4%B9%88%E6%9D%A5%E7%9A%84"><span class="toc-number">4.2.</span> <span class="toc-text">Itr 的 32 字节是怎么来的</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#List-of-%E7%94%A8%E7%9A%84%E6%98%AF%E5%8F%A6%E4%B8%80%E4%BB%BD%E5%AE%9E%E7%8E%B0"><span class="toc-number">4.3.</span> <span class="toc-text">List.of 用的是另一份实现</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Spliterators-iterator-%E6%AF%8F%E6%AC%A1%E8%B0%83%E7%94%A8%E9%83%BD%E5%88%86%E9%85%8D"><span class="toc-number">4.4.</span> <span class="toc-text">Spliterators.iterator 每次调用都分配</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%83%BD%E5%85%B1%E4%BA%AB%E7%9A%84%E8%BF%AD%E4%BB%A3%E5%99%A8%E9%95%BF%E4%BB%80%E4%B9%88%E6%A0%B7"><span class="toc-number">4.5.</span> <span class="toc-text">能共享的迭代器长什么样</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E8%AF%A5%E5%9C%A8%E6%84%8F%E8%BF%99-32-%E5%AD%97%E8%8A%82"><span class="toc-number">5.</span> <span class="toc-text">五、什么时候该在意这 32 字节</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%8D%E7%94%A8%E7%AE%A1%E7%9A%84%E6%83%85%E5%86%B5"><span class="toc-number">5.1.</span> <span class="toc-text">不用管的情况</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%9C%80%E8%A6%81%E7%AE%A1%E7%9A%84%E6%83%85%E5%86%B5"><span class="toc-number">5.2.</span> <span class="toc-text">需要管的情况</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%87%AA%E5%B7%B1%E5%86%99%E8%BF%AD%E4%BB%A3%E5%99%A8%E6%97%B6%EF%BC%8C%E8%BF%99%E7%AC%94%E8%B4%A6%E4%B8%80%E6%A0%B7%E7%AE%97"><span class="toc-number">5.3.</span> <span class="toc-text">自己写迭代器时，这笔账一样算</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E6%9D%A1%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">5.4.</span> <span class="toc-text">一条判断顺序</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">6.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">7.</span> <span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  const parseViewBox = viewBox => {
+    if (!viewBox) return null
+    const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return null
+    return parts
+  }
+
+  const getSvgViewBox = svg => {
+    const attr = parseViewBox(svg.getAttribute('viewBox'))
+    if (attr) return attr
+
+    // Fallback: use bbox to build a viewBox
+    try {
+      const bbox = svg.getBBox()
+      if (bbox && bbox.width && bbox.height) return [bbox.x, bbox.y, bbox.width, bbox.height]
+    } catch (e) {
+      // getBBox may fail on some edge cases; ignore
+    }
+
+    const w = Number(svg.getAttribute('width')) || 0
+    const h = Number(svg.getAttribute('height')) || 0
+    if (w > 0 && h > 0) return [0, 0, w, h]
+    return [0, 0, 100, 100]
+  }
+
+  const setSvgViewBox = (svg, vb) => {
+    svg.setAttribute('viewBox', `${vb[0]} ${vb[1]} ${vb[2]} ${vb[3]}`)
+  }
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
+  const openSvgInNewTab = ({ source, initViewBox }) => {
+    const getClonedSvg = () => {
+      if (typeof source === 'string') {
+        const template = document.createElement('template')
+        template.innerHTML = source.trim()
+        const svg = template.content.querySelector('svg')
+        return svg ? svg.cloneNode(true) : null
+      }
+      if (source && typeof source.cloneNode === 'function') {
+        return source.cloneNode(true)
+      }
+      return null
+    }
+
+    const clone = getClonedSvg()
+    if (!clone) return
+    if (initViewBox && initViewBox.length === 4) {
+      clone.setAttribute('viewBox', initViewBox.join(' '))
+    }
+    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    if (!clone.getAttribute('xmlns:xlink') && clone.innerHTML.includes('xlink:')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    }
+    // inject background to match current theme
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const bg = getComputedStyle(document.body).backgroundColor || (isDark ? '#1e1e1e' : '#ffffff')
+    if (!clone.style.background) clone.style.background = bg
+
+    const serializer = new XMLSerializer()
+    const svgSource = serializer.serializeToString(clone)
+    const htmlSource = `<!doctype html><html><head><meta charset="utf-8" />
+      <style>
+        html, body { width: 100%; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; background: ${bg}; }
+        svg { max-width: 100%; max-height: 100%; height: auto; width: auto; }
+      </style>
+      </head><body>${svgSource}</body></html>`
+    const blob = new Blob([htmlSource], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener')
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  const attachMermaidViewerButton = wrap => {
+    let btn = wrap.querySelector('.mermaid-open-btn')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mermaid-open-btn'
+      wrap.appendChild(btn)
+    }
+
+    btn.innerHTML = '<i class="fa fa-search fa-fw" aria-hidden="true"></i>'
+
+    if (!btn.__mermaidViewerBound) {
+      btn.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        const svg = wrap.__mermaidOriginalSvg || wrap.querySelector('svg')
+        if (!svg) return
+        const initViewBox = wrap.__mermaidInitViewBox
+        openSvgInNewTab({ source: svg, initViewBox })
+      })
+      btn.__mermaidViewerBound = true
+    }
+  }
+
+  // Zoom around a point (px, py) in the SVG viewport (in viewBox coordinates)
+  const zoomAtPoint = (vb, factor, px, py) => {
+    const w = vb[2] * factor
+    const h = vb[3] * factor
+    const nx = px - (px - vb[0]) * factor
+    const ny = py - (py - vb[1]) * factor
+    return [nx, ny, w, h]
+  }
+
+  const initMermaidGestures = wrap => {
+    // Clean up previous event listeners and pending frames
+    if (wrap.__mermaidAbortController) {
+      wrap.__mermaidAbortController.abort()
+      if (wrap.__mermaidRafId) cancelAnimationFrame(wrap.__mermaidRafId)
+    }
+    const ac = new AbortController()
+    wrap.__mermaidAbortController = ac
+    const svg = wrap.querySelector('svg')
+    if (!svg) return
+
+    // Ensure viewBox exists so gestures always work
+    const initVb = getSvgViewBox(svg)
+    wrap.__mermaidInitViewBox = initVb
+    wrap.__mermaidCurViewBox = initVb.slice()
+    setSvgViewBox(svg, initVb)
+    // Disable default gestures to prevent scroll chaining and pinch-zoom penetration in Chrome
+    svg.style.touchAction = 'none'
+
+    // Cache BoundingClientRect, throttled on scroll to reduce reflow
+    let cachedRect = svg.getBoundingClientRect()
+    let rectDirty = false
+    const markRectDirty = () => { rectDirty = true }
+    window.addEventListener('resize', markRectDirty, { signal: ac.signal })
+    window.addEventListener('scroll', markRectDirty, { signal: ac.signal, capture: true })
+    const getRect = () => {
+      if (rectDirty) {
+        cachedRect = svg.getBoundingClientRect()
+        rectDirty = false
+      }
+      return cachedRect
+    }
+
+    // Precompute clamp bounds from initial viewBox
+    const minW = initVb[2] * 0.1
+    const maxW = initVb[2] * 10
+    const minH = initVb[3] * 0.1
+    const maxH = initVb[3] * 10
+    const clampVb = vb => {
+      const out = vb.slice()
+      out[2] = clamp(out[2], minW, maxW)
+      out[3] = clamp(out[3], minH, maxH)
+      return out
+    }
+
+    // Throttle DOM updates using requestAnimationFrame
+    let pendingVb = null
+    let rafId = null
+    const applyVb = () => {
+      if (pendingVb) {
+        wrap.__mermaidCurViewBox = pendingVb
+        setSvgViewBox(svg, pendingVb)
+        pendingVb = null
+      }
+      rafId = null
+      wrap.__mermaidRafId = null
+    }
+    const setCurVb = vb => {
+      pendingVb = clampVb(vb)
+      if (!rafId) {
+        rafId = requestAnimationFrame(applyVb)
+        wrap.__mermaidRafId = rafId
+      }
+    }
+
+    const state = {
+      pointers: new Map(),
+      startVb: null,
+      startDist: 0,
+      lastPointerX: 0,
+      lastPointerY: 0
+    }
+
+    const onPointerDown = e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      svg.setPointerCapture(e.pointerId)
+      const curVb = wrap.__mermaidCurViewBox
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 1) {
+        state.startVb = curVb.slice()
+        state.lastPointerX = e.clientX
+        state.lastPointerY = e.clientY
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        state.startDist = Math.hypot(dx, dy)
+        state.startVb = curVb.slice()
+      }
+    }
+
+    const onPointerMove = e => {
+      if (!state.pointers.has(e.pointerId)) return
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      if (state.pointers.size === 1 && state.startVb) {
+        const p = state.pointers.values().next().value
+        const dxClient = p.x - state.lastPointerX
+        const dyClient = p.y - state.lastPointerY
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+        const dx = dxClient * (curVb[2] / rect.width)
+        const dy = dyClient * (curVb[3] / rect.height)
+        setCurVb([curVb[0] - dx, curVb[1] - dy, curVb[2], curVb[3]])
+        return
+      }
+      if (state.pointers.size === 2 && state.startVb && state.startDist > 0) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        const dist = Math.hypot(dx, dy)
+        if (!dist) return
+        const factor = state.startDist / dist
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const px = curVb[0] + (cx - rect.left) * (curVb[2] / rect.width)
+        const py = curVb[1] + (cy - rect.top) * (curVb[3] / rect.height)
+        setCurVb(zoomAtPoint(state.startVb, factor, px, py))
+      }
+    }
+
+    const onPointerUpOrCancel = e => {
+      // Release PointerCapture to avoid event capture anomalies
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) {
+        svg.releasePointerCapture(e.pointerId)
+      }
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size === 0) {
+        state.startVb = null
+        state.startDist = 0
+      } else if (state.pointers.size === 1) {
+        const p = state.pointers.values().next().value
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+      }
+    }
+
+    const onWheel = e => {
+      // Prevent event bubbling from triggering external scroll
+      e.preventDefault()
+      e.stopPropagation()
+      // Normalize deltaY across deltaMode (Chrome uses pixels, Safari uses lines)
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= 400
+
+      // Continuous zoom factor: smoother than fixed 1.1/0.9 steps
+      const zoomFactor = Math.pow(1.001, delta)
+
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      const px = curVb[0] + (e.clientX - rect.left) * (curVb[2] / rect.width)
+      const py = curVb[1] + (e.clientY - rect.top) * (curVb[3] / rect.height)
+      setCurVb(zoomAtPoint(curVb, zoomFactor, px, py))
+    }
+
+    const onDblClick = () => {
+      const init = wrap.__mermaidInitViewBox
+      if (init) setCurVb(init)
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown, { signal: ac.signal })
+    svg.addEventListener('pointermove', onPointerMove, { signal: ac.signal })
+    svg.addEventListener('pointerup', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('pointercancel', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('wheel', onWheel, { passive: false, signal: ac.signal })
+    svg.addEventListener('dblclick', onDblClick, { signal: ac.signal })
+  }
+
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      // Clean up event listeners before removing old SVG
+      if (item.__mermaidAbortController) {
+        item.__mermaidAbortController.abort()
+      }
+      const oldSvg = item.querySelector('svg')
+      if (oldSvg) oldSvg.remove()
+      let config = {}
+      try {
+        config = mermaidSrc.dataset.config ? JSON.parse(mermaidSrc.dataset.config) : {}
+      } catch (e) {
+        console.warn('[mermaid] failed to parse dataset.config:', e)
+      }
+      if (!config.theme) {
+        config.theme = theme
+      }
+      const mermaidThemeConfig = `%%{init: ${JSON.stringify(config)}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+        if (true) initMermaidGestures(item)
+        item.__mermaidOriginalSvg = svg
+        if (true) attachMermaidViewerButton(item)
+      }
+
+      const handleError = err => {
+        console.error(`[mermaid] render failed for block #${index}:`, err)
+        const errorEl = document.createElement('div')
+        errorEl.className = 'mermaid-error'
+        errorEl.textContent = `Mermaid render error: ${err.message || err}`
+        mermaidSrc.insertAdjacentElement('afterend', errorEl)
+      }
+
+      try {
+        const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+        // mermaid v9 and v10 compatibility
+        if (typeof renderFn === 'string') {
+          renderMermaid(renderFn)
+        } else {
+          renderFn.then(({ svg }) => renderMermaid(svg)).catch(handleError)
+        }
+      } catch (err) {
+        handleError(err)
+      }
+    })
+  }
+
+  const codeToMermaid = $article => {
+    const codeMermaidEle = $article.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    const $article = document.getElementById('article-container')
+    if (!$article) return
+
+    if (false) codeToMermaid($article)
+    const $mermaid = $article.querySelectorAll('.mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

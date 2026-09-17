@@ -1,13 +1,13 @@
-<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式系列 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="设计模式在今天的 Java 里长什么样：哪些已被语言特性取代、哪些还留着，以及留下来的模式要付出什么代价">
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式系列 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="设计模式在今天的 Java 里长什么样：哪些已被语言特性取代、哪些还留着、留下来的要付出什么代价，每篇都有 JDK 21 与 25 上的实测">
 <meta property="og:type" content="website">
 <meta property="og:title" content="设计模式系列">
 <meta property="og:url" content="https://lianglliu.github.io/pattern/index.html">
 <meta property="og:site_name" content="Lianglliu&#39;s Blog">
-<meta property="og:description" content="设计模式在今天的 Java 里长什么样：哪些已被语言特性取代、哪些还留着，以及留下来的模式要付出什么代价">
+<meta property="og:description" content="设计模式在今天的 Java 里长什么样：哪些已被语言特性取代、哪些还留着、留下来的要付出什么代价，每篇都有 JDK 21 与 25 上的实测">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:image" content="https://lianglliu.github.io/assets/avatar.jpeg">
 <meta property="article:published_time" content="2026-09-17T14:00:00.000Z">
-<meta property="article:modified_time" content="2026-09-17T14:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T15:30:00.000Z">
 <meta property="article:author" content="Lianglliu">
 <meta property="article:tag" content="程序员,博客,教程,工具,框架">
 <meta name="twitter:card" content="summary_large_image">
@@ -186,9 +186,9 @@
   isHighlightShrink: false,
   isToc: false,
   pageType: 'page'
-}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">28</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">13</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="page" id="body-wrap"><header class="not-home-page" id="page-header" style="background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="page-site-info"><h1 id="site-title">设计模式系列</h1></div></header><main class="layout" id="content-inner"><div id="page"><div class="container" id="article-container"><p>这里不写模式的定义。两个问题值得回答：模式当初补的表达力缺口，如今由谁承担；留下来的模式要付出什么代价。</p>
-<p>数据来自本机实测（JDK 21 与 JDK 25 各跑一遍），测量方法与局限写在每篇里。</p>
-<h2 id="文章"><a href="#文章" class="headerlink" title="文章"></a>文章</h2><table>
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="page" id="body-wrap"><header class="not-home-page" id="page-header" style="background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="page-site-info"><h1 id="site-title">设计模式系列</h1></div></header><main class="layout" id="content-inner"><div id="page"><div class="container" id="article-container"><p>这里不写模式的定义。两个问题值得回答：模式当初补的表达力缺口，如今由谁承担；留下来的模式要付出什么代价。</p>
+<p>二十六篇文章，每篇一个模式，实验都在同一台机器（Apple M1 Pro）上跑两遍：JDK 21.0.8 与 JDK 25，源码引用逐字取自 JDK 25 的 <code>src.zip</code>。测量方法与局限写在每篇里，结论只建立在量级上。</p>
+<h2 id="总纲"><a href="#总纲" class="headerlink" title="总纲"></a>总纲</h2><table>
 <thead>
 <tr>
 <th>文章</th>
@@ -197,27 +197,147 @@
 </thead>
 <tbody><tr>
 <td><a href="/2097900514.html">设计模式——被语言吃掉的那些模式</a></td>
-<td>哪些 GoF 模式已被语言特性取代，哪些还留着，判据是什么</td>
+<td>哪些 GoF 模式已被语言特性取代、哪些还留着，判据是哪三条</td>
 </tr>
+</tbody></table>
+<h2 id="创建型"><a href="#创建型" class="headerlink" title="创建型"></a>创建型</h2><table>
+<thead>
 <tr>
+<th>文章</th>
+<th>回答的问题</th>
+</tr>
+</thead>
+<tbody><tr>
 <td><a href="/2222335298.html">设计模式——单例的五种写法与代价</a></td>
 <td>五种写法各自把成本花在哪，哪种写法挡得住哪几种破坏</td>
-</tr>
-<tr>
-<td><a href="/1805545517.html">设计模式——装饰器：缓冲链的代价</a></td>
-<td>多包一层换来什么，缓冲层放错位置会怎样</td>
 </tr>
 <tr>
 <td><a href="/1158087717.html">设计模式——建造者模式(Builder pattern)</a></td>
 <td>参与者有哪些，JDK 源码与 Lombok 各自怎么落地</td>
 </tr>
+<tr>
+<td><a href="/3827552635.html">设计模式——工厂方法：创建动作的成本</a></td>
+<td>直接 new、Supplier、反射构造、方法句柄四条创建路的耗时与分配，以及反射 inflation 的一手验证</td>
+</tr>
+<tr>
+<td><a href="/4240986029.html">设计模式——抽象工厂：产品族的一致性</a></td>
+<td>换一套实现的代价，以及族约束由编译器还是运行期兜底</td>
+</tr>
+<tr>
+<td><a href="/2957747751.html">设计模式——原型：拷贝的四条路</a></td>
+<td>clone、拷贝构造、深拷贝、序列化四者的耗时与分配差到几百倍，哪条路是浅拷贝</td>
+</tr>
 </tbody></table>
-<h2 id="与-Java-系列的关系"><a href="#与-Java-系列的关系" class="headerlink" title="与 Java 系列的关系"></a>与 Java 系列的关系</h2><p>模式是语言表达力的补丁，判断一个模式还要不要用，得先看今天的语法给到了什么。所以这条线与 <a href="/java/">Java 系列</a> 共用同一批实测环境（JDK 21 &#x2F; 25），语言特性那一组的文章是本文集的前置阅读。</p>
-<h2 id="阅读建议"><a href="#阅读建议" class="headerlink" title="阅读建议"></a>阅读建议</h2><p>从「被语言吃掉的那些模式」开始，那篇给出判据并附三组对照实验；动手改代码前先看「单例」与「装饰器」两篇，它们把「写法变短」与「成本变低」拆开算了账。</p>
-</div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">28</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">13</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/4036126103.html" title="Java——JFR 实战：录制、事件与开销实测"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-8.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——JFR 实战：录制、事件与开销实测"/></a><div class="content"><a class="title" href="/4036126103.html" title="Java——JFR 实战：录制、事件与开销实测">Java——JFR 实战：录制、事件与开销实测</a><time datetime="2026-09-17T10:00:00.000Z" title="发表于 2026-09-17 18:00:00">2026-09-17</time></div></div></div></div><div class="card-widget card-categories"><div class="item-headline"><i class="fas fa-folder-open"></i><span>分类</span></div>
+<h2 id="结构型"><a href="#结构型" class="headerlink" title="结构型"></a>结构型</h2><table>
+<thead>
+<tr>
+<th>文章</th>
+<th>回答的问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><a href="/1805545517.html">设计模式——装饰器：缓冲链的代价</a></td>
+<td>多包一层换来什么，缓冲层放错位置会怎样，<code>flush</code> 语义为什么不统一</td>
+</tr>
+<tr>
+<td><a href="/2622618202.html">设计模式——代理：动态代理的成本与边界</a></td>
+<td>生成的代理类长什么样、缓存在哪、每次调用的分配从哪来、<code>this</code> 调用为什么绕开拦截</td>
+</tr>
+<tr>
+<td><a href="/205079771.html">设计模式——适配器：边界在哪</a></td>
+<td>适配层被内联之后成本测不出来，多实现调用点为什么让它重新出现</td>
+</tr>
+<tr>
+<td><a href="/3162181737.html">设计模式——桥接：两个维度独立变化</a></td>
+<td>m×n 的类爆炸值多少字节、多少类加载时间，多一层间接分派贵多少</td>
+</tr>
+<tr>
+<td><a href="/3478563539.html">设计模式——组合：树与叶子的同一接口</a></td>
+<td>递归遍历与先展平的交叉点，栈深临界值，类型抹平的代价</td>
+</tr>
+<tr>
+<td><a href="/1016344466.html">设计模式——外观：批量接口的价值</a></td>
+<td>细粒度调用收成批量之后 syscall 次数与耗时各降多少，<code>Files.write</code> 自带几层缓冲</td>
+</tr>
+<tr>
+<td><a href="/2630879553.html">设计模式——享元：共享不可变状态</a></td>
+<td>JDK 把缓存边界写在哪，<code>-XX:AutoBoxCacheMax</code> 改的是什么</td>
+</tr>
+</tbody></table>
+<h2 id="行为型"><a href="#行为型" class="headerlink" title="行为型"></a>行为型</h2><table>
+<thead>
+<tr>
+<th>文章</th>
+<th>回答的问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><a href="/3520122771.html">设计模式——责任链：三种形态</a></td>
+<td>日志 Handler 链、Stream stage 链、HttpClient 过滤器链的成本曲线与短路位置的影响</td>
+</tr>
+<tr>
+<td><a href="/3864272964.html">设计模式——观察者：从 Observable 到背压</a></td>
+<td>推模式缺的为什么是流量控制，<code>SubmissionPublisher</code> 缓冲写满时 <code>submit</code> 阻塞多久</td>
+</tr>
+<tr>
+<td><a href="/204879800.html">设计模式——状态：状态位还是状态类</a></td>
+<td>JDK 用位标志加 CAS 管状态，状态类写法慢在哪，非法迁移的三种兜底值多少</td>
+</tr>
+<tr>
+<td><a href="/3654303619.html">设计模式——策略：有状态与无状态</a></td>
+<td>策略有没有状态，成本落在调用上还是分配上</td>
+</tr>
+<tr>
+<td><a href="/924563661.html">设计模式——命令：撤销栈与队列化</a></td>
+<td>把调用变成对象之后买到什么、付多少，快照与反向操作两条撤销路的内存差</td>
+</tr>
+<tr>
+<td><a href="/712561657.html">设计模式——解释器：解释还是编译</a></td>
+<td>语法树求值与编译成闭包为什么打平，<code>Pattern.compile</code> 每次编译贵在哪</td>
+</tr>
+<tr>
+<td><a href="/2495256397.html">设计模式——中介者：谁负责协调</a></td>
+<td>N² 引用换成 N 的收益，以及中介者自己变成热点之后多线程吞吐掉多少</td>
+</tr>
+<tr>
+<td><a href="/4222041279.html">设计模式——备忘录：快照的代价</a></td>
+<td>全量快照、增量日志、写时拷贝三条路的快照耗时、常驻内存与回滚耗时</td>
+</tr>
+<tr>
+<td><a href="/3041245071.html">设计模式——迭代器：分配与逃逸分析</a></td>
+<td>迭代器分配什么时候被标量替换掉，什么时候逃逸成真实分配</td>
+</tr>
+<tr>
+<td><a href="/2151391806.html">设计模式——访问者：类型与操作的矩阵</a></td>
+<td>类型轴与操作轴哪一边先长，两个扩展方向各改多少文件，每次分派差多少纳秒</td>
+</tr>
+<tr>
+<td><a href="/3777229427.html">设计模式——模板方法：钩子的成本</a></td>
+<td>空钩子的数量什么时候开始花钱，默认实现里的逐字节退化</td>
+</tr>
+</tbody></table>
+<h2 id="不在-GoF-里，但算同一类问题"><a href="#不在-GoF-里，但算同一类问题" class="headerlink" title="不在 GoF 里，但算同一类问题"></a>不在 GoF 里，但算同一类问题</h2><table>
+<thead>
+<tr>
+<th>文章</th>
+<th>回答的问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><a href="/550034456.html">设计模式——对象池：什么时候是负优化</a></td>
+<td>分配成本与同步成本的交叉点在几个线程，什么对象才值得池化</td>
+</tr>
+<tr>
+<td><a href="/1455898602.html">设计模式——不可变与防御性拷贝</a></td>
+<td>共享与拷贝这两笔账怎么算，<code>List.copyOf</code> 与 <code>unmodifiableList</code> 差在哪</td>
+</tr>
+</tbody></table>
+<h2 id="与-Java-系列的关系"><a href="#与-Java-系列的关系" class="headerlink" title="与 Java 系列的关系"></a>与 Java 系列的关系</h2><p>模式是语言表达力的补丁，判断一个模式还要不要用，得先看今天的语法给到了什么。这条线与 <a href="/java/">Java 系列</a> 共用同一批实测环境，语言特性那一组文章是本文集的前置阅读。</p>
+<h2 id="阅读建议"><a href="#阅读建议" class="headerlink" title="阅读建议"></a>阅读建议</h2><p>先看总纲，那篇给出判据并附三组对照实验，其余二十五篇都在它划出的框架里展开。想找具体问题的答案就直接翻对应那篇：每篇开头是问题与结论，中间是实验设计和原始数据，结尾是判断顺序。</p>
+</div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div><div class="card-widget card-categories"><div class="item-headline"><i class="fas fa-folder-open"></i><span>分类</span></div>
           <ul class="card-category-list expandBtn" id="aside-cat-list">
-            <li class="card-category-list-item "><a class="card-category-list-link" href="/categories/Docker/"><span class="card-category-list-name">Docker</span><span class="card-category-list-count">1</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/Hexo/"><span class="card-category-list-name">Hexo</span><span class="card-category-list-count">1</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/Java/"><span class="card-category-list-name">Java</span><span class="card-category-list-count">16</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/Ubuntu/"><span class="card-category-list-name">Ubuntu</span><span class="card-category-list-count">1</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/Youtube/"><span class="card-category-list-name">Youtube</span><span class="card-category-list-count">1</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/%E7%BD%91%E7%BB%9C/"><span class="card-category-list-name">网络</span><span class="card-category-list-count">4</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/"><span class="card-category-list-name">设计模式</span><span class="card-category-list-count">4</span></a></li>
-          </ul></div><div class="card-widget card-tags"><div class="item-headline"><i class="fas fa-tags"></i><span>标签</span></div><div class="card-tag-cloud"><a href="/tags/DNS/" style="font-size: 1.3em; color: #99a1ac">DNS</a> <a href="/tags/DoH/" style="font-size: 1.1em; color: #999">DoH</a> <a href="/tags/%E4%BB%A3%E7%90%86/" style="font-size: 1.3em; color: #99a1ac">代理</a> <a href="/tags/Linux/" style="font-size: 1.1em; color: #999">Linux</a> <a href="/tags/Youtube/" style="font-size: 1.1em; color: #999">Youtube</a> <a href="/tags/Java/" style="font-size: 1.5em; color: #99a9bf">Java</a> <a href="/tags/%E7%BD%91%E7%BB%9C/" style="font-size: 1.4em; color: #99a5b6">网络</a> <a href="/tags/Ubuntu/" style="font-size: 1.2em; color: #999da3">Ubuntu</a> <a href="/tags/sing-box/" style="font-size: 1.3em; color: #99a1ac">sing-box</a> <a href="/tags/Docker/" style="font-size: 1.2em; color: #999da3">Docker</a> <a href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/" style="font-size: 1.3em; color: #99a1ac">设计模式</a> <a href="/tags/Hexo/" style="font-size: 1.1em; color: #999">Hexo</a> <a href="/tags/DoT/" style="font-size: 1.1em; color: #999">DoT</a></div></div><div class="card-widget card-archives">
+            <li class="card-category-list-item "><a class="card-category-list-link" href="/categories/Docker/"><span class="card-category-list-name">Docker</span><span class="card-category-list-count">1</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/Hexo/"><span class="card-category-list-name">Hexo</span><span class="card-category-list-count">1</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/Java/"><span class="card-category-list-name">Java</span><span class="card-category-list-count">16</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/Ubuntu/"><span class="card-category-list-name">Ubuntu</span><span class="card-category-list-count">1</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/Youtube/"><span class="card-category-list-name">Youtube</span><span class="card-category-list-count">1</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/%E7%BD%91%E7%BB%9C/"><span class="card-category-list-name">网络</span><span class="card-category-list-count">4</span></a></li><li class="card-category-list-item "><a class="card-category-list-link" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/"><span class="card-category-list-name">设计模式</span><span class="card-category-list-count">26</span></a></li>
+          </ul></div><div class="card-widget card-tags"><div class="item-headline"><i class="fas fa-tags"></i><span>标签</span></div><div class="card-tag-cloud"><a href="/tags/%E5%91%BD%E4%BB%A4%E6%A8%A1%E5%BC%8F/" style="font-size: 1.1em; color: #999">命令模式</a> <a href="/tags/%E4%BA%AB%E5%85%83/" style="font-size: 1.1em; color: #999">享元</a> <a href="/tags/DoH/" style="font-size: 1.1em; color: #999">DoH</a> <a href="/tags/%E7%8A%B6%E6%80%81%E6%A8%A1%E5%BC%8F/" style="font-size: 1.1em; color: #999">状态模式</a> <a href="/tags/%E5%A4%87%E5%BF%98%E5%BD%95/" style="font-size: 1.1em; color: #999">备忘录</a> <a href="/tags/DNS/" style="font-size: 1.26em; color: #999fa8">DNS</a> <a href="/tags/Docker/" style="font-size: 1.18em; color: #999ca1">Docker</a> <a href="/tags/%E8%A7%A3%E9%87%8A%E5%99%A8%E6%A8%A1%E5%BC%8F/" style="font-size: 1.1em; color: #999">解释器模式</a> <a href="/tags/%E6%A8%A1%E6%9D%BF%E6%96%B9%E6%B3%95/" style="font-size: 1.1em; color: #999">模板方法</a> <a href="/tags/%E4%B8%8D%E5%8F%AF%E5%8F%98%E6%80%A7/" style="font-size: 1.1em; color: #999">不可变性</a> <a href="/tags/%E6%8A%BD%E8%B1%A1%E5%B7%A5%E5%8E%82/" style="font-size: 1.1em; color: #999">抽象工厂</a> <a href="/tags/%E5%8E%9F%E5%9E%8B%E6%A8%A1%E5%BC%8F/" style="font-size: 1.1em; color: #999">原型模式</a> <a href="/tags/Hexo/" style="font-size: 1.1em; color: #999">Hexo</a> <a href="/tags/%E6%A1%A5%E6%8E%A5/" style="font-size: 1.1em; color: #999">桥接</a> <a href="/tags/%E5%AF%B9%E8%B1%A1%E6%B1%A0/" style="font-size: 1.1em; color: #999">对象池</a> <a href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/" style="font-size: 1.42em; color: #99a6b7">设计模式</a> <a href="/tags/%E5%B7%A5%E5%8E%82%E6%96%B9%E6%B3%95/" style="font-size: 1.1em; color: #999">工厂方法</a> <a href="/tags/%E8%AE%BF%E9%97%AE%E8%80%85%E6%A8%A1%E5%BC%8F/" style="font-size: 1.1em; color: #999">访问者模式</a> <a href="/tags/Linux/" style="font-size: 1.1em; color: #999">Linux</a> <a href="/tags/%E9%80%83%E9%80%B8%E5%88%86%E6%9E%90/" style="font-size: 1.1em; color: #999">逃逸分析</a> <a href="/tags/Youtube/" style="font-size: 1.1em; color: #999">Youtube</a> <a href="/tags/%E5%8A%A8%E6%80%81%E4%BB%A3%E7%90%86/" style="font-size: 1.1em; color: #999">动态代理</a> <a href="/tags/%E9%80%82%E9%85%8D%E5%99%A8%E6%A8%A1%E5%BC%8F/" style="font-size: 1.1em; color: #999">适配器模式</a> <a href="/tags/%E9%80%92%E5%BD%92%E9%81%8D%E5%8E%86/" style="font-size: 1.1em; color: #999">递归遍历</a> <a href="/tags/%E5%93%8D%E5%BA%94%E5%BC%8F%E6%B5%81/" style="font-size: 1.1em; color: #999">响应式流</a> <a href="/tags/%E5%A4%96%E8%A7%82%E6%A8%A1%E5%BC%8F/" style="font-size: 1.1em; color: #999">外观模式</a> <a href="/tags/%E4%BB%A3%E7%90%86/" style="font-size: 1.26em; color: #999fa8">代理</a> <a href="/tags/%E8%B4%A3%E4%BB%BB%E9%93%BE/" style="font-size: 1.1em; color: #999">责任链</a> <a href="/tags/Java/" style="font-size: 1.5em; color: #99a9bf">Java</a> <a href="/tags/sing-box/" style="font-size: 1.26em; color: #999fa8">sing-box</a> <a href="/tags/Ubuntu/" style="font-size: 1.18em; color: #999ca1">Ubuntu</a> <a href="/tags/%E5%B9%B6%E5%8F%91/" style="font-size: 1.1em; color: #999">并发</a> <a href="/tags/%E6%80%A7%E8%83%BD/" style="font-size: 1.1em; color: #999">性能</a> <a href="/tags/%E7%BD%91%E7%BB%9C/" style="font-size: 1.34em; color: #99a3b0">网络</a> <a href="/tags/DoT/" style="font-size: 1.1em; color: #999">DoT</a></div></div><div class="card-widget card-archives">
     <div class="item-headline"><i class="fas fa-archive"></i><span>归档</span></div>
   
     <ul class="card-archive-list">
@@ -227,7 +347,7 @@
             <span class="card-archive-list-date">
               九月 2026
             </span>
-            <span class="card-archive-list-count">23</span>
+            <span class="card-archive-list-count">45</span>
           </a>
         </li>
       
@@ -259,7 +379,7 @@
         </li>
       
     </ul>
-  </div><div class="card-widget card-webinfo"><div class="item-headline"><i class="fas fa-chart-line"></i><span>网站信息</span></div><div class="webinfo"><div class="webinfo-item"><div class="item-name">文章数目 :</div><div class="item-count">28</div></div><div class="webinfo-item"><div class="item-name">本站总字数 :</div><div class="item-count">172.1k</div></div><div class="webinfo-item"><div class="item-name">本站访客数 :</div><div class="item-count" id="busuanzi_value_site_uv"><i class="fa-solid fa-spinner fa-spin"></i></div></div><div class="webinfo-item"><div class="item-name">本站总浏览量 :</div><div class="item-count" id="busuanzi_value_site_pv"><i class="fa-solid fa-spinner fa-spin"></i></div></div><div class="webinfo-item"><div class="item-name">最后更新时间 :</div><div class="item-count" id="last-push-date" data-lastPushDate="2026-09-17T08:15:37.791Z"><i class="fa-solid fa-spinner fa-spin"></i></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  </div><div class="card-widget card-webinfo"><div class="item-headline"><i class="fas fa-chart-line"></i><span>网站信息</span></div><div class="webinfo"><div class="webinfo-item"><div class="item-name">文章数目 :</div><div class="item-count">50</div></div><div class="webinfo-item"><div class="item-name">本站总字数 :</div><div class="item-count">332.8k</div></div><div class="webinfo-item"><div class="item-name">本站访客数 :</div><div class="item-count" id="busuanzi_value_site_uv"><i class="fa-solid fa-spinner fa-spin"></i></div></div><div class="webinfo-item"><div class="item-name">本站总浏览量 :</div><div class="item-count" id="busuanzi_value_site_pv"><i class="fa-solid fa-spinner fa-spin"></i></div></div><div class="webinfo-item"><div class="item-name">最后更新时间 :</div><div class="item-count" id="last-push-date" data-lastPushDate="2026-09-17T09:49:00.573Z"><i class="fa-solid fa-spinner fa-spin"></i></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
   const parseViewBox = viewBox => {
     if (!viewBox) return null
     const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))

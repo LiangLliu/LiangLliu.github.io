@@ -1,0 +1,1127 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式——工厂方法：创建动作的成本 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="把同一个对象造 100 万次，比较直接 new、Supplier、缓存的 Constructor#newInstance 与 MethodHandle#invokeExact 的耗时与分配字节：稳态下多出来的一次转发会被 JIT 吃回去，代价落在装箱和首次调用上；sun.reflect.inflationThreshold 在 JDK 22 之后已成死属性。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="设计模式——工厂方法：创建动作的成本">
+<meta property="og:url" content="https://lianglliu.github.io/3827552635.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="把同一个对象造 100 万次，比较直接 new、Supplier、缓存的 Constructor#newInstance 与 MethodHandle#invokeExact 的耗时与分配字节：稳态下多出来的一次转发会被 JIT 吃回去，代价落在装箱和首次调用上；sun.reflect.inflationThreshold 在 JDK 22 之后已成死属性。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png">
+<meta property="article:published_time" content="2026-09-17T01:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T01:00:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="工厂方法">
+<meta property="article:tag" content="设计模式">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "设计模式——工厂方法：创建动作的成本",
+  "url": "https://lianglliu.github.io/3827552635.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png",
+  "datePublished": "2026-09-17T01:00:00.000Z",
+  "dateModified": "2026-09-17T01:00:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/3827552635.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '设计模式——工厂方法：创建动作的成本',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">设计模式——工厂方法：创建动作的成本</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">设计模式——工厂方法：创建动作的成本</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T01:00:00.000Z" title="发表于 2026-09-17 09:00:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">7.3k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>28分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>工厂方法把「造哪个对象」从调用点挪进一个函数。调用点少写一个类名，多走一次转发。<br>这次转发值多少钱，取决于 JIT 能不能看穿它：内联成功就归零，调用点变多态就留下几纳秒。<br>量级差出在另外两处：反射入口的参数装箱、第一次创建时组装访问器的开销。<br>本文用 100 万次创建、两个 LTS（21.0.8 与 25），把「多一跳」拆成可测量的几项。</p>
+</blockquote>
+<h2 id="一、抽象掉一次创建，到底抽象掉了什么"><a href="#一、抽象掉一次创建，到底抽象掉了什么" class="headerlink" title="一、抽象掉一次创建，到底抽象掉了什么"></a>一、抽象掉一次创建，到底抽象掉了什么</h2><p>把构造调用换成工厂方法的代码长这样：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 直接创建：类型写在调用点，编译期就定了</span></span><br><span class="line"><span class="type">Order</span> <span class="variable">order</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Order</span>(userId, cart);</span><br><span class="line"></span><br><span class="line"><span class="comment">// 工厂方法：类型挪进实现里，调用点只知道接口</span></span><br><span class="line"><span class="type">Order</span> <span class="variable">order</span> <span class="operator">=</span> orderFactory.create(userId, cart);</span><br></pre></td></tr></table></figure>
+
+<p>第一行是一次 <code>invokespecial</code>：JVM 解析常量池的时候就知道要分配哪个类、调用哪个构造函数，内联器和逃逸分析都能直接往里看。第二行是一次 <code>invokeinterface</code>：调用点只知道 <code>OrderFactory</code> 这个接口，具体分配哪个类取决于运行时拿到的实现对象。</p>
+<p>工厂方法换到的是「造哪个类」的决定权，代价是多一层转发。形状由四个角色固定：</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    classDiagram
+    direction TB
+    class Creator {
+        &lt;&lt;interface&gt;&gt;
+        +create() Product
+    }
+    class ImageCreator {
+        +create() Image
+    }
+    class DocumentCreator {
+        +create() Document
+    }
+    class Product {
+        &lt;&lt;interface&gt;&gt;
+    }
+    class Image
+    class Document
+    Creator &lt;|.. ImageCreator
+    Creator &lt;|.. DocumentCreator
+    Product &lt;|.. Image
+    Product &lt;|.. Document
+    ImageCreator ..&gt; Image : new
+    DocumentCreator ..&gt; Document : new
+    note for Creator &quot;调用点只依赖这一层；新增产品只加实现，不动调用点&quot;
+  </pre></div>
+
+<p>这四类角色是 GoF 的原始定义：<code>Creator</code> 声明工厂方法，<code>ConcreteCreator</code> 覆写它并决定造哪个 <code>Product</code>，产品族各自实现 <code>Product</code> 接口。实际代码里，<code>Creator</code> 通常简化成 <code>Function</code>、<code>Supplier</code> 或者一个函数对象，它们在 JVM 上的行为一样，都是一次接口调用。</p>
+<p>跟邻近模式的边界：</p>
+<ul>
+<li><strong>简单工厂</strong>把 <code>switch</code> 收进一个静态方法，类型选择只有一处，测试里换不掉。工厂方法多出来的是一个<strong>接口</strong>，换实现不用改调用点。</li>
+<li><strong>抽象工厂</strong>是若干个工厂方法打包成一个对象，解决的是「一组产品要配套」，见<a href="/4240986029.html">抽象工厂那一篇</a>。只有一个产品维度时，抽象工厂里的每个方法就是工厂方法。</li>
+<li><strong>建造者</strong>关心的是同一个对象分步骤装配，创建动作本身还是固定的，装配的代价在<a href="/1158087717.html">建造者那一篇</a>里量过。本篇只碰「造哪一个、怎么造出来」这一跳。</li>
+</ul>
+<h3 id="JDK-自己怎么选"><a href="#JDK-自己怎么选" class="headerlink" title="JDK 自己怎么选"></a>JDK 自己怎么选</h3><p>JDK 里有几处可以直接对照：</p>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>形态</th>
+<th>创建动作是什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>javax.sql.DataSource#getConnection</code></td>
+<td>工厂方法</td>
+<td>真开一条连接，延迟在毫秒级，转发成本可以忽略</td>
+</tr>
+<tr>
+<td><code>java.util.Collection#iterator</code></td>
+<td>工厂方法</td>
+<td>分配一个迭代器对象，<code>ArrayList</code> 里就是 <code>new Itr()</code></td>
+</tr>
+<tr>
+<td><code>java.lang.Thread.Builder#factory</code>（JDK 21+）</td>
+<td>工厂方法</td>
+<td>返回 <code>ThreadFactory</code>，创建动作在之后每次 <code>newThread</code> 调用里发生</td>
+</tr>
+<tr>
+<td><code>Integer#valueOf</code></td>
+<td>静态工厂 + 缓存</td>
+<td>命中缓存时返回已有对象，<code>Integer.java:932-984</code> 是那张缓存表的范围（<code>-128</code> 到 <code>127</code>，上限受 <code>java.lang.Integer.IntegerCache.high</code> 控制）</td>
+</tr>
+</tbody></table>
+<p><code>Integer#valueOf</code> 说明工厂方法返回的不一定是新对象。调用点写下 <code>Integer.valueOf(x)</code>，拿到的可能是缓存里的旧对象，这是 <code>new</code> 给不了的自由度，也是「工厂方法」这个词有时名不副实的原因：它不保证创建。缓存式工厂属于共享不可变的思路，细节留给<a href="/2630879553.html">享元那一篇</a>。</p>
+<h2 id="二、实验设计"><a href="#二、实验设计" class="headerlink" title="二、实验设计"></a>二、实验设计</h2><p>实验用的类只有两个字段，构造函数不做别的事：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">Point</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">final</span> <span class="type">int</span> x, y;</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Point</span><span class="params">(<span class="type">int</span> x, <span class="type">int</span> y)</span> &#123; <span class="built_in">this</span>.x = x; <span class="built_in">this</span>.y = y; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>六条路径每条都把 <code>Point</code> 造 100 万次，结果写进预分配好的 <code>Object[]</code>，避免逃逸分析把这些对象整个消掉。前四条对应「创建动作被抽象成什么」，后两条对应「抽象成反射对象」：</p>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>路径</th>
+<th>调用点形态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><code>new Point(a, b)</code></td>
+<td>编译期解析，可内联</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>Supplier&lt;Point&gt;.get()</code></td>
+<td>零参函数对象，单态</td>
+</tr>
+<tr>
+<td>3</td>
+<td>自定义 <code>Maker.make(int,int)</code>（1 个实现）</td>
+<td>带参函数对象，单态</td>
+</tr>
+<tr>
+<td>4</td>
+<td>同一个 <code>Maker</code> 调用点，5 个实现</td>
+<td>多态调用点</td>
+</tr>
+<tr>
+<td>5</td>
+<td>缓存的 <code>Constructor&lt;Point&gt;#newInstance</code></td>
+<td>反射，参数现场装箱</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>static final MethodHandle#invokeExact</code></td>
+<td>方法句柄，无装箱</td>
+</tr>
+</tbody></table>
+<p>另外两个变体用来给前六条做对照，只在表里出现，不画进图：<code>Maker</code> 调用点放两个实现（双态，看内联还能不能成立），以及反射路径的参数预装箱（把装箱成本单独摘出来）。</p>
+<p>测量口径：</p>
+<ul>
+<li>JDK：<code>21.0.8+12-LTS-250</code> 与 <code>25+37-LTS-3491</code>，都是 arm64 的 HotSpot。</li>
+<li>机器：Apple M1 Pro，10 核，macOS Darwin 25.6.0。</li>
+<li>每条路径先跑 5 轮预热丢弃，再计时 5 轮，取中位数。每轮 100 万次。</li>
+<li>时间是 <code>System.nanoTime()</code> 的前后差，含数组写入与被写对象的内存分配，不含 GC 之外的任何清理。</li>
+<li>分配字节用 <code>com.sun.management.ThreadMXBean#getThreadAllocatedBytes</code>，取每轮的差值再取中位数。这个计数是 TLAB 记账，不受 CPU 争用影响。</li>
+<li>同一台机器上还有别的进程在跑，所以计时阶段全程持一把全局文件锁，避免互相抢核。时长的分辨力大概在零点几毫秒，换算到每次创建是零点几纳秒，<strong>只用来判断量级</strong>。</li>
+</ul>
+<p>这不是 JMH，只用来把「量级」这一栏填上，给不出能写进性能报告的小数点。</p>
+<h2 id="三、实测一：稳态下的六条创建路径"><a href="#三、实测一：稳态下的六条创建路径" class="headerlink" title="三、实测一：稳态下的六条创建路径"></a>三、实测一：稳态下的六条创建路径</h2><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>JDK 21 耗时</th>
+<th>JDK 25 耗时</th>
+<th>JDK 21 分配字节&#x2F;次</th>
+<th>JDK 25 分配字节&#x2F;次</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>new</code></td>
+<td>4.07 ns</td>
+<td>2.08 ns</td>
+<td>24 B</td>
+<td>24 B</td>
+</tr>
+<tr>
+<td><code>Supplier.get()</code>（单态）</td>
+<td>4.43 ns</td>
+<td>2.20 ns</td>
+<td>24 B</td>
+<td>24 B</td>
+</tr>
+<tr>
+<td>工厂函数，1 个实现</td>
+<td>4.28 ns</td>
+<td>4.08 ns</td>
+<td>24 B</td>
+<td>24 B</td>
+</tr>
+<tr>
+<td>工厂函数，2 个实现</td>
+<td>3.09 ns</td>
+<td>4.36 ns</td>
+<td>24 B</td>
+<td>24 B</td>
+</tr>
+<tr>
+<td>工厂函数，5 个实现</td>
+<td>6.12 ns</td>
+<td>5.60 ns</td>
+<td>24 B</td>
+<td>24 B</td>
+</tr>
+<tr>
+<td><code>Constructor#newInstance</code></td>
+<td>4.52 ns</td>
+<td>3.32 ns</td>
+<td>56 B</td>
+<td>24 B</td>
+</tr>
+<tr>
+<td><code>Constructor#newInstance</code>（参数预装箱）</td>
+<td>3.53 ns</td>
+<td>3.48 ns</td>
+<td>24 B</td>
+<td>24 B</td>
+</tr>
+<tr>
+<td><code>MethodHandle#invokeExact</code></td>
+<td>4.33 ns</td>
+<td>2.20 ns</td>
+<td>24 B</td>
+<td>24 B</td>
+</tr>
+</tbody></table>
+<p><img src="/assets/patterns/factory-create-cost.png" alt="六条创建路径的耗时与分配字节，以及反射 inflation 的前后对比"></p>
+<p>耗时上，六条路径的大部分差距落在测量噪声能解释的范围内。JDK 21 上 <code>new</code>、<code>Supplier.get</code>、单实现工厂函数、反射、<code>invokeExact</code> 全落在 4.0 到 4.7 纳秒之间；JDK 25 的落点更低，排序也换过位置：<code>new</code> 是 2.08，<code>invokeExact</code> 是 2.20，反射是 3.32，单实现工厂函数是 4.08。同一段代码在两个 LTS 上给出两套排序，差别来自 JIT 的编译顺序与剖析决定，跟语言语义无关。稳态下「多一次接口调用」这件事，在 2 纳秒的分辨力里测不出来。</p>
+<p>站得住的差异有两处。</p>
+<p>一个是多态调用点。<code>pool[i % 5].make(a, b)</code> 这一个调用点上有五种实现，C2 的类型剖析退化，内联失败，代价可复现：JDK 21 上两次运行是 6.05 与 6.19 纳秒，JDK 25 上是 5.77 与 5.43 纳秒。两个 JDK、两次运行，方向一致，是同一条路径单态版本的一点四到两倍。</p>
+<p>另一个在分配那一栏。JDK 21 的反射路径每次创建分配 56 字节，其它路径都是 24 字节。24 字节是这个对象本身（12 字节对象头加两个 <code>int</code> 字段，对齐到 24）。多出来的 32 字节是两个 <code>Integer</code> 装箱：<code>newInstance(Object...)</code> 接受的是对象，<code>int</code> 参数要在调用点装箱。</p>
+<p>JDK 25 那一栏是 24，两次运行都如此，装箱被逃逸分析消掉了。两个 JDK 对同一条反射构造链做了不同的逃逸分析决定：同样的源码，JDK 21 每次多分配 32 字节，JDK 25 一个字节也不多。</p>
+<h3 id="分配字节比时间更能说明问题"><a href="#分配字节比时间更能说明问题" class="headerlink" title="分配字节比时间更能说明问题"></a>分配字节比时间更能说明问题</h3><p>把标量替换关掉（<code>-XX:+UnlockDiagnosticVMOptions -XX:-EliminateAllocations</code>）再跑同一套代码，账目就对上了：</p>
+<table>
+<thead>
+<tr>
+<th>路径</th>
+<th>分配字节&#x2F;次（默认）</th>
+<th>分配字节&#x2F;次（关掉标量替换）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>new</code>、函数对象、<code>invokeExact</code></td>
+<td>24</td>
+<td>24</td>
+</tr>
+<tr>
+<td><code>Constructor#newInstance</code>，参数现场装箱</td>
+<td>56（JDK 21）&#x2F; 24（JDK 25）</td>
+<td>80</td>
+</tr>
+<tr>
+<td><code>Constructor#newInstance</code>，参数预装箱</td>
+<td>24</td>
+<td>48</td>
+</tr>
+</tbody></table>
+<p>80 &#x3D; 24（对象）+ 32（两个 <code>Integer</code>）+ 24（<code>Object[2]</code> 参数数组）。48 &#x3D; 24 + 24。关掉标量替换之后，参数数组和两个装箱都摆在明处。默认配置下，JDK 21 消掉了参数数组、留下了装箱（56），JDK 25 两个都消掉（24）。</p>
+<p>单件的大小用同一台机器上的探针量：</p>
+<table>
+<thead>
+<tr>
+<th>表达式</th>
+<th>分配字节&#x2F;次</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>new Point(a, b)</code></td>
+<td>24</td>
+</tr>
+<tr>
+<td><code>new Integer(v)</code></td>
+<td>16</td>
+</tr>
+<tr>
+<td><code>Integer.valueOf(v)</code>，命中缓存</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>Integer.valueOf(v)</code>，超出缓存</td>
+<td>16</td>
+</tr>
+<tr>
+<td><code>new Object[2]</code>、<code>new int[2]</code></td>
+<td>24</td>
+</tr>
+</tbody></table>
+<p>24 + 16 + 16 + 24 &#x3D; 80，和上面那一列严丝合缝。命中缓存那一行是 0 字节：<code>Integer.valueOf</code> 在 <code>-128</code> 到 <code>127</code> 范围内直接返回 <code>IntegerCache</code> 里的实例，<code>Integer.java:932-985</code> 是那张表。工厂方法返回的不一定是新对象，这一档就是它跟 <code>new</code> 的分界线，具体套路属于共享不可变那一篇的范围。另一个细节：命中缓存的那一行耗时反而更高（31.93 对 2.89 纳秒&#x2F;次），因为反复把同一个老年代对象写进年轻代数组要走写屏障的慢路径，省下的是分配这一栏。</p>
+<p>关掉标量替换之后，时间也跟着变了：反射路径从 4.52 抬到 8.56 纳秒（JDK 21），从 3.32 抬到 8.63 纳秒（JDK 25）。分配不是免费的，逃逸分析每一次成功的消除都对应一次真实的搬运。</p>
+<h3 id="JIT-把这条链吃掉了"><a href="#JIT-把这条链吃掉了" class="headerlink" title="JIT 把这条链吃掉了"></a>JIT 把这条链吃掉了</h3><p>56 字节与 4.5 纳秒放在一起，说明反射调用没有完整走一遍。用 <code>-XX:+PrintInlining</code> 把内联决定打出来，两个 JDK 上看到的是同一件事：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"># JDK 21</span><br><span class="line">@ 44   java.lang.reflect.Constructor::newInstance (34 bytes)              force inline by annotation</span><br><span class="line">@ 30   java.lang.reflect.Constructor::newInstanceWithCaller (51 bytes)    inline (hot)</span><br><span class="line">@ 41   jdk.internal.reflect.DirectConstructorHandleAccessor::newInstance (130 bytes)  inline (hot)</span><br><span class="line">@ 60   jdk.internal.reflect.DirectConstructorHandleAccessor::invokeImpl (103 bytes)   force inline by annotation</span><br><span class="line">       \-&gt; TypeProfile (9835/9835 counts) = jdk/internal/reflect/DirectConstructorHandleAccessor</span><br><span class="line"></span><br><span class="line"># JDK 25</span><br><span class="line">@ 44   java.lang.reflect.Constructor::newInstance (34 bytes)              force inline by annotation</span><br><span class="line">@ 30   java.lang.reflect.Constructor::newInstanceWithCaller (51 bytes)    inline (hot)</span><br><span class="line">@ 41   jdk.internal.reflect.DirectConstructorHandleAccessor::newInstance (130 bytes)  inline (hot)</span><br><span class="line">@ 60   jdk.internal.reflect.DirectConstructorHandleAccessor::invokeImpl (103 bytes)   force inline by annotation</span><br></pre></td></tr></table></figure>
+
+<p><code>Constructor#newInstance</code> 上的 <code>@ForceInline</code>、访问器上的 <code>@Hidden @ForceInline</code>，加上类型剖析 100% 命中同一个访问器实现，整条链在编译后的循环里就是一段直线代码。剩下的差别只有两处：参数要装箱（JDK 21 没消掉），以及访问器对象要经过两次字段读取。</p>
+<p>这条链能这样折起来，是 JEP 416 的直接目的：反射入口从「VM 内部的一个洞」变成一次普通方法调用加一次方法句柄调用，JIT 可以用同一套内联规则处理它。JDK 18 之前的实现在这里没有这个机会，它调用的是一次 JNI 入口，<code>inline (hot)</code> 那一行不会出现。</p>
+<h3 id="换一个测量装置，结论会不会变"><a href="#换一个测量装置，结论会不会变" class="headerlink" title="换一个测量装置，结论会不会变"></a>换一个测量装置，结论会不会变</h3><p>上面那张表里，八行共用一个 JVM，JIT 的编译顺序与类型剖析互相影响。把每条路径放进自己的 JVM 再跑一遍：</p>
+<table>
+<thead>
+<tr>
+<th>路径</th>
+<th>JDK 21 混跑</th>
+<th>JDK 21 独立 JVM</th>
+<th>JDK 25 混跑</th>
+<th>JDK 25 独立 JVM</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>new</code></td>
+<td>4.08 &#x2F; 4.13</td>
+<td>5.06</td>
+<td>2.08 &#x2F; 2.09</td>
+<td>2.41</td>
+</tr>
+<tr>
+<td><code>Supplier.get()</code></td>
+<td>4.16 &#x2F; 4.69</td>
+<td>4.19</td>
+<td>2.18 &#x2F; 2.21</td>
+<td>2.42</td>
+</tr>
+<tr>
+<td>工厂函数，1 个实现</td>
+<td>4.24 &#x2F; 4.32</td>
+<td>4.26</td>
+<td>4.08 &#x2F; 4.07</td>
+<td>2.37</td>
+</tr>
+<tr>
+<td>工厂函数，2 个实现</td>
+<td>2.78 &#x2F; 3.40</td>
+<td>4.58</td>
+<td>4.50 &#x2F; 4.21</td>
+<td>3.58</td>
+</tr>
+<tr>
+<td>工厂函数，5 个实现</td>
+<td>6.05 &#x2F; 6.19</td>
+<td>6.73</td>
+<td>5.77 &#x2F; 5.43</td>
+<td>5.20</td>
+</tr>
+<tr>
+<td><code>Constructor#newInstance</code></td>
+<td>4.59 &#x2F; 4.44</td>
+<td>8.20</td>
+<td>3.29 &#x2F; 3.35</td>
+<td>3.77</td>
+</tr>
+<tr>
+<td><code>MethodHandle#invokeExact</code></td>
+<td>4.20 &#x2F; 4.47</td>
+<td>4.13</td>
+<td>2.14 &#x2F; 2.26</td>
+<td>2.70</td>
+</tr>
+</tbody></table>
+<p>（两列混跑是两个独立 JVM 各自的结果，独立 JVM 那一列是单跑一次；单位都是纳秒&#x2F;次。）</p>
+<p>表里那行「2 个实现」在混跑时是 3.09 和 4.36，独立跑变成 4.58 和 3.58；它在混跑时的低值没有意义，两条实现都在内联范围内。变化更大的是两处：JDK 25 的单实现工厂函数从 4.08 掉到 2.37，JDK 21 的反射路径从 4.5 涨到 8.2。同一条路径换一个测量装置，结论能差一倍，这类差异该记在方法学账上，不能写进设计决策。</p>
+<p>两次装置下都站得住的只有两条：多态调用点比单态贵一点四到两倍；JDK 21 的反射路径每次创建多分配 32 字节。其余的差别（包括 JDK 25 整体比 JDK 21 低一截）属于 JIT 版本差异。写微基准的时候把 JDK 版本号写出来，比把小数点多写一位重要。</p>
+<h2 id="四、实测二：第一次创建"><a href="#四、实测二：第一次创建" class="headerlink" title="四、实测二：第一次创建"></a>四、实测二：第一次创建</h2><p>稳态的循环已经被 JIT 编译过，第一次调用没有。每个 JDK 起 5 个新 JVM，量一串「第一次」，同时用 <code>ClassLoadingMXBean</code> 数出每一步加载了多少个类：</p>
+<table>
+<thead>
+<tr>
+<th>动作</th>
+<th>JDK 21 中位耗时</th>
+<th>该步加载的类</th>
+<th>JDK 25 中位耗时</th>
+<th>该步加载的类</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Point</code> 第一次 <code>new</code>（含类加载）</td>
+<td>264 µs</td>
+<td>1</td>
+<td>203 µs</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>new</code>（类已加载）</td>
+<td>333 ns</td>
+<td>0</td>
+<td>416 ns</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>Class#getConstructor</code></td>
+<td>36 µs</td>
+<td>0</td>
+<td>43 µs</td>
+<td>0</td>
+</tr>
+<tr>
+<td>第一次 <code>newInstance</code></td>
+<td>2.27 ms</td>
+<td>18</td>
+<td>3.30 ms</td>
+<td>28</td>
+</tr>
+<tr>
+<td>第二次 <code>newInstance</code></td>
+<td>7.4 µs</td>
+<td>0</td>
+<td>8.9 µs</td>
+<td>0</td>
+</tr>
+<tr>
+<td>换一个类，第一次 <code>newInstance</code></td>
+<td>49 µs</td>
+<td>0</td>
+<td>59 µs</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>MethodHandles.Lookup#findConstructor</code></td>
+<td>40 µs</td>
+<td>0</td>
+<td>51 µs</td>
+<td>0</td>
+</tr>
+<tr>
+<td>第一次 <code>invokeExact</code></td>
+<td>253 µs</td>
+<td>1</td>
+<td>289 µs</td>
+<td>1</td>
+</tr>
+<tr>
+<td>第二次 <code>invokeExact</code></td>
+<td>1.7 µs</td>
+<td>0</td>
+<td>1.6 µs</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<p>（<code>µs</code> 是微秒。每一行取 5 次运行的中位数。）</p>
+<p>台阶有三层，每一层都能归到具体的东西上：</p>
+<ul>
+<li><code>new</code> 一次，类已经加载之后是几百纳秒。同一个类第一次被用到时要先加载它自己，要 200 到 260 微秒。这笔钱跟工厂方法无关，任何第一次碰到这个类的代码都要付。</li>
+<li><code>Class#getConstructor</code> 是 40 微秒上下，不加载新类，<code>java.lang.reflect</code> 在启动阶段就备好了。</li>
+<li>第一次 <code>newInstance</code> 是 2.3 到 3.3 毫秒，这一步同时加载了 18 个类（JDK 21）或 28 个类（JDK 25）。</li>
+</ul>
+<p>18 到 28 个类的加载按每个类几十微秒算，只值几百微秒到一毫秒，解释不了整个台阶。</p>
+<p>剩下的部分，本次没能继续拆开，能确定的是它不属于方法句柄子系统的首次初始化：先跑一次 <code>findConstructor</code> 加 <code>invokeExact</code> 把方法句柄热身，再量第一次 <code>newInstance</code>，耗时还是 2.9 到 3.8 毫秒。同一份代码里，第一次 <code>invokeExact</code> 只要 250 到 290 微秒。所以这 2 到 3 毫秒是「进程里第一次把 <code>java.lang.reflect</code> 这条完整调用路径跑通」的一次性开销，本次测量只把它定位到这一步，没有更细的归因。</p>
+<p>把一次性开销和每个类的装配分开，只需要在同一个进程里再给第二个类装一次访问器：换一个类之后，第一次 <code>newInstance</code> 只要 49 微秒（JDK 21）和 59 微秒（JDK 25），而且一个类都不用加载。同一个类的第二次调用掉到 7 到 9 微秒，此时循环还在解释器里跑，没有 JIT 编译后的循环。</p>
+<p><code>MethodHandle</code> 那条路同构：<code>findConstructor</code> 要 40 到 51 微秒，第一次 <code>invokeExact</code> 250 到 290 微秒（附带加载一个句柄自己的 lambda form 类），第二次 1.5 微秒。</p>
+<p>三层放在一起：创建一个对象几百纳秒，第一次反射创建几毫秒，中间隔着四个数量级；装配一次访问器五十微秒，稳态下两者又回到同一个带。讨论「工厂方法贵不贵」时如果不说是哪一层，就是拿一个数解释另一个数。</p>
+<p>反射式工厂的开销形状是「每个类一次性的几十微秒」，把它当成「每次创建多几纳秒」讨论就是量错了地方。这类工厂适合启动期的装配（配置、插件、IoC 容器），每个类五十微秒的账单付得起；不适合放进每秒百万次的创建路径，那条路径上不该有 JIT 看不见的东西。</p>
+<h2 id="五、实测三：inflation-阈值在-JDK-25-上已经失效"><a href="#五、实测三：inflation-阈值在-JDK-25-上已经失效" class="headerlink" title="五、实测三：inflation 阈值在 JDK 25 上已经失效"></a>五、实测三：inflation 阈值在 JDK 25 上已经失效</h2><table>
+<thead>
+<tr>
+<th>配置</th>
+<th>冷：前 1,000 次</th>
+<th>稳态：1,000,000 次</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JDK 21 默认（方法句柄访问器）</td>
+<td>4882.6 ns&#x2F;次</td>
+<td>43.29 ns&#x2F;次</td>
+</tr>
+<tr>
+<td>JDK 21 老访问器，阈值默认 15</td>
+<td>2155.2 ns&#x2F;次</td>
+<td>34.41 ns&#x2F;次</td>
+</tr>
+<tr>
+<td>JDK 21 老访问器，阈值 1000000</td>
+<td>1095.7 ns&#x2F;次</td>
+<td>226.42 ns&#x2F;次</td>
+</tr>
+<tr>
+<td>JDK 21 老访问器，<code>noInflation=true</code></td>
+<td>962.5 ns&#x2F;次</td>
+<td>34.56 ns&#x2F;次</td>
+</tr>
+<tr>
+<td>JDK 25 默认</td>
+<td>5869.4 ns&#x2F;次</td>
+<td>39.29 ns&#x2F;次</td>
+</tr>
+<tr>
+<td>JDK 25 传 <code>-Dsun.reflect.inflationThreshold=1</code></td>
+<td>6305.4 ns&#x2F;次</td>
+<td>43.57 ns&#x2F;次</td>
+</tr>
+<tr>
+<td>JDK 25 再传 <code>-Djdk.reflect.useDirectMethodHandle=false</code></td>
+<td>5977.1 ns&#x2F;次</td>
+<td>44.28 ns&#x2F;次</td>
+</tr>
+</tbody></table>
+<p>第二行和第三行是同一个老访问器实现，只改了 <code>-Dsun.reflect.inflationThreshold</code>：稳态从 34.41 纳秒&#x2F;次变成 226.42 纳秒&#x2F;次，六点六倍。前十五次调用之后它会生成一个字节码访问器，此后每次反射调用变成一次直接调用；阈值抬到一百万，这一百万次就全部留在 JNI 入口上。</p>
+<p>第一行、第四行和第五行组成三角对照：JDK 21 的默认配置（方法句柄访问器）稳态 43.29，<code>noInflation=true</code> 的老实现 34.56，JDK 25 默认 39.29，三个数在同一个带里。JDK 21 的默认配置没有用 inflation，阈值设成多少都一样。</p>
+<p>第六、七行是 JDK 25 上的对照：传 <code>-Dsun.reflect.inflationThreshold=1</code>，稳态 43.57；再传 <code>-Djdk.reflect.useDirectMethodHandle=false</code>，稳态 44.28。跟不传的 39.29 比，都在本次测量的波动范围内。<code>System.getProperty</code> 拿得到这些值，只是没有任何代码去读它们：前面在 <code>src.zip</code> 里搜「inflation」，<code>java.base</code> 下一条命中都没有，说的就是这件事。</p>
+<p>类加载日志记下了这个机制的切换：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"># JDK 21，-Djdk.reflect.useDirectMethodHandle=false，阈值 15</span><br><span class="line">[0.045s][info][class,load] jdk.internal.reflect.GeneratedConstructorAccessor1 source: __ClassDefiner__</span><br><span class="line"></span><br><span class="line"># JDK 21，同一个开关，阈值 1000000</span><br><span class="line">[0.269s][info][class,load] jdk.internal.reflect.GeneratedConstructorAccessor1 source: __ClassDefiner__</span><br><span class="line"></span><br><span class="line"># JDK 21 默认，以及 JDK 25 默认</span><br><span class="line">（没有这一行）</span><br></pre></td></tr></table></figure>
+
+<p><code>GeneratedConstructorAccessor1</code> 是 <code>MethodAccessorGenerator</code> 在运行期拼出来的类，<code>ClassDefiner.defineClass</code> 把它定义进平台加载器，来源标记 <code>__ClassDefiner__</code>（<code>ClassDefiner.java:56-66</code>，包名参数写的就是这个字符串）。阈值 15 时它出现在第 0.045 秒；阈值一百万时它出现在第 0.269 秒，也就是一百万次慢调用快跑完的时候。默认配置和 JDK 25 上，这个类不存在。</p>
+<p>inflation 的思路是按需切换实现：用解释期的慢路径换启动时间，用生成期的快路径换稳态吞吐。问题出在实现方式：生成的类是真实的类文件，要走真实的定义与加载。JDK-8305104 的标题是「Remove the old core reflection implementation」，正文只有一句话：「JEP 416 用方法句柄重写了核心反射，从 JDK 18 起只报了几个小问题，是时候把老实现删掉了。」</p>
+<h2 id="六、源码：一次-newInstance-要过几道手"><a href="#六、源码：一次-newInstance-要过几道手" class="headerlink" title="六、源码：一次 newInstance 要过几道手"></a>六、源码：一次 newInstance 要过几道手</h2><p>把 <code>Constructor#newInstance</code> 这条路径摊开。默认行为两个版本一致，差别在于 JDK 21 还留着一套可以在运行期换掉的老实现，JDK 25 只剩前一条。</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph LR
+    A[&quot;Constructor.newInstance(Object[])&lt;br&#x2F;&gt;Constructor.java:478&quot;] --&gt; B[&quot;@Stable constructorAccessor&lt;br&#x2F;&gt;Constructor.java:494&quot;]
+    B --&gt;|null| C[&quot;acquireConstructorAccessor&lt;br&#x2F;&gt;Constructor.java:532&quot;]
+    C --&gt; D[&quot;ReflectionFactory.newConstructorAccessor&lt;br&#x2F;&gt;ReflectionFactory.java:122&quot;]
+    D --&gt;|JDK 21 默认 &#x2F; JDK 25| E[&quot;MethodHandleAccessorFactory&lt;br&#x2F;&gt;unreflectConstructor + asType&quot;]
+    E --&gt; F[&quot;DirectConstructorHandleAccessor.invokeImpl&lt;br&#x2F;&gt;@Hidden @ForceInline，按参数个数分派&quot;]
+    F --&gt; G[&quot;MethodHandle.invokeExact → 构造函数&quot;]
+    D --&gt;|&quot;JDK 21 加 -Djdk.reflect.useDirectMethodHandle&#x3D;false&quot;| H[&quot;NativeConstructorAccessorImpl&lt;br&#x2F;&gt;JNI 调用&quot;]
+    H --&gt;|&quot;调用次数 &gt; inflationThreshold&quot;| I[&quot;MethodAccessorGenerator&lt;br&#x2F;&gt;生成字节码访问器&quot;]
+    I --&gt; J[&quot;DelegatingConstructorAccessorImpl&lt;br&#x2F;&gt;切换 delegate&quot;]
+  </pre></div>
+
+<h3 id="稳态路径（JDK-21-默认与-JDK-25）"><a href="#稳态路径（JDK-21-默认与-JDK-25）" class="headerlink" title="稳态路径（JDK 21 默认与 JDK 25）"></a>稳态路径（JDK 21 默认与 JDK 25）</h3><p>两个版本都读同一个 <code>@Stable</code> 字段，构建一次之后不再走分支。JDK 25 <code>Constructor.java:476-500</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@CallerSensitive</span></span><br><span class="line"><span class="meta">@ForceInline</span> <span class="comment">// to ensure Reflection.getCallerClass optimization</span></span><br><span class="line"><span class="keyword">public</span> T <span class="title function_">newInstance</span><span class="params">(Object ... initargs)</span></span><br><span class="line">    <span class="keyword">throws</span> InstantiationException, IllegalAccessException,</span><br><span class="line">           IllegalArgumentException, InvocationTargetException</span><br><span class="line">&#123;</span><br><span class="line">    Class&lt;?&gt; caller = override ? <span class="literal">null</span> : Reflection.getCallerClass();</span><br><span class="line">    <span class="keyword">return</span> newInstanceWithCaller(initargs, !override, caller);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/* package-private */</span></span><br><span class="line">T <span class="title function_">newInstanceWithCaller</span><span class="params">(Object[] args, <span class="type">boolean</span> checkAccess, Class&lt;?&gt; caller)</span></span><br><span class="line">    <span class="keyword">throws</span> InstantiationException, IllegalAccessException,</span><br><span class="line">           InvocationTargetException</span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">if</span> (checkAccess)</span><br><span class="line">        checkAccess(caller, clazz, clazz, modifiers);</span><br><span class="line"></span><br><span class="line">    <span class="type">ConstructorAccessor</span> <span class="variable">ca</span> <span class="operator">=</span> constructorAccessor;   <span class="comment">// read @Stable</span></span><br><span class="line">    <span class="keyword">if</span> (ca == <span class="literal">null</span>) &#123;</span><br><span class="line">        ca = acquireConstructorAccessor();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="meta">@SuppressWarnings(&quot;unchecked&quot;)</span></span><br><span class="line">    <span class="type">T</span> <span class="variable">inst</span> <span class="operator">=</span> (T) ca.newInstance(args);</span><br><span class="line">    <span class="keyword">return</span> inst;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>acquireConstructorAccessor</code> 只在第一次调用时执行，它的注释说明了为什么不上锁（<code>Constructor.java:527-553</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// NOTE that there is no synchronization used here. It is correct</span></span><br><span class="line"><span class="comment">// (though not efficient) to generate more than one</span></span><br><span class="line"><span class="comment">// ConstructorAccessor for a given Constructor. However, avoiding</span></span><br><span class="line"><span class="comment">// synchronization will probably make the implementation more</span></span><br><span class="line"><span class="comment">// scalable.</span></span><br><span class="line"><span class="keyword">private</span> ConstructorAccessor <span class="title function_">acquireConstructorAccessor</span><span class="params">()</span> &#123;</span><br><span class="line">    ...</span><br><span class="line">        tmp = reflectionFactory.newConstructorAccessor(<span class="built_in">this</span>);</span><br><span class="line">        <span class="comment">// set the constructor accessor only if it&#x27;s not using native implementation</span></span><br><span class="line">        <span class="keyword">if</span> (VM.isJavaLangInvokeInited())</span><br><span class="line">            setConstructorAccessor(tmp);</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>工厂造出来的那个对象，是一句 <code>MethodHandles.Lookup#findConstructor</code> 加上一串类型适配（<code>MethodHandleAccessorFactory.java:96-111</code> 与 <code>:151-160</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> ConstructorAccessorImpl <span class="title function_">newConstructorAccessor</span><span class="params">(Constructor&lt;?&gt; ctor)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (useNativeAccessor(ctor)) &#123;</span><br><span class="line">        <span class="keyword">return</span> DirectConstructorHandleAccessor.nativeAccessor(ctor);</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">    ensureClassInitialized(ctor.getDeclaringClass());</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="type">MethodHandle</span> <span class="variable">target</span> <span class="operator">=</span> makeConstructorHandle(JLIA.unreflectConstructor(ctor));</span><br><span class="line">        <span class="keyword">return</span> DirectConstructorHandleAccessor.constructorAccessor(ctor, target);</span><br><span class="line">    &#125; <span class="keyword">catch</span> (IllegalAccessException e) &#123;</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">InternalError</span>(e);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> MethodHandle <span class="title function_">makeConstructorHandle</span><span class="params">(MethodHandle ctor)</span> &#123;</span><br><span class="line">    <span class="type">int</span> <span class="variable">paramCount</span> <span class="operator">=</span> ctor.type().parameterCount();</span><br><span class="line">    <span class="type">MethodHandle</span> <span class="variable">target</span> <span class="operator">=</span> ctor.asFixedArity();</span><br><span class="line">    <span class="type">MethodType</span> <span class="variable">mtype</span> <span class="operator">=</span> specializedMethodTypeForConstructor(paramCount);</span><br><span class="line">    <span class="keyword">if</span> (paramCount &gt; SPECIALIZED_PARAM_COUNT) &#123;</span><br><span class="line">        <span class="comment">// spread the parameters only for the non-specialized case</span></span><br><span class="line">        target = target.asSpreader(Object[].class, paramCount);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> target.asType(mtype);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>参数个数不大于 <code>SPECIALIZED_PARAM_COUNT</code>（<code>MethodHandleAccessorFactory.java:290</code>，值是 3）时，句柄按固定参数装配，不用 <code>Object[]</code> 摊平。之后每次调用落在 <code>DirectConstructorHandleAccessor</code> 的一个 <code>switch</code> 上（<code>DirectConstructorHandleAccessor.java:82-92</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Hidden</span></span><br><span class="line"><span class="meta">@ForceInline</span></span><br><span class="line">Object <span class="title function_">invokeImpl</span><span class="params">(Object[] args)</span> <span class="keyword">throws</span> Throwable &#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">switch</span> (paramCount) &#123;</span><br><span class="line">        <span class="keyword">case</span> <span class="number">0</span> -&gt; target.invokeExact();</span><br><span class="line">        <span class="keyword">case</span> <span class="number">1</span> -&gt; target.invokeExact(args[<span class="number">0</span>]);</span><br><span class="line">        <span class="keyword">case</span> <span class="number">2</span> -&gt; target.invokeExact(args[<span class="number">0</span>], args[<span class="number">1</span>]);</span><br><span class="line">        <span class="keyword">case</span> <span class="number">3</span> -&gt; target.invokeExact(args[<span class="number">0</span>], args[<span class="number">1</span>], args[<span class="number">2</span>]);</span><br><span class="line">        <span class="keyword">default</span> -&gt; target.invokeExact(args);</span><br><span class="line">    &#125;;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>@Hidden</code> 阻止这段调用栈出现在栈追踪里，<code>@ForceInline</code> 让调用方一定把它内联掉。这一段是 JEP 416「用方法句柄重写核心反射」的产物：反射入口不再解释参数，也不再生成新类，它把一次反射调用变成一次方法句柄调用，让 JIT 有机会把它和普通调用一样处理。</p>
+<p><code>invokeExact</code> 本身是一个签名多态方法（<code>MethodHandle.java:505</code>），返回类型由调用点的上下文决定，编译期就把描述符写死：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">native</span> <span class="meta">@PolymorphicSignature</span> Object <span class="title function_">invokeExact</span><span class="params">(Object... args)</span> <span class="keyword">throws</span> Throwable;</span><br></pre></td></tr></table></figure>
+
+<p>用 <code>findConstructor</code> 自己搭一个句柄，要走的是同一套适配（<code>MethodHandles.java:2630-2638</code> 解释了返回类型的约定）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Produces a method handle which creates an object and initializes it, using</span></span><br><span class="line"><span class="comment"> * the constructor of the specified type.</span></span><br><span class="line"><span class="comment"> * The parameter types of the method handle will be those of the constructor,</span></span><br><span class="line"><span class="comment"> * while the return type will be a reference to the constructor&#x27;s class.</span></span><br><span class="line"><span class="comment"> * The constructor and all its argument types must be accessible to the lookup object.</span></span><br><span class="line"><span class="comment"> * &lt;p&gt;</span></span><br><span class="line"><span class="comment"> * The requested type must have a return type of &#123;<span class="doctag">@code</span> void&#125;.</span></span><br><span class="line"><span class="comment"> * (This is consistent with the JVM&#x27;s treatment of constructor type descriptors.)</span></span><br></pre></td></tr></table></figure>
+
+<p>请求的类型写 <code>void</code>，拿到的句柄返回构造函数所属的类。这是构造句柄和普通方法句柄唯一别扭的地方。</p>
+<h3 id="老路径与-inflation（只在-JDK-21-上存在）"><a href="#老路径与-inflation（只在-JDK-21-上存在）" class="headerlink" title="老路径与 inflation（只在 JDK 21 上存在）"></a>老路径与 inflation（只在 JDK 21 上存在）</h3><p>JDK 21 保留了 JEP 416 之前的实现，用 <code>-Djdk.reflect.useDirectMethodHandle=false</code> 打开。这条路径上有两代访问器：一个用 JNI 调 VM，一个把反射调用编译成字节码。切换点在 <code>ReflectionFactory.java:630-645</code>，注释写得很直接：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// &quot;Inflation&quot; mechanism. Loading bytecodes to implement</span></span><br><span class="line"><span class="comment">// Method.invoke() and Constructor.newInstance() currently costs</span></span><br><span class="line"><span class="comment">// 3-4x more than an invocation via native code for the first</span></span><br><span class="line"><span class="comment">// invocation (though subsequent invocations have been benchmarked</span></span><br><span class="line"><span class="comment">// to be over 20x faster). Unfortunately this cost increases</span></span><br><span class="line"><span class="comment">// startup time for certain applications that use reflection</span></span><br><span class="line"><span class="comment">// intensively (but only once per class) to bootstrap themselves.</span></span><br><span class="line"><span class="comment">// To avoid this penalty we reuse the existing JVM entry points</span></span><br><span class="line"><span class="comment">// for the first few invocations of Methods and Constructors and</span></span><br><span class="line"><span class="comment">// then switch to the bytecode-based implementations.</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">Config</span> <span class="variable">DEFAULT_CONFIG</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Config</span>(<span class="literal">false</span>, <span class="comment">// noInflation</span></span><br><span class="line">                                                        <span class="number">15</span>, <span class="comment">// inflationThreshold</span></span><br><span class="line">                                                        ALL_MH_ACCESSORS, <span class="comment">// useDirectMethodHandle</span></span><br><span class="line">                                                        <span class="literal">false</span>, <span class="comment">// useNativeAccessorOnly</span></span><br><span class="line">                                                        <span class="literal">false</span>); <span class="comment">// disableSerialConstructorChecks</span></span><br></pre></td></tr></table></figure>
+
+<p>默认阈值 15 就在这里。每次调用都会比一次（<code>NativeConstructorAccessorImpl.java:57</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// We can&#x27;t inflate a constructor belonging to a hidden class</span></span><br><span class="line"><span class="comment">// because that kind of class can&#x27;t be referred to by name, hence can&#x27;t</span></span><br><span class="line"><span class="comment">// be found from the generated bytecode.</span></span><br><span class="line"><span class="keyword">if</span> (++numInvocations &gt; ReflectionFactory.inflationThreshold()</span><br><span class="line">        &amp;&amp; !c.getDeclaringClass().isHidden()</span><br><span class="line">        &amp;&amp; generated == <span class="number">0</span></span><br><span class="line">        &amp;&amp; U.compareAndSetInt(<span class="built_in">this</span>, GENERATED_OFFSET, <span class="number">0</span>, <span class="number">1</span>)) &#123;</span><br></pre></td></tr></table></figure>
+
+<p>超过阈值以后生成字节码访问器，挂在 delegating 包装器上，下次调用就走新实现（<code>DelegatingConstructorAccessorImpl.java:36-63</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">DelegatingConstructorAccessorImpl</span> <span class="keyword">extends</span> <span class="title class_">ConstructorAccessorImpl</span> &#123;</span><br><span class="line">    <span class="comment">// initial non-null delegate</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> ConstructorAccessorImpl initialDelegate;</span><br><span class="line">    <span class="comment">// alternative delegate: starts as null;</span></span><br><span class="line">    <span class="comment">// only single change from null -&gt; non-null is guaranteed</span></span><br><span class="line">    <span class="meta">@Stable</span></span><br><span class="line">    <span class="keyword">private</span> ConstructorAccessorImpl altDelegate;</span><br></pre></td></tr></table></figure>
+
+<p><code>sun.reflect.inflationThreshold</code> 只有 <code>loadConfig</code> 会读（<code>ReflectionFactory.java:696-703</code>），而 <code>loadConfig</code> 只有老路径会调用。JDK 25 的 <code>src.zip</code> 里，<code>ReflectionFactory</code>、<code>Constructor</code>、<code>Method</code>、<code>Field</code> 全部文件搜一遍「inflation」，一条命中都没有；<code>jdk/internal/reflect</code> 下也没有 <code>NativeConstructorAccessorImpl</code>、<code>DelegatingMethodAccessorImpl</code>、<code>MethodAccessorGenerator</code> 这三个文件。JDK-8305104「Remove the old core reflection implementation」把老实现删掉，Fix Version 是 22；JEP 416 自己的「Risks and Assumptions」一节也预告过这件事：<code>-Djdk.reflect.useDirectMethodHandle=false</code> 这个逃生口会失效。</p>
+<p>所以两个 LTS 之间的差别是一整条机制被删掉，调参追不平。</p>
+<h2 id="七、什么时候值得多这一层"><a href="#七、什么时候值得多这一层" class="headerlink" title="七、什么时候值得多这一层"></a>七、什么时候值得多这一层</h2><div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph TD
+    Q1{&quot;造哪个类，编译期就定得下来吗&quot;} --&gt;|是| A1[&quot;直接 new。多一层只会让读代码的人多跳一次&quot;]
+    Q1 --&gt;|否| Q2{&quot;决定依据来自哪&quot;}
+    Q2 --&gt;|&quot;进程启动时的配置、环境&quot;| A2[&quot;一个 Supplier 字段或静态工厂方法就够了&quot;]
+    Q2 --&gt;|&quot;调用方用参数指定&quot;| A3[&quot;接口 + 工厂方法，把实现注入进来&quot;]
+    Q2 --&gt;|&quot;运行期从名字、表、协议里读出来&quot;| A4[&quot;反射查表，缓存 Constructor 或 MethodHandle&quot;]
+    A4 --&gt; Q3{&quot;创建频率高吗&quot;}
+    Q3 --&gt;|&quot;每秒百万次量级&quot;| A5[&quot;缓存到 static final，让 JIT 常量折叠&quot;]
+    Q3 --&gt;|&quot;每秒几千次以下&quot;| A6[&quot;保持反射，别过早优化&quot;]
+    A5 --&gt; Q4{&quot;返回的可以不是新对象吗&quot;}
+    A6 --&gt; Q4
+    Q4 --&gt;|可以| A7[&quot;工厂方法升级成共享池或缓存，见享元&quot;]
+    Q4 --&gt;|必须是新对象| A8[&quot;回到构造函数，别在工厂里藏状态&quot;]
+  </pre></div>
+
+<p>三条落地顺序：</p>
+<ol>
+<li><strong>先问需不需要工厂</strong>。只有「造哪个类」要在运行期决定时才需要这一层。<code>new</code> 能写死的地方写死，读代码的人少跳一次。</li>
+<li><strong>再看调用点会不会变多态</strong>。一个进程里有两个实现的接口，JIT 按双态内联，代价接近零；实现多到五六个、或者从插件里动态加载，调用点退化成查表，这时才需要把人手写的转发换成 <code>MethodHandle</code>（它自带 <code>@PolymorphicSignature</code>，能绕开多态分派）。</li>
+<li><strong>最后把反射当缓存处理</strong>。<code>Constructor</code>、<code>Method</code>、<code>MethodHandle</code> 都塞进 <code>static final</code> 字段，让 JIT 常量折叠；参数要装箱的入口（<code>newInstance(Object...)</code>）能不用就不用。JEP 416 的测量里，反射对象放在常量字段和放在数组元素上，构造耗时的差距是 32ns 对 114ns（他们的机器和基准，2021 年）。</li>
+</ol>
+<h3 id="什么时候不用工厂方法"><a href="#什么时候不用工厂方法" class="headerlink" title="什么时候不用工厂方法"></a>什么时候不用工厂方法</h3><ul>
+<li>类型只有一个实现，而且是编译期就能确定的。这时工厂方法只是一层命名。</li>
+<li>创建动作本身有副作用需要顺序保证（比如必须先注册再返回）。先写清楚那个顺序，别藏在工厂后面。</li>
+<li>为了「以后可能要换实现」而提前抽接口。要换的时候再抽，调用点是能改的。</li>
+</ul>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>稳态下「多一跳」测不出代价。JDK 21 上 <code>new</code>、<code>Supplier.get</code>、单实现工厂函数、反射、<code>invokeExact</code> 落在 4.07 到 4.52 纳秒之间；JDK 25 上落在 2.08 到 3.32 纳秒之间。差异的方向在两个 JDK 之间还会翻。</li>
+<li>能测出来的是分配。反射入口的 <code>Object...</code> 要装箱，JDK 21 上每次创建 56 字节对 24 字节；关掉标量替换后是 80 字节对 24 字节，多出来的正好是两个 <code>Integer</code> 加一个参数数组。</li>
+<li>调用点从单态变成五态，代价才出现：6.12 对 4.28 纳秒（JDK 21）、5.60 对 4.08 纳秒（JDK 25）。</li>
+<li>第一次创建的量级差最大。第一次 <code>newInstance</code> 是 2.27 到 3.30 毫秒，其中一次性基础设施占大头；换一个类再装一次访问器只要 49 到 59 微秒，第二次调用 7 到 9 微秒，进了编译循环 2 到 3 纳秒。</li>
+<li><code>sun.reflect.inflationThreshold</code> 的作用范围比名字看起来窄。JDK 21 默认不用它，只有打开 <code>-Djdk.reflect.useDirectMethodHandle=false</code> 走老实现时才生效（阈值 15 与 100 万相差六点六倍）；JDK 25 无论怎么传都无效，JDK-8305104 在 22 删掉了老实现。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/416">JEP 416: Reimplement Core Reflection with Method Handles</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://bugs.openjdk.org/browse/JDK-8305104">JDK-8305104: Remove the old core reflection implementation</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/reflect/Constructor.html">Constructor (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/invoke/MethodHandle.html">MethodHandle (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/invoke/MethodHandles.Lookup.html">MethodHandles.Lookup (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/function/Supplier.html">Supplier (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Thread.Builder.html">Thread.Builder (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Integer.html">Integer (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/jdk.management/com/sun/management/ThreadMXBean.html">ThreadMXBean (Java SE 25)</a></li>
+</ul>
+<blockquote>
+<p>系列索引：<a href="/pattern/">设计模式系列</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/3827552635.html">https://lianglliu.github.io/3827552635.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a><a class="post-meta__tags" href="/tags/%E5%B7%A5%E5%8E%82%E6%96%B9%E6%B3%95/">工厂方法</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/4240986029.html" title="设计模式——抽象工厂：产品族的一致性"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">设计模式——抽象工厂：产品族的一致性</div></div><div class="info-2"><div class="info-item-1"> 抽象工厂常被描述成「创建一族对象」的接口，可是创建不值钱：new、Supplier、Map 查表、switch 都能做。值钱的那部分在编译期：一个族少实现一个产品，javac 直接拒绝编译；族与产品的对应关系写进接口，不用靠人记。本文用 Button&#x2F;Checkbox 两套主题、三种写法，量 100 万次创建的耗时与类加载数量，并贴出 javac 与运行期的输出。  一、产品族的一致性是谁的责任两套主题，两个产品。每个主题要同时提供 Button 和 Checkbox，同一个界面里的两个控件必须来自同一套主题。      classDiagram     direction TB     class GuiFactory {         &lt;&lt;interface&gt;&gt;         +button() Button         +checkbox() Checkbox     }     class MacFactory     class WinFactory     class Button {         &lt;&lt;int...</div></div></div></a><a class="pagination-related" href="/2521215779.html" title="Java——JVM 内存与 GC 定位实战"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Java——JVM 内存与 GC 定位实战</div></div><div class="info-2"><div class="info-item-1"> 上一篇《一次锁竞争的完整定位》查的是 CPU 和锁，这篇查内存。同一个思路：先写一个能复现症状的程序，再用 JVM 自带工具一层层把证据收齐。顺序是从粗到细：GC 日志看趋势，jcmd 和 JFR 看运行时，堆 dump 看末端对象。全文用 JDK 25 跑，每个数字都对应下面贴出来的原始输出。最后收两个真会把人带偏的场景：堆几乎是空的时候 OOM，以及没人碰老年代却一直 Full GC。  实验环境与口径机器和 JDK： 12345678910$ sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize kern.osversionApple M1 Pro101717986918425G83$ java -versionjava version &quot;25&quot; 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mix...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/205079771.html" title="设计模式——适配器：边界在哪"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——适配器：边界在哪</div></div><div class="info-2"><div class="info-item-1"> 适配器只做一件事：把调用方要的接口翻译成现有对象提供的接口，不改变被包装对象的行为。常见的反对意见是「多一层调用会拖慢热点路径」。JIT 打开、调用点单态时，这层开销量出来是零；调用点收到多个实现类型时，量出约三倍。两种情况本文都用 1 亿次调用测一遍，并贴出 -XX:+PrintInlining 对每一次内联决定的原文。  一、问题：那一层调用值多少钱手里有一个只能按字节取的类，调用方要的是一个按字符取的接口，中间补一个类： 1234567interface CharReader &#123; int read(); &#125;          // 调用方要求的接口final class SourceAdapter implements CharReader &#123;    private final ByteSource src;             // 已有的实现，改不了    SourceAdapter(ByteSource src) &#123; this.src = src; &#125;    @Override public int read()...</div></div></div></a><a class="pagination-related" href="/3162181737.html" title="设计模式——桥接：两个维度独立变化"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-8.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——桥接：两个维度独立变化</div></div><div class="info-2"><div class="info-item-1"> 两个维度各自独立变化时，继承把它们乘起来：4 种报表 × 4 种格式 &#x3D; 16 个叶子类，加第 5 种报表要再写 4 个。桥接把乘积拆成和：两个层次各管一个维度，运行时用一个引用把交叉点接上。代价是热路径上每次调用多一跳。JIT 内联掉这一跳，它是零成本；内联不掉，就是每次 0.6 纳秒。  一、桥接换的是算术一个报表导出模块。报表有 4 种，导出格式有 4 种，两者的交叉决定行为：销售报表按 CSV 输出，和库存报表按 CSV 输出，是两个不同的实现，共享的只有「把逗号换成竖线」这类细节。 用继承写，交叉点就是类：      classDiagram     direction TB     class Report {         &lt;&lt;abstract&gt;&gt;         +export(data)     }     class SalesCsv     class SalesJson     class SalesXml     class SalesMarkdown     class InventoryCsv     class...</div></div></div></a><a class="pagination-related" href="/204879800.html" title="设计模式——状态：状态位还是状态类"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——状态：状态位还是状态类</div></div><div class="info-2"><div class="info-item-1"> FutureTask 管一个任务从提交到结束的全部状态，字段是 volatile int state，七个常量，靠 CAS 迁移。ExecutorService 和 CompletableFuture 都建在它上面，JDK 没给它写七个状态类。GoF 的状态模式走另一条路：一个状态一个类，事件交给多态处理，状态自己决定下一步。书上那个 TCP 连接例子好写，代价没有现成数字。本文把同一个四状态状态机写成五种形式，在 JDK 21 与 25 上各跑 5033 万次事件，量耗时与分配，再用字节码和 JIT 日志解释差距从哪来。  一、状态放在哪里状态的存储方式和迁移的决策方式可以拆开看。GoF 把两件事绑在一起：状态是一个对象，迁移由虚调用决定。JDK 里常见的是另一种组合：状态是一个 int，迁移是一串比较和位运算。 两边的差别用一台四状态、五事件的状态机就能摆出来，后面所有实验共用它：      stateDiagram-v2     [*] --&gt; NEW     NEW --&gt; RUN : START     NEW --&gt; FAIL : CANCEL  ...</div></div></div></a><a class="pagination-related" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——不可变与防御性拷贝</div></div><div class="info-2"><div class="info-item-1"> 不可变有两个动作：造的时候不让别人改，交出去的时候把边界封住。共享和拷贝是两笔账：共享把成本压在构造那一刻，拷贝把成本摊到每一次读取上。1 亿次读取、1024 元素的列表、一组布尔验证，把这两笔账分开算，跑在两个 LTS 上：JDK 21.0.8 与 JDK 25。  一、两笔账记在谁头上对象内部持有 1024 字节的数组，上层有很多只读的调用方，写法有两种。 123456789static final class SharedRepo &#123;    private final int[] data = new int[256];    int[] data() &#123; return data; &#125;                       // 交出引用&#125;static final class CopyRepo &#123;    private final int[] data = new int[256];    int[] data() &#123; return Arrays.copyOf(data, data.length); &#1...</div></div></div></a><a class="pagination-related" href="/550034456.html" title="设计模式——对象池：什么时候是负优化"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——对象池：什么时候是负优化</div></div><div class="info-2"><div class="info-item-1"> 对象池把「分配」换成了「借还」。分配走线程私有的 TLAB，借还抢所有线程共用的队列。收益只能来自免掉构造与初始化，代价是同步。构造越贵，这笔交换越划算；构造越便宜，省下的越少，而同步开销照付。三种构造成本（1 KiB 数组、DirectByteBuffer(1 KiB)、SecureRandom 初始化）乘三种取法（每次 new、ThreadLocal 池、ReentrantLock 池），在 1、8、16 线程下各计时 1 秒，JDK 21 与 JDK 25 都跑，找出池化从赚到亏的那条线。  一、池化把什么换成了什么new 是一条线程私有路径。HotSpot 给每个线程一块 TLAB，分配对象就是把指针往前挪一段，再零初始化。 池化把这条路径改成：从共享队列取一个对象、重置它的状态、用完还回去。取和还都要同步。      graph TD     subgraph A[&quot;每次 new：线程私有&quot;]       A1[&quot;线程本地 TLAB&quot;] --&gt;|&quot;指针加法 + 清零&quot;| A2[&quot;可用的新对象&...</div></div></div></a><a class="pagination-related" href="/712561657.html" title="设计模式——解释器：解释还是编译"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——解释器：解释还是编译</div></div><div class="info-2"><div class="info-item-1"> 解释器模式把一门语言的求值写成对象树上的递归。同一棵树可以在构建期换成闭包树，每个节点变成一个捕获了子闭包的函数。两种形态的求值都是每个节点一次调用，差别落在调用点能不能被 JIT 静态化。用 27 节点和 7 节点两个表达式、各 100 万次求值，可以把这句话量出来。  一、两个求值器四则运算的最小文法：数字、变量、加减乘除。节点是一组 record，求值是节点自己的方法： 12345678sealed interface Node &#123; double eval(double[] v); &#125;record Num(double k) implements Node &#123; public double eval(double[] v) &#123; return k; &#125; &#125;record Var(int i) implements Node &#123; public double eval(double[] v) &#123; return v[i]; &#125; &#125;record Add(Node l, Node r) i...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E6%8A%BD%E8%B1%A1%E6%8E%89%E4%B8%80%E6%AC%A1%E5%88%9B%E5%BB%BA%EF%BC%8C%E5%88%B0%E5%BA%95%E6%8A%BD%E8%B1%A1%E6%8E%89%E4%BA%86%E4%BB%80%E4%B9%88"><span class="toc-number">1.</span> <span class="toc-text">一、抽象掉一次创建，到底抽象掉了什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#JDK-%E8%87%AA%E5%B7%B1%E6%80%8E%E4%B9%88%E9%80%89"><span class="toc-number">1.1.</span> <span class="toc-text">JDK 自己怎么选</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1"><span class="toc-number">2.</span> <span class="toc-text">二、实验设计</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E6%B5%8B%E4%B8%80%EF%BC%9A%E7%A8%B3%E6%80%81%E4%B8%8B%E7%9A%84%E5%85%AD%E6%9D%A1%E5%88%9B%E5%BB%BA%E8%B7%AF%E5%BE%84"><span class="toc-number">3.</span> <span class="toc-text">三、实测一：稳态下的六条创建路径</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%88%86%E9%85%8D%E5%AD%97%E8%8A%82%E6%AF%94%E6%97%B6%E9%97%B4%E6%9B%B4%E8%83%BD%E8%AF%B4%E6%98%8E%E9%97%AE%E9%A2%98"><span class="toc-number">3.1.</span> <span class="toc-text">分配字节比时间更能说明问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#JIT-%E6%8A%8A%E8%BF%99%E6%9D%A1%E9%93%BE%E5%90%83%E6%8E%89%E4%BA%86"><span class="toc-number">3.2.</span> <span class="toc-text">JIT 把这条链吃掉了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8D%A2%E4%B8%80%E4%B8%AA%E6%B5%8B%E9%87%8F%E8%A3%85%E7%BD%AE%EF%BC%8C%E7%BB%93%E8%AE%BA%E4%BC%9A%E4%B8%8D%E4%BC%9A%E5%8F%98"><span class="toc-number">3.3.</span> <span class="toc-text">换一个测量装置，结论会不会变</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%AE%9E%E6%B5%8B%E4%BA%8C%EF%BC%9A%E7%AC%AC%E4%B8%80%E6%AC%A1%E5%88%9B%E5%BB%BA"><span class="toc-number">4.</span> <span class="toc-text">四、实测二：第一次创建</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%AE%9E%E6%B5%8B%E4%B8%89%EF%BC%9Ainflation-%E9%98%88%E5%80%BC%E5%9C%A8-JDK-25-%E4%B8%8A%E5%B7%B2%E7%BB%8F%E5%A4%B1%E6%95%88"><span class="toc-number">5.</span> <span class="toc-text">五、实测三：inflation 阈值在 JDK 25 上已经失效</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E6%BA%90%E7%A0%81%EF%BC%9A%E4%B8%80%E6%AC%A1-newInstance-%E8%A6%81%E8%BF%87%E5%87%A0%E9%81%93%E6%89%8B"><span class="toc-number">6.</span> <span class="toc-text">六、源码：一次 newInstance 要过几道手</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%A8%B3%E6%80%81%E8%B7%AF%E5%BE%84%EF%BC%88JDK-21-%E9%BB%98%E8%AE%A4%E4%B8%8E-JDK-25%EF%BC%89"><span class="toc-number">6.1.</span> <span class="toc-text">稳态路径（JDK 21 默认与 JDK 25）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%80%81%E8%B7%AF%E5%BE%84%E4%B8%8E-inflation%EF%BC%88%E5%8F%AA%E5%9C%A8-JDK-21-%E4%B8%8A%E5%AD%98%E5%9C%A8%EF%BC%89"><span class="toc-number">6.2.</span> <span class="toc-text">老路径与 inflation（只在 JDK 21 上存在）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E5%80%BC%E5%BE%97%E5%A4%9A%E8%BF%99%E4%B8%80%E5%B1%82"><span class="toc-number">7.</span> <span class="toc-text">七、什么时候值得多这一层</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%B8%8D%E7%94%A8%E5%B7%A5%E5%8E%82%E6%96%B9%E6%B3%95"><span class="toc-number">7.1.</span> <span class="toc-text">什么时候不用工厂方法</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">8.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">9.</span> <span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  const parseViewBox = viewBox => {
+    if (!viewBox) return null
+    const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return null
+    return parts
+  }
+
+  const getSvgViewBox = svg => {
+    const attr = parseViewBox(svg.getAttribute('viewBox'))
+    if (attr) return attr
+
+    // Fallback: use bbox to build a viewBox
+    try {
+      const bbox = svg.getBBox()
+      if (bbox && bbox.width && bbox.height) return [bbox.x, bbox.y, bbox.width, bbox.height]
+    } catch (e) {
+      // getBBox may fail on some edge cases; ignore
+    }
+
+    const w = Number(svg.getAttribute('width')) || 0
+    const h = Number(svg.getAttribute('height')) || 0
+    if (w > 0 && h > 0) return [0, 0, w, h]
+    return [0, 0, 100, 100]
+  }
+
+  const setSvgViewBox = (svg, vb) => {
+    svg.setAttribute('viewBox', `${vb[0]} ${vb[1]} ${vb[2]} ${vb[3]}`)
+  }
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
+  const openSvgInNewTab = ({ source, initViewBox }) => {
+    const getClonedSvg = () => {
+      if (typeof source === 'string') {
+        const template = document.createElement('template')
+        template.innerHTML = source.trim()
+        const svg = template.content.querySelector('svg')
+        return svg ? svg.cloneNode(true) : null
+      }
+      if (source && typeof source.cloneNode === 'function') {
+        return source.cloneNode(true)
+      }
+      return null
+    }
+
+    const clone = getClonedSvg()
+    if (!clone) return
+    if (initViewBox && initViewBox.length === 4) {
+      clone.setAttribute('viewBox', initViewBox.join(' '))
+    }
+    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    if (!clone.getAttribute('xmlns:xlink') && clone.innerHTML.includes('xlink:')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    }
+    // inject background to match current theme
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const bg = getComputedStyle(document.body).backgroundColor || (isDark ? '#1e1e1e' : '#ffffff')
+    if (!clone.style.background) clone.style.background = bg
+
+    const serializer = new XMLSerializer()
+    const svgSource = serializer.serializeToString(clone)
+    const htmlSource = `<!doctype html><html><head><meta charset="utf-8" />
+      <style>
+        html, body { width: 100%; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; background: ${bg}; }
+        svg { max-width: 100%; max-height: 100%; height: auto; width: auto; }
+      </style>
+      </head><body>${svgSource}</body></html>`
+    const blob = new Blob([htmlSource], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener')
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  const attachMermaidViewerButton = wrap => {
+    let btn = wrap.querySelector('.mermaid-open-btn')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mermaid-open-btn'
+      wrap.appendChild(btn)
+    }
+
+    btn.innerHTML = '<i class="fa fa-search fa-fw" aria-hidden="true"></i>'
+
+    if (!btn.__mermaidViewerBound) {
+      btn.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        const svg = wrap.__mermaidOriginalSvg || wrap.querySelector('svg')
+        if (!svg) return
+        const initViewBox = wrap.__mermaidInitViewBox
+        openSvgInNewTab({ source: svg, initViewBox })
+      })
+      btn.__mermaidViewerBound = true
+    }
+  }
+
+  // Zoom around a point (px, py) in the SVG viewport (in viewBox coordinates)
+  const zoomAtPoint = (vb, factor, px, py) => {
+    const w = vb[2] * factor
+    const h = vb[3] * factor
+    const nx = px - (px - vb[0]) * factor
+    const ny = py - (py - vb[1]) * factor
+    return [nx, ny, w, h]
+  }
+
+  const initMermaidGestures = wrap => {
+    // Clean up previous event listeners and pending frames
+    if (wrap.__mermaidAbortController) {
+      wrap.__mermaidAbortController.abort()
+      if (wrap.__mermaidRafId) cancelAnimationFrame(wrap.__mermaidRafId)
+    }
+    const ac = new AbortController()
+    wrap.__mermaidAbortController = ac
+    const svg = wrap.querySelector('svg')
+    if (!svg) return
+
+    // Ensure viewBox exists so gestures always work
+    const initVb = getSvgViewBox(svg)
+    wrap.__mermaidInitViewBox = initVb
+    wrap.__mermaidCurViewBox = initVb.slice()
+    setSvgViewBox(svg, initVb)
+    // Disable default gestures to prevent scroll chaining and pinch-zoom penetration in Chrome
+    svg.style.touchAction = 'none'
+
+    // Cache BoundingClientRect, throttled on scroll to reduce reflow
+    let cachedRect = svg.getBoundingClientRect()
+    let rectDirty = false
+    const markRectDirty = () => { rectDirty = true }
+    window.addEventListener('resize', markRectDirty, { signal: ac.signal })
+    window.addEventListener('scroll', markRectDirty, { signal: ac.signal, capture: true })
+    const getRect = () => {
+      if (rectDirty) {
+        cachedRect = svg.getBoundingClientRect()
+        rectDirty = false
+      }
+      return cachedRect
+    }
+
+    // Precompute clamp bounds from initial viewBox
+    const minW = initVb[2] * 0.1
+    const maxW = initVb[2] * 10
+    const minH = initVb[3] * 0.1
+    const maxH = initVb[3] * 10
+    const clampVb = vb => {
+      const out = vb.slice()
+      out[2] = clamp(out[2], minW, maxW)
+      out[3] = clamp(out[3], minH, maxH)
+      return out
+    }
+
+    // Throttle DOM updates using requestAnimationFrame
+    let pendingVb = null
+    let rafId = null
+    const applyVb = () => {
+      if (pendingVb) {
+        wrap.__mermaidCurViewBox = pendingVb
+        setSvgViewBox(svg, pendingVb)
+        pendingVb = null
+      }
+      rafId = null
+      wrap.__mermaidRafId = null
+    }
+    const setCurVb = vb => {
+      pendingVb = clampVb(vb)
+      if (!rafId) {
+        rafId = requestAnimationFrame(applyVb)
+        wrap.__mermaidRafId = rafId
+      }
+    }
+
+    const state = {
+      pointers: new Map(),
+      startVb: null,
+      startDist: 0,
+      lastPointerX: 0,
+      lastPointerY: 0
+    }
+
+    const onPointerDown = e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      svg.setPointerCapture(e.pointerId)
+      const curVb = wrap.__mermaidCurViewBox
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 1) {
+        state.startVb = curVb.slice()
+        state.lastPointerX = e.clientX
+        state.lastPointerY = e.clientY
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        state.startDist = Math.hypot(dx, dy)
+        state.startVb = curVb.slice()
+      }
+    }
+
+    const onPointerMove = e => {
+      if (!state.pointers.has(e.pointerId)) return
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      if (state.pointers.size === 1 && state.startVb) {
+        const p = state.pointers.values().next().value
+        const dxClient = p.x - state.lastPointerX
+        const dyClient = p.y - state.lastPointerY
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+        const dx = dxClient * (curVb[2] / rect.width)
+        const dy = dyClient * (curVb[3] / rect.height)
+        setCurVb([curVb[0] - dx, curVb[1] - dy, curVb[2], curVb[3]])
+        return
+      }
+      if (state.pointers.size === 2 && state.startVb && state.startDist > 0) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        const dist = Math.hypot(dx, dy)
+        if (!dist) return
+        const factor = state.startDist / dist
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const px = curVb[0] + (cx - rect.left) * (curVb[2] / rect.width)
+        const py = curVb[1] + (cy - rect.top) * (curVb[3] / rect.height)
+        setCurVb(zoomAtPoint(state.startVb, factor, px, py))
+      }
+    }
+
+    const onPointerUpOrCancel = e => {
+      // Release PointerCapture to avoid event capture anomalies
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) {
+        svg.releasePointerCapture(e.pointerId)
+      }
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size === 0) {
+        state.startVb = null
+        state.startDist = 0
+      } else if (state.pointers.size === 1) {
+        const p = state.pointers.values().next().value
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+      }
+    }
+
+    const onWheel = e => {
+      // Prevent event bubbling from triggering external scroll
+      e.preventDefault()
+      e.stopPropagation()
+      // Normalize deltaY across deltaMode (Chrome uses pixels, Safari uses lines)
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= 400
+
+      // Continuous zoom factor: smoother than fixed 1.1/0.9 steps
+      const zoomFactor = Math.pow(1.001, delta)
+
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      const px = curVb[0] + (e.clientX - rect.left) * (curVb[2] / rect.width)
+      const py = curVb[1] + (e.clientY - rect.top) * (curVb[3] / rect.height)
+      setCurVb(zoomAtPoint(curVb, zoomFactor, px, py))
+    }
+
+    const onDblClick = () => {
+      const init = wrap.__mermaidInitViewBox
+      if (init) setCurVb(init)
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown, { signal: ac.signal })
+    svg.addEventListener('pointermove', onPointerMove, { signal: ac.signal })
+    svg.addEventListener('pointerup', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('pointercancel', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('wheel', onWheel, { passive: false, signal: ac.signal })
+    svg.addEventListener('dblclick', onDblClick, { signal: ac.signal })
+  }
+
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      // Clean up event listeners before removing old SVG
+      if (item.__mermaidAbortController) {
+        item.__mermaidAbortController.abort()
+      }
+      const oldSvg = item.querySelector('svg')
+      if (oldSvg) oldSvg.remove()
+      let config = {}
+      try {
+        config = mermaidSrc.dataset.config ? JSON.parse(mermaidSrc.dataset.config) : {}
+      } catch (e) {
+        console.warn('[mermaid] failed to parse dataset.config:', e)
+      }
+      if (!config.theme) {
+        config.theme = theme
+      }
+      const mermaidThemeConfig = `%%{init: ${JSON.stringify(config)}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+        if (true) initMermaidGestures(item)
+        item.__mermaidOriginalSvg = svg
+        if (true) attachMermaidViewerButton(item)
+      }
+
+      const handleError = err => {
+        console.error(`[mermaid] render failed for block #${index}:`, err)
+        const errorEl = document.createElement('div')
+        errorEl.className = 'mermaid-error'
+        errorEl.textContent = `Mermaid render error: ${err.message || err}`
+        mermaidSrc.insertAdjacentElement('afterend', errorEl)
+      }
+
+      try {
+        const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+        // mermaid v9 and v10 compatibility
+        if (typeof renderFn === 'string') {
+          renderMermaid(renderFn)
+        } else {
+          renderFn.then(({ svg }) => renderMermaid(svg)).catch(handleError)
+        }
+      } catch (err) {
+        handleError(err)
+      }
+    })
+  }
+
+  const codeToMermaid = $article => {
+    const codeMermaidEle = $article.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    const $article = document.getElementById('article-container')
+    if (!$article) return
+
+    if (false) codeToMermaid($article)
+    const $mermaid = $article.querySelectorAll('.mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

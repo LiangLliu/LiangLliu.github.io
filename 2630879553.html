@@ -1,0 +1,1103 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式——享元：共享不可变状态 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="用 1 亿次 Integer.valueOf 量出缓存命中与未命中的耗时和分配字节差，再用 -XX:AutoBoxCacheMax&#x3D;1000 把同一段字节码变成全命中。回到 JDK 25 源码看 IntegerCache 的边界怎么写死、共享对象的代价在哪里。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="设计模式——享元：共享不可变状态">
+<meta property="og:url" content="https://lianglliu.github.io/2630879553.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="用 1 亿次 Integer.valueOf 量出缓存命中与未命中的耗时和分配字节差，再用 -XX:AutoBoxCacheMax&#x3D;1000 把同一段字节码变成全命中。回到 JDK 25 源码看 IntegerCache 的边界怎么写死、共享对象的代价在哪里。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png">
+<meta property="article:published_time" content="2026-09-17T03:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T03:00:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="享元">
+<meta property="article:tag" content="设计模式">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "设计模式——享元：共享不可变状态",
+  "url": "https://lianglliu.github.io/2630879553.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png",
+  "datePublished": "2026-09-17T03:00:00.000Z",
+  "dateModified": "2026-09-17T03:00:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/2630879553.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '设计模式——享元：共享不可变状态',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">设计模式——享元：共享不可变状态</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">设计模式——享元：共享不可变状态</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T03:00:00.000Z" title="发表于 2026-09-17 11:00:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">7k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>26分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p><code>Integer.valueOf(500)</code> 每次调用返回一个新对象，<code>Integer.valueOf(5)</code> 每次返回同一个。两者的方法体一样，差别在 <code>IntegerCache</code> 的区间上，而这个区间由启动参数决定。<br>享元模式做的就这一件事：把不变的部分抽出来放进池子共享，把每次都不同的部分当参数传进去。<code>Integer</code> 的值是内在状态，调用方要哪个数是外在状态。<br>1 亿次调用、一组 JVM 参数和两个 JDK 量出这条分界线的两个后果：分配字节从每次 16 变成 0，耗时只差 1.5 倍左右。差额的去处在 TLAB 和 GC 里。</p>
+</blockquote>
+<h2 id="一、享元拆开了什么"><a href="#一、享元拆开了什么" class="headerlink" title="一、享元拆开了什么"></a>一、享元拆开了什么</h2><p>享元把对象的字段拆成两半。实例之间重复的那部分字段，JDK 里的说法是内在状态，抽出来放进池子，每个值只留一个实例。随调用变化的那部分叫外在状态，留在对象外面，每次调用时当参数传进来。</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    classDiagram
+    direction LR
+    class FlyweightFactory {
+        -Map pool
+        +get(Key) Flyweight
+    }
+    class Flyweight {
+        &lt;&lt;immutable&gt;&gt;
+        -int 内在状态
+        +operate(外在状态)
+    }
+    class Client {
+        +调用(外在状态)
+    }
+    FlyweightFactory --&gt; Flyweight : 同一个 Key 永远返回同一个实例
+    Client --&gt; FlyweightFactory : 问池子要
+    Client --&gt; Flyweight : 把外在状态当参数传进去
+    note for Flyweight &quot;字段只有内在状态，构造之后不改，所以可以共享&quot;
+    note for FlyweightFactory &quot;池子里的对象活到进程结束，不会有人回收&quot;
+  </pre></div>
+
+<p><code>Integer</code> 的缓存是这个结构最干净的实例。内在状态是那个 <code>int</code> 值，池子是一层 <code>static final Integer[]</code>，外在状态是调用方想装箱的那个数。装箱这一步里，「装的是 5 还是 500」属于外在状态，「5 这个值长什么样」属于内在状态。</p>
+<p><code>FlyweightFactory.get(Key)</code> 的返回类型有两个约定：同一个 Key 永远返回同一个实例；返回的对象不可变。第二条是第一条的前提。池子里的对象如果可变，共享它就等于共享了修改。</p>
+<h3 id="为什么-JDK-必须做这件事"><a href="#为什么-JDK-必须做这件事" class="headerlink" title="为什么 JDK 必须做这件事"></a>为什么 JDK 必须做这件事</h3><p>装箱的身份语义写在语言规范里：<code>-128</code> 到 <code>127</code> 之间的 <code>int</code> 字面量装箱之后必须 <code>intern</code>，同一个值两次装箱的结果必须 <code>==</code>。JDK 源码里对应的断言是 <code>assert IntegerCache.high &gt;= 127;</code>。</p>
+<p>规范只要求到这 128 个值。JDK 把上界做成了可配置的，于是这条界线变成三个可观察的层次：规范要求的最小集、JDK 默认给的 <code>-128..127</code>、以及启动参数能推到的地方。</p>
+<h3 id="缓存和对象池不是一回事"><a href="#缓存和对象池不是一回事" class="headerlink" title="缓存和对象池不是一回事"></a>缓存和对象池不是一回事</h3><p>两者的区别在于池子里装什么。享元的池子装不可变对象：取出来直接用，不用还，多个调用方同时持有同一个实例也不担心。对象池（数据库连接池、<code>ThreadLocal</code> 里的缓冲区都算）装可变对象，借用和归还是协议的一部分，少还一次就漏，多还一次就乱。共享连接池是<a href="/550034456.html">对象池</a>，共享 <code>Integer</code> 是享元。</p>
+<h2 id="二、实验设计"><a href="#二、实验设计" class="headerlink" title="二、实验设计"></a>二、实验设计</h2><p>要量的是同一个方法调用的两种情况：值落在缓存区间内，值落在区间外。再加第三种：把区间扩到能盖住那个值，用启动参数，不碰代码。</p>
+<p>三个模式共用同一个循环方法，<code>base</code> 由调用方传进来：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> Object keep;   <span class="comment">// 静态字段，阻止 JIT 把装箱对象标量替换掉</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">static</span> <span class="type">long</span> <span class="title function_">loop</span><span class="params">(<span class="type">int</span> n, <span class="type">int</span> base)</span> &#123;</span><br><span class="line">    <span class="type">long</span> <span class="variable">s</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; n; i++) &#123;</span><br><span class="line">        <span class="type">Integer</span> <span class="variable">b</span> <span class="operator">=</span> Integer.valueOf(base + (i &amp; <span class="number">255</span>));</span><br><span class="line">        keep = b;</span><br><span class="line">        s += b.intValue();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> s;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><code>base = -128</code>：值落在 <code>-128..127</code>，默认缓存命中</li>
+<li><code>base = 500</code>：值落在 <code>500..755</code>，默认缓存未命中</li>
+<li><code>base = 500</code> 加上 <code>-XX:AutoBoxCacheMax=1000</code>：同一段字节码，值全部落进扩展后的缓存</li>
+</ul>
+<p>三个模式编译出同一份字节码，JIT 看到的逐字节相同，只有运行时传进来的 <code>base</code> 不同。写法差异就此排除，「命中与否」只剩一个来源：运行时传进来的 <code>base</code>。</p>
+<p>另外跑一个不装箱的对照 <code>plain(n)</code>，循环形状一样，只是 <code>int</code> 不进池子，量的是循环本身的地板价。</p>
+<p>测量口径：</p>
+<ul>
+<li>1 亿次调用，先跑 1000 万次预热，再测 3 轮，取中位数</li>
+<li>分配字节用 <code>com.sun.management.ThreadMXBean.getThreadAllocatedBytes(threadId)</code>，这是线程级的 TLAB 分配计数，精确到字节，<code>Runtime.freeMemory</code> 那种前后差值量不到这个精度</li>
+<li>GC 次数在每轮前后各取一次</li>
+<li>JDK：<code>21.0.8+12-LTS-250</code> 与 <code>25+37-LTS-3491</code>，都是 arm64，Apple M1 Pro</li>
+<li>计时循环持全局锁跑，同一时刻只有这一个测量在用 CPU</li>
+</ul>
+<p>局限：这不是 JMH，没有 fork 隔离，耗时里包含 GC 暂停。分配字节是精确计数，耗时只用来判断量级。</p>
+<h2 id="三、实测"><a href="#三、实测" class="headerlink" title="三、实测"></a>三、实测</h2><h3 id="命中与未命中"><a href="#命中与未命中" class="headerlink" title="命中与未命中"></a>命中与未命中</h3><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>JDK</th>
+<th>耗时中位数</th>
+<th>ns &#x2F; 次调用</th>
+<th>分配字节 &#x2F; 1 亿次</th>
+<th>B &#x2F; 次</th>
+<th>GC 次数（3 轮区间）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>命中 <code>-128..127</code></td>
+<td>21</td>
+<td>125.2 ms</td>
+<td>1.25</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr>
+<td>命中 <code>-128..127</code></td>
+<td>25</td>
+<td>137.6 ms</td>
+<td>1.38</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr>
+<td>未命中 <code>500..755</code></td>
+<td>21</td>
+<td>219.6 ms</td>
+<td>2.20</td>
+<td>1,600,000,000</td>
+<td>16</td>
+<td>6 到 8</td>
+</tr>
+<tr>
+<td>未命中 <code>500..755</code></td>
+<td>25</td>
+<td>204.6 ms</td>
+<td>2.05</td>
+<td>1,600,000,000</td>
+<td>16</td>
+<td>6 到 10</td>
+</tr>
+<tr>
+<td>未命中 + <code>AutoBoxCacheMax=1000</code></td>
+<td>21</td>
+<td>114.5 ms</td>
+<td>1.15</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr>
+<td>未命中 + <code>AutoBoxCacheMax=1000</code></td>
+<td>25</td>
+<td>113.6 ms</td>
+<td>1.14</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr>
+<td>不装箱对照 <code>plain</code></td>
+<td>21</td>
+<td>66.8 ms</td>
+<td>0.67</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr>
+<td>不装箱对照 <code>plain</code></td>
+<td>25</td>
+<td>66.2 ms</td>
+<td>0.66</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<p><img src="/assets/patterns/flyweight-cache-range.png" alt="缓存命中、未命中与扩展缓存后的耗时和分配字节"></p>
+<p>分配字节这一列没有中间值。命中是 0，未命中是每一亿次 1,600,000,000 字节，也就是每次恰好 16 字节，一个 <code>Integer</code> 对象在压缩指针下的完整大小：12 字节对象头加 4 字节 <code>int</code> 字段。这 16 来自 <code>getThreadAllocatedBytes</code> 的逐字节计数。</p>
+<p>GC 那一列跟着分配走：命中是 0 次，未命中的三轮里 JDK 25 触发 6 到 10 次 young GC，JDK 21 触发 6 到 8 次。</p>
+<p>耗时这一列差得比分配少。把三种模式按每次调用的 ns 摊开：不装箱 0.66，命中 1.38，未命中 2.05。装箱并共享掉分配之后，比完全不装箱多出 0.71 ns，这一段对应范围检查、数组读、引用写入这三步的开销。多分配一个对象再多 0.67 ns，对应 TLAB 里一次指针碰撞加一次写屏障。1.49 倍的总差是这两段加起来的。</p>
+<p>加 <code>-XX:AutoBoxCacheMax=1000</code> 之后，未命中那一行的分配从 1,600,000,000 字节掉到 0，GC 次数归零，耗时回到 1.14 ns 每次。没有改一行业务代码，改的是一个 JVM 参数：同一份 class 文件、同一段字节码。</p>
+<p>分配那 1.6 GB 的一轮里触发了 10 次 young GC（JDK 25），摊下来每 160 MB 出头一次，这些暂停都算在耗时里。命中那一行不产生垃圾，也就不会触发 GC。</p>
+<h3 id="三轮原始数据"><a href="#三轮原始数据" class="headerlink" title="三轮原始数据"></a>三轮原始数据</h3><p>每个 JVM 新起，预热 1000 万次，再测 3 轮 1 亿次，原始值不取中位数（毫秒）：</p>
+<table>
+<thead>
+<tr>
+<th>模式</th>
+<th>JDK</th>
+<th>第 1 轮</th>
+<th>第 2 轮</th>
+<th>第 3 轮</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>命中</td>
+<td>21</td>
+<td>127.3</td>
+<td>125.2</td>
+<td>125.0</td>
+</tr>
+<tr>
+<td>命中</td>
+<td>25</td>
+<td>140.5</td>
+<td>137.6</td>
+<td>136.3</td>
+</tr>
+<tr>
+<td>未命中</td>
+<td>21</td>
+<td>300.7</td>
+<td>219.6</td>
+<td>209.4</td>
+</tr>
+<tr>
+<td>未命中</td>
+<td>25</td>
+<td>210.7</td>
+<td>204.6</td>
+<td>190.1</td>
+</tr>
+<tr>
+<td>未命中 + 扩展缓存</td>
+<td>21</td>
+<td>117.7</td>
+<td>110.7</td>
+<td>114.5</td>
+</tr>
+<tr>
+<td>未命中 + 扩展缓存</td>
+<td>25</td>
+<td>114.0</td>
+<td>113.6</td>
+<td>112.5</td>
+</tr>
+<tr>
+<td>不装箱对照</td>
+<td>21</td>
+<td>66.2</td>
+<td>65.7</td>
+<td>65.5</td>
+</tr>
+<tr>
+<td>不装箱对照</td>
+<td>25</td>
+<td>67.4</td>
+<td>66.9</td>
+<td>65.6</td>
+</tr>
+</tbody></table>
+<p>轮次之间的离散度不小。未命中那两行的第 1 轮比后面两轮慢，JDK 21 上是 300.7 ms 对 219.6 ms 和 209.4 ms，因为第 1 轮要收拾前一轮留下的垃圾，撞上的 young GC 更多。命中与扩展缓存那几行跨轮次的波动在 5% 以内。按这个分辨力，1.5 倍左右的耗时差测得出来，再小的差别测不出来。</p>
+<h3 id="引用同一性"><a href="#引用同一性" class="headerlink" title="引用同一性"></a>引用同一性</h3><p>耗时和分配是缓存的一阶效果，二阶效果是身份语义。同一个值两次装箱，<code>==</code> 的结果：</p>
+<table>
+<thead>
+<tr>
+<th>值</th>
+<th>默认</th>
+<th><code>-XX:AutoBoxCacheMax=1000</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>-129</td>
+<td>false</td>
+<td>false</td>
+</tr>
+<tr>
+<td>-128</td>
+<td>true</td>
+<td>true</td>
+</tr>
+<tr>
+<td>0、1、127</td>
+<td>true</td>
+<td>true</td>
+</tr>
+<tr>
+<td>128</td>
+<td>false</td>
+<td>true</td>
+</tr>
+<tr>
+<td>255、500、755、1000</td>
+<td>false</td>
+<td>true</td>
+</tr>
+<tr>
+<td>1001、1024</td>
+<td>false</td>
+<td>false</td>
+</tr>
+<tr>
+<td><code>Byte.valueOf(-100)</code></td>
+<td>true</td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>Short.valueOf(127)</code></td>
+<td>true</td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>Short.valueOf(128)</code></td>
+<td>false</td>
+<td>false</td>
+</tr>
+<tr>
+<td><code>Long.valueOf(127)</code></td>
+<td>true</td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>Long.valueOf(500)</code></td>
+<td>false</td>
+<td>false</td>
+</tr>
+<tr>
+<td><code>Character.valueOf(&#39;a&#39;)</code></td>
+<td>true</td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>Character.valueOf(&#39;\u0100&#39;)</code></td>
+<td>false</td>
+<td>false</td>
+</tr>
+<tr>
+<td><code>Boolean.valueOf(true)</code></td>
+<td>true</td>
+<td>true</td>
+</tr>
+</tbody></table>
+<p>两个 JDK 上的结果一致。</p>
+<p>一，<code>==</code> 的结果取决于启动参数，不取决于代码。测试环境带 <code>-XX:AutoBoxCacheMax=1000</code>，生产环境不带，同一份代码的 <code>a == b</code> 会从 true 变成 false。编译期不会暴露这类差异，代码评审里也看不出来。</p>
+<p>二，旗标只影响 <code>Integer</code>。<code>Long.valueOf(500)</code> 在带旗标的 JVM 里照样是 false，<code>Short</code>、<code>Character</code> 的范围一点没动。参数名 <code>AutoBoxCacheMax</code> 听起来管所有装箱类型，管到的只有 <code>Integer</code>。</p>
+<p>三，<code>Byte</code> 全部 256 个值都在缓存里，<code>Byte.valueOf(x) == Byte.valueOf(x)</code> 对任意 <code>byte</code> 都是 true。<code>Boolean</code> 只有两个实例，<code>valueOf</code> 是一个三元表达式直接返回常量。</p>
+<h3 id="池子的形状"><a href="#池子的形状" class="headerlink" title="池子的形状"></a>池子的形状</h3><p>命中与否是一层，池子怎么取用是另一层。同样装 256 个缓存对象，一种池子是 <code>Integer[]</code> 加范围检查，另一种是 <code>HashMap&lt;Integer, Integer&gt;</code>，后者是手写享元池最常见的写法。两个池子都只装 <code>-128..127</code> 那批已缓存对象，命中率 100%，都不产生新对象。</p>
+<table>
+<thead>
+<tr>
+<th>取用方式</th>
+<th>JDK 21</th>
+<th>JDK 25</th>
+<th>分配字节</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Integer[]</code> + 范围检查</td>
+<td>1.14 ns&#x2F;次</td>
+<td>1.19 ns&#x2F;次</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>HashMap.get</code></td>
+<td>2.77 ns&#x2F;次</td>
+<td>2.20 ns&#x2F;次</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<p>数组池在 JDK 25 上是 1.19 ns&#x2F;次，<code>HashMap</code> 池是 2.20 ns&#x2F;次，差 1.85 倍；JDK 21 上分别是 1.14 和 2.77 ns&#x2F;次。</p>
+<p>两个池子装的是同一批对象，差别落在取用路径上。数组池的每条路径就是一次比较加一次数组读，和 <code>Integer.valueOf</code> 的判定形状一样。<code>HashMap.get</code> 的每条路径要先给 key 装箱（命中缓存时这一步不分配，但要走一次 <code>valueOf</code>），再算哈希、取桶、比对 key。JDK 的缓存特意选数组，就是为了把这份成本从每次取值里去掉。</p>
+<p><code>HashMap</code> 池还有一个数组池没有的问题：<code>get</code> 未命中时返回 <code>null</code>，得自己决定 <code>null</code> 代表「不存在」还是「值就是 null」。数组池的下标永远有效，只要范围检查挡住越界。</p>
+<h3 id="对象不逃逸时，缓存就没有意义了"><a href="#对象不逃逸时，缓存就没有意义了" class="headerlink" title="对象不逃逸时，缓存就没有意义了"></a>对象不逃逸时，缓存就没有意义了</h3><p>这些数字都建立在一个前提上：装箱对象写进了静态字段 <code>keep</code>，逃出了方法。如果装箱结果只在方法内拆箱用掉，JIT 可以把整个对象删掉，一字节都不分配。</p>
+<p>同一段装箱循环，只差有没有 <code>keep = b;</code> 这一行：</p>
+<table>
+<thead>
+<tr>
+<th>装箱对象去向</th>
+<th>JDK 21 分配</th>
+<th>JDK 25 分配</th>
+<th>JDK 25 耗时（1 亿次）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写进静态字段（逃逸）</td>
+<td>16.000 B&#x2F;次</td>
+<td>16.000 B&#x2F;次</td>
+<td>212.6 ms</td>
+</tr>
+<tr>
+<td>只在方法内拆箱（不逃逸）</td>
+<td>0.000 B&#x2F;次</td>
+<td>0.000 B&#x2F;次</td>
+<td>65.4 ms</td>
+</tr>
+</tbody></table>
+<p>逃逸那一行是 16 字节每次，不逃逸那一行是 0.000 字节每次。C2 的标量替换把对象拆成字段放进寄存器，分配这一步就不存在了。</p>
+<p>这条结论会改写「要不要用享元」的判断。装箱的 16 字节值得共享，前提是它逃逸、编译器消不掉；编译器若能证明它不逃逸，这 16 字节根本不存在，缓存也就没有东西可缓存。反过来，把对象存进字段、传出去、放进集合，都算让它逃逸，分配也就躲不掉。</p>
+<h3 id="缓存的常驻占用"><a href="#缓存的常驻占用" class="headerlink" title="缓存的常驻占用"></a>缓存的常驻占用</h3><p>共享的另一面是这些东西不会被回收。池子里的对象从类初始化开始活到 JVM 退出：</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th><code>System.gc()</code> 之后仍存活</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>默认（<code>high=127</code>）</td>
+<td>1.28 MiB</td>
+</tr>
+<tr>
+<td><code>-XX:AutoBoxCacheMax=1000</code></td>
+<td>1.30 MiB</td>
+</tr>
+<tr>
+<td><code>-XX:AutoBoxCacheMax=1000000</code></td>
+<td>21.00 MiB</td>
+</tr>
+</tbody></table>
+<p>默认那 1 MiB 多点是 JVM 空载的地板，与缓存无关。1000 那一行比它多 17 KB，对应 1129 个 <code>Integer</code> 对象加一层数组。1000000 那一行多出 19.72 MiB，对应 1,000,129 个对象。这些字节在 <code>System.gc()</code> 之后一个不少：<code>IntegerCache.cache</code> 和 <code>archivedCache</code> 两个静态字段引用着它们，从根上可达，GC 碰不到。</p>
+<p>定长池子的占用可以算：<code>(high - low + 1) × 16 字节</code>，再加一层引用数组。<code>high</code> 每加一个数量级，常驻内存跟着加一个数量级。默认的 256 个值是 4 KB，百万级就是 19.72 MiB。</p>
+<h2 id="四、边界写在源码里"><a href="#四、边界写在源码里" class="headerlink" title="四、边界写在源码里"></a>四、边界写在源码里</h2><h3 id="IntegerCache"><a href="#IntegerCache" class="headerlink" title="IntegerCache"></a>IntegerCache</h3><p>JDK 25 的 <code>src.zip</code> 里，<code>java.base/java/lang/Integer.java</code> 第 932 到 984 行就是这条边界：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"> <span class="number">932</span>      <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">IntegerCache</span> &#123;</span><br><span class="line"> <span class="number">933</span>          <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">int</span> <span class="variable">low</span> <span class="operator">=</span> -<span class="number">128</span>;</span><br><span class="line"> <span class="number">934</span>          <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">int</span> high;</span><br><span class="line"> <span class="number">935</span></span><br><span class="line"> <span class="number">936</span>          <span class="meta">@Stable</span></span><br><span class="line"> <span class="number">937</span>          <span class="keyword">static</span> <span class="keyword">final</span> Integer[] cache;</span><br><span class="line"> <span class="number">938</span>          <span class="keyword">static</span> Integer[] archivedCache;</span><br><span class="line"> <span class="number">939</span></span><br><span class="line"> <span class="number">940</span>          <span class="keyword">static</span> &#123;</span><br><span class="line"><span class="number">941</span>              <span class="comment">// high value may be configured by property</span></span><br><span class="line"><span class="number">942</span>              <span class="type">int</span> <span class="variable">h</span> <span class="operator">=</span> <span class="number">127</span>;</span><br><span class="line"><span class="number">943</span>              <span class="type">String</span> <span class="variable">integerCacheHighPropValue</span> <span class="operator">=</span></span><br><span class="line"><span class="number">944</span>                  VM.getSavedProperty(<span class="string">&quot;java.lang.Integer.IntegerCache.high&quot;</span>);</span><br><span class="line"><span class="number">945</span>              <span class="keyword">if</span> (integerCacheHighPropValue != <span class="literal">null</span>) &#123;</span><br><span class="line"><span class="number">946</span>                  <span class="keyword">try</span> &#123;</span><br><span class="line"><span class="number">947</span>                      h = Math.max(parseInt(integerCacheHighPropValue), <span class="number">127</span>);</span><br><span class="line"><span class="number">948</span>                      <span class="comment">// Maximum array size is Integer.MAX_VALUE</span></span><br><span class="line"><span class="number">949</span>                      h = Math.min(h, Integer.MAX_VALUE - (-low) -<span class="number">1</span>);</span><br><span class="line"><span class="number">950</span>                  &#125; <span class="keyword">catch</span>( NumberFormatException nfe) &#123;</span><br><span class="line"><span class="number">951</span>                      <span class="comment">// If the property cannot be parsed into an int, ignore it.</span></span><br><span class="line"><span class="number">952</span>                  &#125;</span><br><span class="line"><span class="number">953</span>              &#125;</span><br><span class="line"><span class="number">954</span>              high = h;</span><br></pre></td></tr></table></figure>
+
+<p>几件事在这 23 行里定死了。下界是常量 <code>-128</code>，没有配置入口，<code>Math.max(..., 127)</code> 只夹住上界。上界只从属性读一次，属性不存在时是 127。属性读失败（<code>NumberFormatException</code>）时静默退回 127，不报错，不警告。</p>
+<p>第 943 行的 <code>VM.getSavedProperty</code> 是这套机制的入口。它读的是 VM 保存的启动参数，不是 <code>System.getProperties()</code>。实测：<code>-XX:AutoBoxCacheMax=1000</code> 启动的 JVM 里 <code>System.getProperty(&quot;java.lang.Integer.IntegerCache.high&quot;)</code> 返回 <code>null</code>，用反射调 <code>VM.getSavedProperty</code> 拿到 <code>&quot;1000&quot;</code>。同一个属性，两个 API 一个看不见一个看得见。想在运行时读它来判断缓存范围，读不到。</p>
+<p>上界还有一层夹逼，第 949 行把 <code>high</code> 限制在 <code>Integer.MAX_VALUE - (-low) - 1</code> 以内，对应数组长度上限。</p>
+<h3 id="缓存从归档里来"><a href="#缓存从归档里来" class="headerlink" title="缓存从归档里来"></a>缓存从归档里来</h3><p>第 956 到 979 行是缓存的构造过程：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">956</span>              <span class="comment">// Load IntegerCache.archivedCache from archive, if possible</span></span><br><span class="line"><span class="number">957</span>              CDS.initializeFromArchive(IntegerCache.class);</span><br><span class="line"><span class="number">958</span>              <span class="type">int</span> <span class="variable">size</span> <span class="operator">=</span> (high - low) + <span class="number">1</span>;</span><br><span class="line"><span class="number">959</span></span><br><span class="line"><span class="number">960</span>              <span class="comment">// Use the archived cache if it exists and is large enough</span></span><br><span class="line"><span class="number">961</span>              <span class="keyword">if</span> (archivedCache == <span class="literal">null</span> || size &gt; archivedCache.length) &#123;</span><br><span class="line"><span class="number">962</span>                  Integer[] c = <span class="keyword">new</span> <span class="title class_">Integer</span>[size];</span><br><span class="line"><span class="number">963</span>                  <span class="type">int</span> <span class="variable">j</span> <span class="operator">=</span> low;</span><br><span class="line"><span class="number">964</span>                  <span class="comment">// If archive has Integer cache, we must use all instances from it.</span></span><br><span class="line"><span class="number">965</span>                  <span class="comment">// Otherwise, the identity checks between archived Integers and</span></span><br><span class="line"><span class="number">966</span>                  <span class="comment">// runtime-cached Integers would fail.</span></span><br><span class="line"><span class="number">967</span>                  <span class="type">int</span> <span class="variable">archivedSize</span> <span class="operator">=</span> (archivedCache == <span class="literal">null</span>) ? <span class="number">0</span> : archivedCache.length;</span><br><span class="line"><span class="number">968</span>                  <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; archivedSize; i++) &#123;</span><br><span class="line"><span class="number">969</span>                      c[i] = archivedCache[i];</span><br><span class="line"><span class="number">970</span>                      <span class="keyword">assert</span> j == archivedCache[i];</span><br><span class="line"><span class="number">971</span>                      j++;</span><br><span class="line"><span class="number">972</span>                  &#125;</span><br><span class="line"><span class="number">973</span>                  <span class="comment">// Fill the rest of the cache.</span></span><br><span class="line"><span class="number">974</span>                  <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> archivedSize; i &lt; size; i++) &#123;</span><br><span class="line"><span class="number">975</span>                      c[i] = <span class="keyword">new</span> <span class="title class_">Integer</span>(j++);</span><br><span class="line"><span class="number">976</span>                  &#125;</span><br><span class="line"><span class="number">977</span>                  archivedCache = c;</span><br><span class="line"><span class="number">978</span>              &#125;</span><br><span class="line"><span class="number">979</span>              cache = archivedCache;</span><br></pre></td></tr></table></figure>
+
+<p>缓存在类初始化时才填。<code>-128..127</code> 这批对象来自 CDS 归档堆区，构建 JDK 时已经序列化在里面。<code>CDS.initializeFromArchive(IntegerCache.class)</code> 把归档里的数组挂到 <code>archivedCache</code> 上，<code>new Integer</code> 只在两种情况下执行：没有归档，或者需要的区间比归档大。</p>
+<p>JDK 21 与 25 在这里有一处实现差别。21 是：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1041</span>                  <span class="keyword">for</span>(<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; c.length; i++) &#123;</span><br><span class="line"><span class="number">1042</span>                      c[i] = <span class="keyword">new</span> <span class="title class_">Integer</span>(j++);</span><br><span class="line"><span class="number">1043</span>                  &#125;</span><br></pre></td></tr></table></figure>
+
+<p>25 改成了先搬归档的那一段、再补剩下的（第 964 到 976 行）。25 的注释解释了原因：归档里的 <code>Integer</code> 和运行时新建的 <code>Integer</code> 之间做身份比较会失败。JDK 25 的 <code>IntegerCache</code> 位于 <code>Integer.java:932-984</code>，JDK 21 的在 <code>:1009-1051</code>，两处的属性解析逻辑逐字相同，只有扩展缓存时的对象来源不同。</p>
+<h3 id="valueOf-的判定路径"><a href="#valueOf-的判定路径" class="headerlink" title="valueOf 的判定路径"></a>valueOf 的判定路径</h3><p><code>Integer.java:1002-1007</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1002</span>      <span class="meta">@IntrinsicCandidate</span></span><br><span class="line"><span class="number">1003</span>      <span class="keyword">public</span> <span class="keyword">static</span> Integer <span class="title function_">valueOf</span><span class="params">(<span class="type">int</span> i)</span> &#123;</span><br><span class="line"><span class="number">1004</span>          <span class="keyword">if</span> (i &gt;= IntegerCache.low &amp;&amp; i &lt;= IntegerCache.high)</span><br><span class="line"><span class="number">1005</span>              <span class="keyword">return</span> IntegerCache.cache[i + (-IntegerCache.low)];</span><br><span class="line"><span class="number">1006</span>          <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Integer</span>(i);</span><br><span class="line"><span class="number">1007</span>      &#125;</span><br></pre></td></tr></table></figure>
+
+<p>方法体 5 行。两次比较、一次数组下标计算、一次加载，或者一次 <code>new</code>。<code>@IntrinsicCandidate</code> 说明 JIT 对它有专门的编译路径。缓存的命中判断只有两个比较和一个数组读：没有哈希、没有 <code>Map.get</code>、也没有锁。</p>
+<p><code>return new Integer(i)</code> 里的构造函数从 JDK 9 起标记为 <code>@Deprecated(since=&quot;9&quot;)</code>，在 JDK 25 上编译会得到一条移除警告。装箱代码不应该走这一行，走了就是在分配。</p>
+<h3 id="JIT-编译后剩下什么"><a href="#JIT-编译后剩下什么" class="headerlink" title="JIT 编译后剩下什么"></a>JIT 编译后剩下什么</h3><p>判定路径在源码里是 5 行，编译之后更少。JDK 25 加 <code>-XX:+UnlockDiagnosticVMOptions -XX:+PrintCompilation -XX:+PrintInlining</code> 跑命中模式，<code>loop</code> 方法 C2 编译（第 4 层，带 OSR）的树是：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">149  235 %  b  4       BoxBench::loop @ 5 (46 bytes)</span><br><span class="line">                              @ 19   java.lang.Integer::valueOf (32 bytes)   inline (hot)   late inline succeeded (boxing method)</span><br><span class="line">                              @ 32   java.lang.Integer::intValue (5 bytes)   accessor</span><br></pre></td></tr></table></figure>
+
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    flowchart TD
+    A[&quot;Integer.valueOf(i)&quot;] --&gt; B{&quot;i &gt;&#x3D; IntegerCache.low &amp;&amp; i &lt;&#x3D; IntegerCache.high&quot;}
+    B --&gt;|&quot;真&quot;| C[&quot;IntegerCache.cache[i + 128]&quot;]
+    B --&gt;|&quot;假&quot;| D[&quot;new Integer(i)&quot;]
+    C --&gt; E[&quot;返回池子里的对象，0 字节分配&quot;]
+    D --&gt; F[&quot;TLAB 里分配 16 字节&quot;]
+    F --&gt; G{&quot;引用逃出方法了吗&quot;}
+    G --&gt;|&quot;没有&quot;| H[&quot;标量替换，16 字节被消掉&quot;]
+    G --&gt;|&quot;有&quot;| I[&quot;分配真实发生&quot;]
+  </pre></div>
+
+<p>命中那一路的树里没有 <code>Integer::&lt;init&gt;</code>。内联 <code>valueOf</code> 之后，<code>new Integer(i)</code> 那一行在缓存命中的分支里不可达，JIT 不会为它生成代码。未命中那一路的树里多出三层：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">@ 19   java.lang.Integer::valueOf (32 bytes)   inline (hot)   late inline succeeded (boxing method)</span><br><span class="line">  @ 28   java.lang.Integer::&lt;init&gt; (10 bytes)   inline (hot)</span><br><span class="line">    @ 1   java.lang.Number::&lt;init&gt; (5 bytes)   inline (hot)</span><br></pre></td></tr></table></figure>
+
+<p><code>late inline succeeded (boxing method)</code> 是 C2 对装箱方法的延迟内联，配合 <code>EliminateAutoBox</code>（默认开启，<code>-XX:+PrintFlagsFinal</code> 里的 <code>bool EliminateAutoBox = true</code>）使用。它买到的是上一节的标量替换：装箱对象不逃逸时，C2 把 <code>new</code> 出来的对象拆成字段，分配整个消失。</p>
+<p>内联还消掉了调用开销。<code>valueOf</code> 是静态方法，调用点在编译期就定死了，内联进来之后，命中判断只剩两次整数比较和一次数组读。如果这层判断藏在一个接口方法或者虚方法后面，这份成本就会以每次调用的形式留在最内层循环里，而它买的只是「可能命中」。这也是缓存判定要写成静态方法加数组的原因。</p>
+<h3 id="其它包装类型的区间"><a href="#其它包装类型的区间" class="headerlink" title="其它包装类型的区间"></a>其它包装类型的区间</h3><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>缓存范围</th>
+<th>可配置</th>
+<th>源码位置</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Integer</code></td>
+<td>-128 .. 127</td>
+<td>是，上界可推</td>
+<td><code>Integer.java:932-984</code>，判定在 <code>:1003-1007</code></td>
+</tr>
+<tr>
+<td><code>Short</code></td>
+<td>-128 .. 127</td>
+<td>否</td>
+<td><code>Short.java:235</code>（<code>size</code> 在 <code>:243</code>），判定在 <code>:277-283</code></td>
+</tr>
+<tr>
+<td><code>Long</code></td>
+<td>-128 .. 127</td>
+<td>否</td>
+<td><code>Long.java:953</code>（<code>size</code> 在 <code>:961</code>），判定在 <code>:995-1001</code></td>
+</tr>
+<tr>
+<td><code>Byte</code></td>
+<td>-128 .. 127，即全部取值</td>
+<td>不可能再扩</td>
+<td><code>Byte.java:108</code>，判定在 <code>:147-150</code></td>
+</tr>
+<tr>
+<td><code>Character</code></td>
+<td>0 .. 127</td>
+<td>否</td>
+<td><code>Character.java:9240</code>（<code>size</code> 在 <code>:9248</code>），判定在 <code>:9282-9287</code></td>
+</tr>
+<tr>
+<td><code>Boolean</code></td>
+<td>两个常量</td>
+<td>否</td>
+<td><code>Boolean.java:177-179</code></td>
+</tr>
+</tbody></table>
+<p><code>Long</code> 的判定写成一行范围检查，和 <code>Integer</code> 同一个形状：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"> <span class="number">995</span>      <span class="keyword">public</span> <span class="keyword">static</span> Long <span class="title function_">valueOf</span><span class="params">(<span class="type">long</span> l)</span> &#123;</span><br><span class="line"> <span class="number">996</span>          <span class="keyword">final</span> <span class="type">int</span> <span class="variable">offset</span> <span class="operator">=</span> <span class="number">128</span>;</span><br><span class="line"> <span class="number">997</span>          <span class="keyword">if</span> (l &gt;= -<span class="number">128</span> &amp;&amp; l &lt;= <span class="number">127</span>) &#123; <span class="comment">// will cache</span></span><br><span class="line"> <span class="number">998</span>              <span class="keyword">return</span> LongCache.cache[(<span class="type">int</span>)l + offset];</span><br><span class="line"> <span class="number">999</span>          &#125;</span><br><span class="line"><span class="number">1000</span>          <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Long</span>(l);</span><br><span class="line"><span class="number">1001</span>      &#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>Character</code> 的区间从 0 开始，因为 <code>char</code> 无符号；<code>Byte</code> 的 <code>valueOf</code> 没有分支，直接下标取：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">147</span>      <span class="keyword">public</span> <span class="keyword">static</span> Byte <span class="title function_">valueOf</span><span class="params">(<span class="type">byte</span> b)</span> &#123;</span><br><span class="line"><span class="number">148</span>          <span class="keyword">final</span> <span class="type">int</span> <span class="variable">offset</span> <span class="operator">=</span> <span class="number">128</span>;</span><br><span class="line"><span class="number">149</span>          <span class="keyword">return</span> ByteCache.cache[(<span class="type">int</span>)b + offset];</span><br><span class="line"><span class="number">150</span>      &#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>Boolean</code> 连数组都不需要，两个静态常量就是池子：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">177</span>      <span class="keyword">public</span> <span class="keyword">static</span> Boolean <span class="title function_">valueOf</span><span class="params">(<span class="type">boolean</span> b)</span> &#123;</span><br><span class="line"><span class="number">178</span>          <span class="keyword">return</span> (b ? TRUE : FALSE);</span><br><span class="line"><span class="number">179</span>      &#125;</span><br></pre></td></tr></table></figure>
+
+<p>只有 <code>Integer</code> 的上界由参数决定，上一个实验里 <code>Long.valueOf(500)</code> 就是因此不受 <code>-XX:AutoBoxCacheMax=1000</code> 影响：那个旗标从第 944 行读的属性名开始就只服务于一个类。</p>
+<h3 id="旗标的名字和它的语义不一致"><a href="#旗标的名字和它的语义不一致" class="headerlink" title="旗标的名字和它的语义不一致"></a>旗标的名字和它的语义不一致</h3><p><code>-XX:AutoBoxCacheMax=1000</code> 传的值是上界还是容量，实测把 <code>128</code> 显式传进去就看得出来：</p>
+<ul>
+<li>不带这个参数：<code>Integer.valueOf(128) == Integer.valueOf(128)</code> 是 false</li>
+<li>带 <code>-XX:AutoBoxCacheMax=128</code>：结果是 true</li>
+</ul>
+<p>属性值会先过 <code>Math.max(parseInt(value), 127)</code>，再赋给 <code>high</code>。传 128 时 <code>high = 128</code>，缓存变成 <code>-128..128</code>，129 个值。旗标的默认值在 <code>-XX:+PrintFlagsFinal</code> 里也显示 128，但这个默认值用不上：不显式传参时属性是 <code>null</code>，<code>high</code> 停在 127。传 <code>-XX:AutoBoxCacheMax=127</code> 和什么都不传等价。</p>
+<p>同一个数字，不传和传，行为差一个值。这种边界只有对着源码读一遍才能确定。</p>
+<h2 id="五、什么时候用"><a href="#五、什么时候用" class="headerlink" title="五、什么时候用"></a>五、什么时候用</h2><h3 id="判断顺序"><a href="#判断顺序" class="headerlink" title="判断顺序"></a>判断顺序</h3><div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    flowchart TD
+    A[&quot;有一批对象被反复创建&quot;] --&gt; B{&quot;对象可变吗&quot;}
+    B --&gt;|&quot;可变&quot;| B1[&quot;享元不适用，看对象池&quot;]
+    B --&gt;|&quot;不可变&quot;| C{&quot;实例之间有多少字段是重复的&quot;}
+    C --&gt;|&quot;没有重复，每个都不一样&quot;| C1[&quot;没有可共享的部分，池子只会占内存&quot;]
+    C --&gt;|&quot;有重复，取值集合小&quot;| D{&quot;取值集合有多大&quot;}
+    D --&gt;|&quot;能枚举，几十到几千&quot;| E[&quot;建池，取值集合就是池子大小&quot;]
+    D --&gt;|&quot;无界&quot;| D1[&quot;用 LRU 之类有上界的缓存，不要无界池&quot;]
+    E --&gt; F{&quot;有地方用 &#x3D;&#x3D; 比较对象吗&quot;}
+    F --&gt;|&quot;有&quot;| F1[&quot;改掉，绑定到 &#x3D;&#x3D; 的语义会在参数或版本变化时失效&quot;]
+    F --&gt;|&quot;没有&quot;| G[&quot;测量额外分配量与常驻占用的比值&quot;]
+    D1 --&gt; G
+    C1 --&gt; G
+    G --&gt; H{&quot;省下的分配量超过常驻占用吗&quot;}
+    H --&gt;|&quot;是&quot;| I[&quot;值得共享&quot;]
+    H --&gt;|&quot;否&quot;| J[&quot;不值得，保持每次新建&quot;]
+  </pre></div>
+
+<h3 id="值得共享的时候"><a href="#值得共享的时候" class="headerlink" title="值得共享的时候"></a>值得共享的时候</h3><p>判据可以压成两条：对象不可变，取值集合有界且重复率高。满足这两条时，收益先落在分配上：本次实验里每次 16 字节变成 0，1 亿次调用少分配 1,600,000,000 字节，少 6 到 10 次 young GC。耗时上的收益要小得多，1.49 倍，因为省下的只是一次指针碰撞。</p>
+<p>第三条判据是池子要小。池子是定长的，占用等于取值集合大小乘以对象大小，而且永不回收。<code>-XX:AutoBoxCacheMax=1000000</code> 换来的是 19.72 MiB 常驻内存，这笔账只有在那个区间高频出现时才划得来。</p>
+<h3 id="不值得共享的时候"><a href="#不值得共享的时候" class="headerlink" title="不值得共享的时候"></a>不值得共享的时候</h3><p><strong>对象可变。</strong> 共享可变对象要靠借用归还协议管理，归对象池管。两者的失败模式不同：享元池太小只会多占内存，对象池协议写错会丢数据。</p>
+<p><strong>把身份语义当契约。</strong> 任何靠 <code>a == b</code> 判断相等的地方，都在依赖一个由启动参数决定的事实。JDK 自己都不敢承诺：<code>Integer.valueOf</code> 的 javadoc 只说「总是缓存 -128 到 127，可能缓存这个范围之外的值」。写成「一定」的地方就是 bug。</p>
+<p><strong>每次都要新建的语义。</strong> 有些代码靠 <code>new</code> 拿到一个独一无二的身份，比如用作锁对象或者 <code>IdentityHashMap</code> 的键。这类对象不能进池子。</p>
+<h3 id="自己写池子时的形状"><a href="#自己写池子时的形状" class="headerlink" title="自己写池子时的形状"></a>自己写池子时的形状</h3><p>JDK 的写法可以直接抄：静态数组、构造时填满、取值路径上做一次范围检查。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">Unit</span> &#123;                 <span class="comment">// 取值集合固定的小枚举式类型</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> Unit[] POOL = <span class="keyword">new</span> <span class="title class_">Unit</span>[<span class="number">16</span>];</span><br><span class="line">    <span class="keyword">static</span> &#123;</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; POOL.length; i++) POOL[i] = <span class="keyword">new</span> <span class="title class_">Unit</span>(i);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">final</span> <span class="type">int</span> code;</span><br><span class="line">    <span class="keyword">private</span> <span class="title function_">Unit</span><span class="params">(<span class="type">int</span> code)</span> &#123; <span class="built_in">this</span>.code = code; &#125;</span><br><span class="line">    <span class="keyword">static</span> Unit <span class="title function_">of</span><span class="params">(<span class="type">int</span> code)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (code &lt; <span class="number">0</span> || code &gt;= POOL.length) <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">IllegalArgumentException</span>(<span class="string">&quot;code=&quot;</span> + code);</span><br><span class="line">        <span class="keyword">return</span> POOL[code];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>池子在静态初始化块里填满，类初始化完成对所有线程可见由 JVM 保证，<code>of</code> 不需要同步；构造函数私有，外面拿不到没进池子的实例；取值路径是范围检查加数组读，和 <code>Integer.valueOf</code> 同形，一次比较加一次加载。</p>
+<p>参数来自外部输入时，范围检查必须抛异常。<code>IntegerCache</code> 可以不抛，因为它的输入是 <code>int</code>，判定不通过就走新建分支；固定大小的池子没有这个退路，越界只能报错。用 <code>Map</code> 做池子时这一点更明显：<code>get</code> 越界返回 <code>null</code>，错误会推迟到使用点才炸。</p>
+<p>池子的内存账可以算：<code>(high - low + 1) × 对象大小</code>，加一层引用数组。<code>Integer</code> 在压缩指针下是 16 字节，256 个值就是 4 KB；一千个值是 16 KB。这笔内存从类初始化开始就一直占着。</p>
+<p>池子通常做成<a href="/2222335298.html">单例</a>。多份池子会稀释共享率，同一组值存两遍，常驻内存也翻倍。JDK 的做法是把池子做成 <code>IntegerCache</code> 这个私有静态嵌套类，外面连类型都看不到，只有 <code>valueOf</code> 这一个入口。</p>
+<p>池子只对重复出现的值有效：如果一亿次调用里有一亿个不同的值，池子每次都不命中，付出的是一层范围检查和一份常驻内存，拿不到分配上的好处。<code>IntegerCache</code> 的默认区间是 <code>-128..127</code>，正值小整数、数组下标、状态码这些高频值都落在里面，这是它值得存在的原因。</p>
+<h3 id="池子和函数是两种抽法"><a href="#池子和函数是两种抽法" class="headerlink" title="池子和函数是两种抽法"></a>池子和函数是两种抽法</h3><p>外在状态如果是几个数值，还有一种更省的做法：根本不建对象，直接对参数做计算。<code>Integer</code> 的两个操作，取原始值和比较大小，在用户态都可以直接对 <code>int</code> 做，不需要对象。JDK 做缓存是为了让装箱的语法糖不至于每次都分配；<code>Integer</code> 不是拿来当主力类型的。能用 <code>int</code> 的地方用 <code>int</code>，需要对象的边界上用对象。</p>
+<p>共享的极端形态是把对象本身去掉，这个方向和<a href="/1455898602.html">不可变与防御性拷贝</a>是同一个问题的两面：一个问「能不能大家一起用」，一个问「要不要复制一份」。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>享元共享的是不可变的内在状态，外在状态作为参数每次传进来。<code>Integer</code> 缓存是它的标准实例：内在状态是那个 <code>int</code>，池子是一层 <code>static final Integer[]</code>。</li>
+<li>1 亿次 <code>Integer.valueOf</code>，值在 <code>-128..127</code> 时分配 0 字节、0 次 GC；值在 <code>500..755</code> 时每次 16 字节，一亿次 1,600,000,000 字节，JDK 25 触发 6 到 10 次 young GC，中位数 204.6 ms 对命中的 137.6 ms。</li>
+<li>耗时差只有 1.49 倍（JDK 25），远小于分配上的差别。一次对象分配净增 0.67 ns，分配这一步在 TLAB 里很便宜，代价的形态是 GC 次数：同一轮 1.6 GB 垃圾对应 6 到 10 次 young GC，命中那一行是 0 次。</li>
+<li>加 <code>-XX:AutoBoxCacheMax=1000</code> 跑同一段字节码，未命中那行的分配掉到 0，GC 归零，耗时回到 1.14 ns 每次。改的是一个启动参数，代码一行没动。</li>
+<li><code>IntegerCache</code> 在 JDK 25 的 <code>Integer.java:932-984</code>：下界是常量 <code>-128</code>（<code>:933</code>），上界来自 <code>VM.getSavedProperty(&quot;java.lang.Integer.IntegerCache.high&quot;)</code>（<code>:944</code>），解析失败静默退回 127。</li>
+<li><code>VM.getSavedProperty</code> 与 <code>System.getProperty</code> 读的不是同一份数据：带旗标启动的 JVM 里前者返回 <code>&quot;1000&quot;</code>，后者返回 <code>null</code>。</li>
+<li>缓存的 <code>-128..127</code> 那批对象来自 CDS 归档堆区（<code>:957</code>），JDK 25 在扩展缓存时先复用归档对象再补新的（<code>:964-976</code>），JDK 21 是整个数组重建（<code>Integer.java:1041-1043</code>）。</li>
+<li>五种包装类型的缓存范围各不相同：<code>Byte</code> 全部取值都缓存且无分支（<code>Byte.java:147-150</code>），<code>Character</code> 是 <code>0..127</code>（<code>Character.java:9282-9287</code>），<code>Boolean</code> 是两个常量（<code>Boolean.java:177-179</code>），只有 <code>Integer</code> 的上界可配置。</li>
+<li><code>-XX:AutoBoxCacheMax=128</code> 把上界推到 128，不带这个参数时上界是 127。旗标的默认值显示为 128，但默认不生效。</li>
+<li><code>==</code> 的结果随启动参数变化：<code>a == b</code> 在 <code>500</code> 上，默认 false，带 <code>-XX:AutoBoxCacheMax=1000</code> 是 true。绑定到这个语义上的代码不可移植。</li>
+<li>池子永不回收：<code>-XX:AutoBoxCacheMax=1000000</code> 时 <code>System.gc()</code> 之后常驻 21.00 MiB，比默认多 19.72 MiB。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Integer.html">Integer (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Integer.html">Integer (Java SE 21)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Long.html">Long (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Byte.html">Byte (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Short.html">Short (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Character.html">Character (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Boolean.html">Boolean (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/jdk.management/com/sun/management/ThreadMXBean.html">ThreadMXBean.getThreadAllocatedBytes</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/javase/specs/jls/se25/html/jls-5.html#jls-5.1.7">JLS 5.1.7: Boxing Conversion</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/350">JEP 350: Dynamic CDS Archives</a></li>
+<li><a href="/2097900514.html">系列总纲：设计模式的成本账</a></li>
+</ul>
+<blockquote>
+<p>系列索引：<a href="/pattern/">设计模式系列</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/2630879553.html">https://lianglliu.github.io/2630879553.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a><a class="post-meta__tags" href="/tags/%E4%BA%AB%E5%85%83/">享元</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/205079771.html" title="设计模式——适配器：边界在哪"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">设计模式——适配器：边界在哪</div></div><div class="info-2"><div class="info-item-1"> 适配器只做一件事：把调用方要的接口翻译成现有对象提供的接口，不改变被包装对象的行为。常见的反对意见是「多一层调用会拖慢热点路径」。JIT 打开、调用点单态时，这层开销量出来是零；调用点收到多个实现类型时，量出约三倍。两种情况本文都用 1 亿次调用测一遍，并贴出 -XX:+PrintInlining 对每一次内联决定的原文。  一、问题：那一层调用值多少钱手里有一个只能按字节取的类，调用方要的是一个按字符取的接口，中间补一个类： 1234567interface CharReader &#123; int read(); &#125;          // 调用方要求的接口final class SourceAdapter implements CharReader &#123;    private final ByteSource src;             // 已有的实现，改不了    SourceAdapter(ByteSource src) &#123; this.src = src; &#125;    @Override public int read()...</div></div></div></a><a class="pagination-related" href="/3381769289.html" title="Java——结构化并发实战（StructuredTaskScope）"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Java——结构化并发实战（StructuredTaskScope）</div></div><div class="info-2"><div class="info-item-1"> 《虚拟线程实战》解决的是”线程不再贵”，但没解决”谁来管这些线程”。一个请求扇出到三个下游，其中一个失败了怎么办？超时了剩下的两个还在跑吗？调用方抛出异常时，那些已经没人等待的任务去哪了？这些问题的答案，在 CompletableFuture、ExecutorService 里是”你自己记住”，在结构化并发里是”作用域负责”。这篇用同一份需求把三种写法跑一遍，用实测的耗时和线程残留数说话。全部代码在 JDK 25 上编译运行，StructuredTaskScope 目前仍是预览 API，编译需要 --enable-preview。  实验环境1234$ java -versionjava 25 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)  编译与运行都要带预览开关： 12javac --enable-preview --release...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/4222041279.html" title="设计模式——备忘录：快照的代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-5.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——备忘录：快照的代价</div></div><div class="info-2"><div class="info-item-1"> 备忘录把「回到过去」变成两个方法调用：save() 存下一版，restore() 回到某一版。存一版花多少时间、占多少内存，模式定义里没有答案。全量深拷贝、增量日志、写时拷贝三条路都能实现回滚，代价相差两个数量级。本文用 1 万条记录（含标签集合）的状态、1000 个事务、每事务改 10 条，量三条路的每事务耗时与分配字节，再量历史上限 10&#x2F;100&#x2F;1000 版时的保留内存和回滚耗时。  一、回滚能力买的是什么发起人（Originator）把状态装进一个备忘录对象，管理者（Caretaker）把备忘录收进版本链，需要时再把某一版交回发起人恢复。快照粒度、版本存放位置、版本何时失效，这些都不在模式定义里。 三个问题决定价格：  存的是全部状态，还是这一版改动的增量。 版本链保留多少版。 代价在存的那一刻付，还是在每次改动时付。  第一个问题把实现分成三条路，后两个问题决定账单什么时候来。 三条路全量深拷贝：save() 把当前状态整份复制一份挂到链上，回滚时把复制出来的那份换回来。 增量日志：save() 只记一个位置，每次改动之前把旧值写进日志，回滚时按逆...</div></div></div></a><a class="pagination-related" href="/924563661.html" title="设计模式——命令：撤销栈与队列化"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——命令：撤销栈与队列化</div></div><div class="info-2"><div class="info-item-1"> doc.insert(pos, text) 编译之后只剩一条 invokevirtual，方法一返回，这次调用就没有任何痕迹了。命令模式把这一行换成 new InsertCmd(doc, pos, text)，这次调用变成内存里的一个值：能入栈做撤销、入队做排队、写盘做重放。10 万次操作、四种形态，量的是耗时、分配字节与延迟，以及撤销栈里「记快照」和「记反向操作」两条路的内存差。  一、把调用变成对象一个方法调用在编译后活在栈帧里。接收者、参数、要做什么，都散在字节码的指令序列上，方法一旦返回，这些信息就没了。要撤销它，得在调用之前自己把原位字符记下来；要排队，得把它包进一个 lambda 交给别人；要记录，得在旁边再写一行日志。 命令模式把这一行换成 new InsertCmd(doc, pos, text)：调用发生的时间和执行的时间分开，这次调用就成了内存里的一个值。 撤销、排队、记录都建立在这个值上：  撤销：入栈，回滚时按逆序对每条执行相反的操作。 排队：入队，由另一个线程按自己的节奏取走执行。 记录与重放：写进日志或消息，读回来再执行一遍。  把调用变成对象，代价...</div></div></div></a><a class="pagination-related" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——装饰器：缓冲链的代价</div></div><div class="info-2"><div class="info-item-1"> 装饰器把「给一个对象加能力」变成了廉价操作：new BufferedInputStream(new FileInputStream(f)) 只是多写一层。但每一层都会改写下层被调用的形态——调用次数、每次的块大小、flush 与 close 的语义。这些改动在源码里看不到，只能测。本文用一个 48 MiB 文件、libc 层的真实 read(2) 计数，和两个 JDK（21.0.8 与 25）回答一个问题：这条链上多包一层，到底买到了什么，代价在哪。  一、装饰器换到的东西继承式的算术给一个数据源加「缓冲」和「校验」两种能力。如果用继承，每多一种能力就要多一层子类，而两种能力的叠加顺序又各自是一个类：      classDiagram     direction TB     class FileDataSource     class BufferedFile     class ChecksumFile     class BufferedChecksumFile     class ChecksumBufferedFile     FileDataSource &lt;...</div></div></div></a><a class="pagination-related" href="/3520122771.html" title="设计模式——责任链：三种形态"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——责任链：三种形态</div></div><div class="info-2"><div class="info-item-1"> 责任链把「谁处理这个请求」从调用点挪到了运行时。调用方发出一次，节点自己决定接不接。JDK 里这条链有三种落地形态，表达「拦住了」的方式各不相同：处理链返回 boolean，过滤链返回替换对象或 null，Stream 的 stage 链用反向询问的取消标记。本文用 1 亿个元素量三种形态的每元素成本随链长的变化，用 8 节点链量命中位置的影响，再从 JDK 源码指出差别出自哪一行。  一、三种形态，三种收场一个请求要穿过若干检查点，每个检查点各自判断：这个我能处理，或者这不归我管，交给下一个。责任链（Chain of Responsibility）把这条传递路径做成对象结构，但「传递」本身在 JDK 里有三条不同的实现路线。 处理链的节点返回 boolean。命中返回 true，调用方知道事情办完了；全部返回 false 就是没人管。停下来的信号沿返回值传回调用方。 过滤链的节点不报告「办没办成」，返回一个替换对象或者 null。返回新对象表示这一层改写了请求、需要重发；返回 null 表示这一层放行，继续看下一个节点。java.net.http 用这个形状：请求过滤器正序遍...</div></div></div></a><a class="pagination-related" href="/205079771.html" title="设计模式——适配器：边界在哪"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——适配器：边界在哪</div></div><div class="info-2"><div class="info-item-1"> 适配器只做一件事：把调用方要的接口翻译成现有对象提供的接口，不改变被包装对象的行为。常见的反对意见是「多一层调用会拖慢热点路径」。JIT 打开、调用点单态时，这层开销量出来是零；调用点收到多个实现类型时，量出约三倍。两种情况本文都用 1 亿次调用测一遍，并贴出 -XX:+PrintInlining 对每一次内联决定的原文。  一、问题：那一层调用值多少钱手里有一个只能按字节取的类，调用方要的是一个按字符取的接口，中间补一个类： 1234567interface CharReader &#123; int read(); &#125;          // 调用方要求的接口final class SourceAdapter implements CharReader &#123;    private final ByteSource src;             // 已有的实现，改不了    SourceAdapter(ByteSource src) &#123; this.src = src; &#125;    @Override public int read()...</div></div></div></a><a class="pagination-related" href="/3827552635.html" title="设计模式——工厂方法：创建动作的成本"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——工厂方法：创建动作的成本</div></div><div class="info-2"><div class="info-item-1"> 工厂方法把「造哪个对象」从调用点挪进一个函数。调用点少写一个类名，多走一次转发。这次转发值多少钱，取决于 JIT 能不能看穿它：内联成功就归零，调用点变多态就留下几纳秒。量级差出在另外两处：反射入口的参数装箱、第一次创建时组装访问器的开销。本文用 100 万次创建、两个 LTS（21.0.8 与 25），把「多一跳」拆成可测量的几项。  一、抽象掉一次创建，到底抽象掉了什么把构造调用换成工厂方法的代码长这样： 12345// 直接创建：类型写在调用点，编译期就定了Order order = new Order(userId, cart);// 工厂方法：类型挪进实现里，调用点只知道接口Order order = orderFactory.create(userId, cart);  第一行是一次 invokespecial：JVM 解析常量池的时候就知道要分配哪个类、调用哪个构造函数，内联器和逃逸分析都能直接往里看。第二行是一次 invokeinterface：调用点只知道 OrderFactory 这个接口，具体分配哪个类取决于运行时拿到的实现对象。 工厂方法换到的是「造哪个...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E4%BA%AB%E5%85%83%E6%8B%86%E5%BC%80%E4%BA%86%E4%BB%80%E4%B9%88"><span class="toc-number">1.</span> <span class="toc-text">一、享元拆开了什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88-JDK-%E5%BF%85%E9%A1%BB%E5%81%9A%E8%BF%99%E4%BB%B6%E4%BA%8B"><span class="toc-number">1.1.</span> <span class="toc-text">为什么 JDK 必须做这件事</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%BC%93%E5%AD%98%E5%92%8C%E5%AF%B9%E8%B1%A1%E6%B1%A0%E4%B8%8D%E6%98%AF%E4%B8%80%E5%9B%9E%E4%BA%8B"><span class="toc-number">1.2.</span> <span class="toc-text">缓存和对象池不是一回事</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1"><span class="toc-number">2.</span> <span class="toc-text">二、实验设计</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E6%B5%8B"><span class="toc-number">3.</span> <span class="toc-text">三、实测</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%91%BD%E4%B8%AD%E4%B8%8E%E6%9C%AA%E5%91%BD%E4%B8%AD"><span class="toc-number">3.1.</span> <span class="toc-text">命中与未命中</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%89%E8%BD%AE%E5%8E%9F%E5%A7%8B%E6%95%B0%E6%8D%AE"><span class="toc-number">3.2.</span> <span class="toc-text">三轮原始数据</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%BC%95%E7%94%A8%E5%90%8C%E4%B8%80%E6%80%A7"><span class="toc-number">3.3.</span> <span class="toc-text">引用同一性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%B1%A0%E5%AD%90%E7%9A%84%E5%BD%A2%E7%8A%B6"><span class="toc-number">3.4.</span> <span class="toc-text">池子的形状</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%AF%B9%E8%B1%A1%E4%B8%8D%E9%80%83%E9%80%B8%E6%97%B6%EF%BC%8C%E7%BC%93%E5%AD%98%E5%B0%B1%E6%B2%A1%E6%9C%89%E6%84%8F%E4%B9%89%E4%BA%86"><span class="toc-number">3.5.</span> <span class="toc-text">对象不逃逸时，缓存就没有意义了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%BC%93%E5%AD%98%E7%9A%84%E5%B8%B8%E9%A9%BB%E5%8D%A0%E7%94%A8"><span class="toc-number">3.6.</span> <span class="toc-text">缓存的常驻占用</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E8%BE%B9%E7%95%8C%E5%86%99%E5%9C%A8%E6%BA%90%E7%A0%81%E9%87%8C"><span class="toc-number">4.</span> <span class="toc-text">四、边界写在源码里</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#IntegerCache"><span class="toc-number">4.1.</span> <span class="toc-text">IntegerCache</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%BC%93%E5%AD%98%E4%BB%8E%E5%BD%92%E6%A1%A3%E9%87%8C%E6%9D%A5"><span class="toc-number">4.2.</span> <span class="toc-text">缓存从归档里来</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#valueOf-%E7%9A%84%E5%88%A4%E5%AE%9A%E8%B7%AF%E5%BE%84"><span class="toc-number">4.3.</span> <span class="toc-text">valueOf 的判定路径</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#JIT-%E7%BC%96%E8%AF%91%E5%90%8E%E5%89%A9%E4%B8%8B%E4%BB%80%E4%B9%88"><span class="toc-number">4.4.</span> <span class="toc-text">JIT 编译后剩下什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%85%B6%E5%AE%83%E5%8C%85%E8%A3%85%E7%B1%BB%E5%9E%8B%E7%9A%84%E5%8C%BA%E9%97%B4"><span class="toc-number">4.5.</span> <span class="toc-text">其它包装类型的区间</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%97%97%E6%A0%87%E7%9A%84%E5%90%8D%E5%AD%97%E5%92%8C%E5%AE%83%E7%9A%84%E8%AF%AD%E4%B9%89%E4%B8%8D%E4%B8%80%E8%87%B4"><span class="toc-number">4.6.</span> <span class="toc-text">旗标的名字和它的语义不一致</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%94%A8"><span class="toc-number">5.</span> <span class="toc-text">五、什么时候用</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">5.1.</span> <span class="toc-text">判断顺序</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%80%BC%E5%BE%97%E5%85%B1%E4%BA%AB%E7%9A%84%E6%97%B6%E5%80%99"><span class="toc-number">5.2.</span> <span class="toc-text">值得共享的时候</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%8D%E5%80%BC%E5%BE%97%E5%85%B1%E4%BA%AB%E7%9A%84%E6%97%B6%E5%80%99"><span class="toc-number">5.3.</span> <span class="toc-text">不值得共享的时候</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%87%AA%E5%B7%B1%E5%86%99%E6%B1%A0%E5%AD%90%E6%97%B6%E7%9A%84%E5%BD%A2%E7%8A%B6"><span class="toc-number">5.4.</span> <span class="toc-text">自己写池子时的形状</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%B1%A0%E5%AD%90%E5%92%8C%E5%87%BD%E6%95%B0%E6%98%AF%E4%B8%A4%E7%A7%8D%E6%8A%BD%E6%B3%95"><span class="toc-number">5.5.</span> <span class="toc-text">池子和函数是两种抽法</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">6.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">7.</span> <span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  const parseViewBox = viewBox => {
+    if (!viewBox) return null
+    const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return null
+    return parts
+  }
+
+  const getSvgViewBox = svg => {
+    const attr = parseViewBox(svg.getAttribute('viewBox'))
+    if (attr) return attr
+
+    // Fallback: use bbox to build a viewBox
+    try {
+      const bbox = svg.getBBox()
+      if (bbox && bbox.width && bbox.height) return [bbox.x, bbox.y, bbox.width, bbox.height]
+    } catch (e) {
+      // getBBox may fail on some edge cases; ignore
+    }
+
+    const w = Number(svg.getAttribute('width')) || 0
+    const h = Number(svg.getAttribute('height')) || 0
+    if (w > 0 && h > 0) return [0, 0, w, h]
+    return [0, 0, 100, 100]
+  }
+
+  const setSvgViewBox = (svg, vb) => {
+    svg.setAttribute('viewBox', `${vb[0]} ${vb[1]} ${vb[2]} ${vb[3]}`)
+  }
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
+  const openSvgInNewTab = ({ source, initViewBox }) => {
+    const getClonedSvg = () => {
+      if (typeof source === 'string') {
+        const template = document.createElement('template')
+        template.innerHTML = source.trim()
+        const svg = template.content.querySelector('svg')
+        return svg ? svg.cloneNode(true) : null
+      }
+      if (source && typeof source.cloneNode === 'function') {
+        return source.cloneNode(true)
+      }
+      return null
+    }
+
+    const clone = getClonedSvg()
+    if (!clone) return
+    if (initViewBox && initViewBox.length === 4) {
+      clone.setAttribute('viewBox', initViewBox.join(' '))
+    }
+    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    if (!clone.getAttribute('xmlns:xlink') && clone.innerHTML.includes('xlink:')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    }
+    // inject background to match current theme
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const bg = getComputedStyle(document.body).backgroundColor || (isDark ? '#1e1e1e' : '#ffffff')
+    if (!clone.style.background) clone.style.background = bg
+
+    const serializer = new XMLSerializer()
+    const svgSource = serializer.serializeToString(clone)
+    const htmlSource = `<!doctype html><html><head><meta charset="utf-8" />
+      <style>
+        html, body { width: 100%; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; background: ${bg}; }
+        svg { max-width: 100%; max-height: 100%; height: auto; width: auto; }
+      </style>
+      </head><body>${svgSource}</body></html>`
+    const blob = new Blob([htmlSource], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener')
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  const attachMermaidViewerButton = wrap => {
+    let btn = wrap.querySelector('.mermaid-open-btn')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mermaid-open-btn'
+      wrap.appendChild(btn)
+    }
+
+    btn.innerHTML = '<i class="fa fa-search fa-fw" aria-hidden="true"></i>'
+
+    if (!btn.__mermaidViewerBound) {
+      btn.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        const svg = wrap.__mermaidOriginalSvg || wrap.querySelector('svg')
+        if (!svg) return
+        const initViewBox = wrap.__mermaidInitViewBox
+        openSvgInNewTab({ source: svg, initViewBox })
+      })
+      btn.__mermaidViewerBound = true
+    }
+  }
+
+  // Zoom around a point (px, py) in the SVG viewport (in viewBox coordinates)
+  const zoomAtPoint = (vb, factor, px, py) => {
+    const w = vb[2] * factor
+    const h = vb[3] * factor
+    const nx = px - (px - vb[0]) * factor
+    const ny = py - (py - vb[1]) * factor
+    return [nx, ny, w, h]
+  }
+
+  const initMermaidGestures = wrap => {
+    // Clean up previous event listeners and pending frames
+    if (wrap.__mermaidAbortController) {
+      wrap.__mermaidAbortController.abort()
+      if (wrap.__mermaidRafId) cancelAnimationFrame(wrap.__mermaidRafId)
+    }
+    const ac = new AbortController()
+    wrap.__mermaidAbortController = ac
+    const svg = wrap.querySelector('svg')
+    if (!svg) return
+
+    // Ensure viewBox exists so gestures always work
+    const initVb = getSvgViewBox(svg)
+    wrap.__mermaidInitViewBox = initVb
+    wrap.__mermaidCurViewBox = initVb.slice()
+    setSvgViewBox(svg, initVb)
+    // Disable default gestures to prevent scroll chaining and pinch-zoom penetration in Chrome
+    svg.style.touchAction = 'none'
+
+    // Cache BoundingClientRect, throttled on scroll to reduce reflow
+    let cachedRect = svg.getBoundingClientRect()
+    let rectDirty = false
+    const markRectDirty = () => { rectDirty = true }
+    window.addEventListener('resize', markRectDirty, { signal: ac.signal })
+    window.addEventListener('scroll', markRectDirty, { signal: ac.signal, capture: true })
+    const getRect = () => {
+      if (rectDirty) {
+        cachedRect = svg.getBoundingClientRect()
+        rectDirty = false
+      }
+      return cachedRect
+    }
+
+    // Precompute clamp bounds from initial viewBox
+    const minW = initVb[2] * 0.1
+    const maxW = initVb[2] * 10
+    const minH = initVb[3] * 0.1
+    const maxH = initVb[3] * 10
+    const clampVb = vb => {
+      const out = vb.slice()
+      out[2] = clamp(out[2], minW, maxW)
+      out[3] = clamp(out[3], minH, maxH)
+      return out
+    }
+
+    // Throttle DOM updates using requestAnimationFrame
+    let pendingVb = null
+    let rafId = null
+    const applyVb = () => {
+      if (pendingVb) {
+        wrap.__mermaidCurViewBox = pendingVb
+        setSvgViewBox(svg, pendingVb)
+        pendingVb = null
+      }
+      rafId = null
+      wrap.__mermaidRafId = null
+    }
+    const setCurVb = vb => {
+      pendingVb = clampVb(vb)
+      if (!rafId) {
+        rafId = requestAnimationFrame(applyVb)
+        wrap.__mermaidRafId = rafId
+      }
+    }
+
+    const state = {
+      pointers: new Map(),
+      startVb: null,
+      startDist: 0,
+      lastPointerX: 0,
+      lastPointerY: 0
+    }
+
+    const onPointerDown = e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      svg.setPointerCapture(e.pointerId)
+      const curVb = wrap.__mermaidCurViewBox
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 1) {
+        state.startVb = curVb.slice()
+        state.lastPointerX = e.clientX
+        state.lastPointerY = e.clientY
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        state.startDist = Math.hypot(dx, dy)
+        state.startVb = curVb.slice()
+      }
+    }
+
+    const onPointerMove = e => {
+      if (!state.pointers.has(e.pointerId)) return
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      if (state.pointers.size === 1 && state.startVb) {
+        const p = state.pointers.values().next().value
+        const dxClient = p.x - state.lastPointerX
+        const dyClient = p.y - state.lastPointerY
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+        const dx = dxClient * (curVb[2] / rect.width)
+        const dy = dyClient * (curVb[3] / rect.height)
+        setCurVb([curVb[0] - dx, curVb[1] - dy, curVb[2], curVb[3]])
+        return
+      }
+      if (state.pointers.size === 2 && state.startVb && state.startDist > 0) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        const dist = Math.hypot(dx, dy)
+        if (!dist) return
+        const factor = state.startDist / dist
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const px = curVb[0] + (cx - rect.left) * (curVb[2] / rect.width)
+        const py = curVb[1] + (cy - rect.top) * (curVb[3] / rect.height)
+        setCurVb(zoomAtPoint(state.startVb, factor, px, py))
+      }
+    }
+
+    const onPointerUpOrCancel = e => {
+      // Release PointerCapture to avoid event capture anomalies
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) {
+        svg.releasePointerCapture(e.pointerId)
+      }
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size === 0) {
+        state.startVb = null
+        state.startDist = 0
+      } else if (state.pointers.size === 1) {
+        const p = state.pointers.values().next().value
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+      }
+    }
+
+    const onWheel = e => {
+      // Prevent event bubbling from triggering external scroll
+      e.preventDefault()
+      e.stopPropagation()
+      // Normalize deltaY across deltaMode (Chrome uses pixels, Safari uses lines)
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= 400
+
+      // Continuous zoom factor: smoother than fixed 1.1/0.9 steps
+      const zoomFactor = Math.pow(1.001, delta)
+
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      const px = curVb[0] + (e.clientX - rect.left) * (curVb[2] / rect.width)
+      const py = curVb[1] + (e.clientY - rect.top) * (curVb[3] / rect.height)
+      setCurVb(zoomAtPoint(curVb, zoomFactor, px, py))
+    }
+
+    const onDblClick = () => {
+      const init = wrap.__mermaidInitViewBox
+      if (init) setCurVb(init)
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown, { signal: ac.signal })
+    svg.addEventListener('pointermove', onPointerMove, { signal: ac.signal })
+    svg.addEventListener('pointerup', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('pointercancel', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('wheel', onWheel, { passive: false, signal: ac.signal })
+    svg.addEventListener('dblclick', onDblClick, { signal: ac.signal })
+  }
+
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      // Clean up event listeners before removing old SVG
+      if (item.__mermaidAbortController) {
+        item.__mermaidAbortController.abort()
+      }
+      const oldSvg = item.querySelector('svg')
+      if (oldSvg) oldSvg.remove()
+      let config = {}
+      try {
+        config = mermaidSrc.dataset.config ? JSON.parse(mermaidSrc.dataset.config) : {}
+      } catch (e) {
+        console.warn('[mermaid] failed to parse dataset.config:', e)
+      }
+      if (!config.theme) {
+        config.theme = theme
+      }
+      const mermaidThemeConfig = `%%{init: ${JSON.stringify(config)}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+        if (true) initMermaidGestures(item)
+        item.__mermaidOriginalSvg = svg
+        if (true) attachMermaidViewerButton(item)
+      }
+
+      const handleError = err => {
+        console.error(`[mermaid] render failed for block #${index}:`, err)
+        const errorEl = document.createElement('div')
+        errorEl.className = 'mermaid-error'
+        errorEl.textContent = `Mermaid render error: ${err.message || err}`
+        mermaidSrc.insertAdjacentElement('afterend', errorEl)
+      }
+
+      try {
+        const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+        // mermaid v9 and v10 compatibility
+        if (typeof renderFn === 'string') {
+          renderMermaid(renderFn)
+        } else {
+          renderFn.then(({ svg }) => renderMermaid(svg)).catch(handleError)
+        }
+      } catch (err) {
+        handleError(err)
+      }
+    })
+  }
+
+  const codeToMermaid = $article => {
+    const codeMermaidEle = $article.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    const $article = document.getElementById('article-container')
+    if (!$article) return
+
+    if (false) codeToMermaid($article)
+    const $mermaid = $article.querySelectorAll('.mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

@@ -1,0 +1,1051 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式——中介者：谁负责协调 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="8 个参与者的分发实测：直连 2.13 ns&#x2F;事件，中介者按位次 1.94 ns，按名字查表 3.57 ns，广播时查表被放大 7 倍；同一个中介者在 8 线程下吞吐从 220 掉到 7.8 百万次&#x2F;秒，换成每线程独立槽回到 950。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="设计模式——中介者：谁负责协调">
+<meta property="og:url" content="https://lianglliu.github.io/2495256397.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="8 个参与者的分发实测：直连 2.13 ns&#x2F;事件，中介者按位次 1.94 ns，按名字查表 3.57 ns，广播时查表被放大 7 倍；同一个中介者在 8 线程下吞吐从 220 掉到 7.8 百万次&#x2F;秒，换成每线程独立槽回到 950。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png">
+<meta property="article:published_time" content="2026-09-17T07:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T07:00:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="并发">
+<meta property="article:tag" content="设计模式">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "设计模式——中介者：谁负责协调",
+  "url": "https://lianglliu.github.io/2495256397.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png",
+  "datePublished": "2026-09-17T07:00:00.000Z",
+  "dateModified": "2026-09-17T07:00:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/2495256397.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '设计模式——中介者：谁负责协调',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">设计模式——中介者：谁负责协调</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">设计模式——中介者：谁负责协调</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T07:00:00.000Z" title="发表于 2026-09-17 15:00:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">8.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>29分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>中介者把参与者之间的 N(N−1) 条引用换成 N 条，代价是所有人的调用都要经过它。<br>这笔代价有一半是虚构的：JIT 把只做转发的分发路径内联之后，它和直连编译成同一段代码，测不出差别。<br>另一半是真的，来自中介者自己持有的共享状态：一个轮转游标、一个全局序号、一把锁。</p>
+</blockquote>
+<h2 id="一、换掉的是引用，也是决定权"><a href="#一、换掉的是引用，也是决定权" class="headerlink" title="一、换掉的是引用，也是决定权"></a>一、换掉的是引用，也是决定权</h2><p>8 个参与者互相发事件。直连的写法是每个参与者持有其余 7 个的引用；中介者的写法是每个参与者只认识中介者。</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph TB
+    subgraph d[&quot;直连：参与者两两持有引用，8 个节点 56 条边&quot;]
+        direction LR
+        D1((A)) --- D2((B))
+        D1 --- D3((C))
+        D1 --- D4((D))
+        D2 --- D3
+        D2 --- D4
+        D3 --- D4
+    end
+    subgraph m[&quot;中介者：每个参与者一条引用，加上中介者的 8 条反向引用共 16 条&quot;]
+        direction LR
+        M((Mediator))
+        M --- E1((A))
+        M --- E2((B))
+        M --- E3((C))
+        M --- E4((D))
+    end
+  </pre></div>
+
+<p>引用数从 56 降到 16 只是算术。变化的是<strong>谁决定接收方</strong>：直连时这个决定写在发送方的代码里（<code>peers[t].onEvent(...)</code>，<code>t</code> 由发送方算出来），中介者时代码里只有一句 <code>send(msg)</code>，收件人由中介者查出来。</p>
+<p>把分散的决定集中到一处，这一处就成了所有分发都要经过的路径。</p>
+<h3 id="一次分发经过的层"><a href="#一次分发经过的层" class="headerlink" title="一次分发经过的层"></a>一次分发经过的层</h3><div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    sequenceDiagram
+    participant S as 发送方
+    participant M as 中介者
+    participant R as 接收方
+    S-&gt;&gt;M: send(&quot;peer-3&quot;, event)
+    Note over M: 查注册表：hash + equals&lt;br&#x2F;&gt;实测约 1.6 ns
+    M-&gt;&gt;R: onEvent(event)
+    Note over R: 累计状态
+    Note over S,R: 直连版本省掉的正是中间那一跳
+  </pre></div>
+
+<h2 id="二、实验设计与局限"><a href="#二、实验设计与局限" class="headerlink" title="二、实验设计与局限"></a>二、实验设计与局限</h2><p>四组实验，都在本机跑：Apple M1 Pro，10 个逻辑核（8 性能核 + 2 能效核），macOS Darwin 25.6.0，JDK 21.0.8 与 JDK 25，都是 arm64。同一台机器上同时有别的进程在编译，两次计时会话的 load average 分别在 7.1 和 10.0 之间，所以同一张表里的横向对比比绝对值可靠。</p>
+<table>
+<thead>
+<tr>
+<th>实验</th>
+<th>问题</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一</td>
+<td>多一层转发本身要多少钱</td>
+<td>单线程，8 个参与者，分发 500 万个事件，点对点与广播各测一次，9 次取中位数</td>
+</tr>
+<tr>
+<td>二</td>
+<td>中介者成为热点是什么样子</td>
+<td>1 &#x2F; 4 &#x2F; 8 个线程共用一个中介者，每个测量点固定 300 ms 时间预算，5 次取跨度最短的一次</td>
+</tr>
+<tr>
+<td>三</td>
+<td>引用换代价值不值得</td>
+<td>N 从 8 到 2048，数引用条数，用 <code>-XX:+UseSerialGC</code> 加 <code>System.gc()</code> 量堆占用</td>
+</tr>
+<tr>
+<td>四</td>
+<td>注册表变大以后查表贵不贵</td>
+<td>注册表塞 8 到 100 万条，分发 300 万次，比「目标固定」和「目标散布全表」两种访问模式</td>
+</tr>
+</tbody></table>
+<p>实验一只测分发，接收方的 <code>onEvent</code> 只做一次累加。实验二的每个线程有自己的接收方对象，接收方之间的伪共享已经用填充字段排掉，剩下的差异全部来自中介者。实验二取「最短跨度」而不是中位数，因为机器上有别的负载，最短的那次最接近没有干扰的状态。</p>
+<p>四个实验在同一个类里，每个实验一个入口，第三到第六节的数字就是这四行的输出：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">java -<span class="built_in">cp</span> out MediatorBench exp1 5000000 9        <span class="comment"># 500 万事件，9 次取中位</span></span><br><span class="line">java -<span class="built_in">cp</span> out MediatorBench exp2 300 5            <span class="comment"># 每个测量点 300 ms 预算，5 次取最快</span></span><br><span class="line">java -XX:+UseSerialGC -<span class="built_in">cp</span> out MediatorBench exp3 <span class="comment"># 引用条数与堆占用</span></span><br><span class="line">java -Xmx3g -<span class="built_in">cp</span> out MediatorBench exp4 3000000 5 <span class="comment"># 注册表规模扫描</span></span><br></pre></td></tr></table></figure>
+
+<p>计时循环全程持一把全局文件锁，同一时刻本机只有一个计时进程在跑。</p>
+<p>局限说清楚：</p>
+<ul>
+<li>这是单机微基准，不是 JMH。用它判断量级和方向，不能当硬件上限。</li>
+<li>全局锁只保证计时循环互相不重叠，拦不住机器上其他进程的编译和运行。第二组里直连与每线程独立槽在高线程数下也一起变慢，那部分是本机的负载，不属于代码的性质。</li>
+<li>第二组测的是 8 个线程在 10 个核上跑，不是 8 个线程独占 8 个核。能效核和别的进程都会拉低高线程数的数字。</li>
+</ul>
+<p>这几组实验没有覆盖的形状：接收方 <code>onEvent</code> 返回 void，所以没有返回值路径；分发是同步的，没有测「投进队列由别的线程处理」；中介者不做过滤，发送方指名道姓；也没有测中介者自身的失败路径。这些都会往上加成本，加的量级需要另外测。</p>
+<h2 id="三、实测一：一次事件从发出到送达"><a href="#三、实测一：一次事件从发出到送达" class="headerlink" title="三、实测一：一次事件从发出到送达"></a>三、实测一：一次事件从发出到送达</h2><p>三种连接方式：直连（发送方直接拿着接收方的引用）、中介者按位次分发（中介者内部是一个数组）、中介者按名字分发（中介者内部是 <code>HashMap&lt;String, Peer&gt;</code>）。三种都做了 JIT 预热，测的是 500 万个事件的总耗时除以事件数。</p>
+<table>
+<thead>
+<tr>
+<th>分发方式</th>
+<th>JDK 21 ns&#x2F;事件</th>
+<th>JDK 25 ns&#x2F;事件</th>
+<th>相对直连（JDK 25）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>点对点 直连</td>
+<td>1.92</td>
+<td>2.13</td>
+<td>—</td>
+</tr>
+<tr>
+<td>点对点 中介者按位次</td>
+<td>1.84</td>
+<td>1.94</td>
+<td>−9%</td>
+</tr>
+<tr>
+<td>点对点 中介者按名字</td>
+<td>3.44</td>
+<td>3.57</td>
+<td>+68%</td>
+</tr>
+<tr>
+<td>广播 直连</td>
+<td>3.83</td>
+<td>3.85</td>
+<td>—</td>
+</tr>
+<tr>
+<td>广播 中介者按位次</td>
+<td>3.20</td>
+<td>3.21</td>
+<td>−17%</td>
+</tr>
+<tr>
+<td>广播 中介者按名字</td>
+<td>14.61</td>
+<td>14.52</td>
+<td>+277%</td>
+</tr>
+</tbody></table>
+<p>点对点每次事件送达 1 个接收方，广播每次事件送达 7 个，所以广播那一行的绝对值本来就该高。</p>
+<p><img src="/assets/patterns/mediator-fanout-cost.png" alt="分发耗时、多线程吞吐、引用数增长、注册表规模扫描"></p>
+<h3 id="多一层转发测不出来"><a href="#多一层转发测不出来" class="headerlink" title="多一层转发测不出来"></a>多一层转发测不出来</h3><p>中介者按位次分发的两个数字都<strong>比直连低</strong>，两个 JDK 上方向一致，幅度 9% 到 17%。这个方向违反直觉，来源是内联。JDK 25 加 <code>-XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining</code> 跑同一段代码，JIT 把转发方法和接收方方法都内联进了调用者的循环：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">@ 38   MediatorBench$ArrayMediator::dispatch (14 bytes)   inline (hot)</span><br><span class="line">  @ 10   MediatorBench$Peer::onEvent (11 bytes)   inline (hot)</span><br><span class="line">@ 38   MediatorBench$NameMediator::dispatch (26 bytes)   inline (hot)</span><br><span class="line">  @ 12   java.util.HashMap::get (19 bytes)   inline (hot)</span><br><span class="line">    \-&gt; TypeProfile (129665/129665 counts) = java/util/HashMap</span><br><span class="line">  @ 22   MediatorBench$Peer::onEvent (11 bytes)   inline (hot)</span><br></pre></td></tr></table></figure>
+
+<p><code>dispatch</code> 那一次调用在机器码里不存在，按位次分发与直连编译出来是同一段代码。差别只在数组从哪个对象上取：直连经过发送方对象的字段，中介者经过中介者对象的字段。这点差别落在测量噪声里。</p>
+<p>**结论：只要中介者只做转发、不留状态，就不构成可测开销。**两个 JDK、两种分发模式都没有出现稳定的正偏差。</p>
+<h3 id="花钱的地方是按名字找目标"><a href="#花钱的地方是按名字找目标" class="headerlink" title="花钱的地方是按名字找目标"></a>花钱的地方是按名字找目标</h3><p>按名字分发比按位次多的那部分，两种算法在两个 JDK 上互相验证：</p>
+<table>
+<thead>
+<tr>
+<th>口径</th>
+<th>JDK 21</th>
+<th>JDK 25</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>点对点：名字 − 位次</td>
+<td>1.60 ns</td>
+<td>1.63 ns</td>
+</tr>
+<tr>
+<td>广播：(名字 − 位次) ÷ 7</td>
+<td>1.63 ns</td>
+<td>1.62 ns</td>
+</tr>
+</tbody></table>
+<p>一次 <code>HashMap.get</code> 配一个字符串比较值 <strong>1.6 ns</strong>。广播把这一项放大 7 倍：一个事件 14.52 ns 里有 11.3 ns 花在查表上，同样的 7 次转发走数组只要 3.21 ns。</p>
+<p>1.6 ns 是转发一次成本的 5 倍多。这个倍数可以从表里推出来。把每次事件的固定开销记作 F、投递一次记作 D，JDK 25 上直连点对点是 F + D &#x3D; 2.13 ns，直连广播是 F + 7D &#x3D; 3.85 ns，两式相减得到 D ≈ 0.29 ns，回代得到 F ≈ 1.84 ns。投递一次 0.29 ns，查一次表 1.62 ns。</p>
+<p>用名字并不算错。中介者的价值在于调用方不需要知道接收方的索引，<code>send(&quot;order-created&quot;, e)</code> 换来的可读性和可扩展性买的就是这 1.6 ns。这个决定要按事件频率算账：每秒钟 10 万次分发，1.6 ns 合计 0.16 ms，谁都不用管；每秒钟 1 亿次，它变成 160 ms 的纯开销，那时候就该把名字换成整数 id，或者把注册表做成数组。</p>
+<h3 id="广播时多出来的工作量落在谁头上"><a href="#广播时多出来的工作量落在谁头上" class="headerlink" title="广播时多出来的工作量落在谁头上"></a>广播时多出来的工作量落在谁头上</h3><p>广播那一组还有一个结构上的差别，数字里能看出来。直连广播时发送方线程自己跑完 7 次投递，一次事件 3.85 ns；中介者广播时发送方只调一次 <code>send</code>，剩下的 7 次投递在中介者的栈帧里完成，一次事件 3.21 ns。两者差不多，说明在这个规模下多一次调用和少一次调用没区别，但工作量的归属变了。</p>
+<p>这一点在真实系统里的表现是延迟归因。直连时一条事件的延迟记在发送方的调用栈上，中介者时记在中介者身上，而中介者是所有人的。后面几节的数字都在说同一件事：中介者身上的每一纳秒都要乘以分发次数，广播直接把这个倍数乘上扇出。</p>
+<h2 id="四、实测二：8-个线程共用一个中介者"><a href="#四、实测二：8-个线程共用一个中介者" class="headerlink" title="四、实测二：8 个线程共用一个中介者"></a>四、实测二：8 个线程共用一个中介者</h2><p>中介者既然要决定收件人，就难免要记住点什么：轮转游标、全局序号、当前在线人数、限流计数。这一组量它记住东西之后的代价。</p>
+<p>四个版本，接收方都是每个线程自带的对象，所以差别全部来自中介者的状态：</p>
+<ul>
+<li><strong>直连</strong>：不用中介者，线程直接调用自己的接收方。</li>
+<li><strong>中介者 + synchronized</strong>：<code>synchronized</code> 方法里推进游标、取接收方、调用。</li>
+<li><strong>中介者 + AtomicLong</strong>：<code>getAndIncrement()</code> 拿序号，接收方数组只读。</li>
+<li><strong>中介者 + 每线程独立槽</strong>：每个线程在中介者里有一个自己的槽位，互不触碰。</li>
+</ul>
+<p>表格每格是「吞吐（百万次&#x2F;秒） &#x2F; 每次分发占用的单线程时间」。</p>
+<p>四个版本的中介者长这样。共享状态是那个游标，接收方数组在三种版本里都只读：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 中介者 + synchronized：游标和分发在一个锁里</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="keyword">void</span> <span class="title function_">route</span><span class="params">(<span class="type">int</span> k, <span class="type">long</span> seq)</span> &#123;</span><br><span class="line">    <span class="type">long</span> <span class="variable">c</span> <span class="operator">=</span> ++cursor;                       <span class="comment">// 共享游标，每次分发都改</span></span><br><span class="line">    slots[k].onEvent(k, c + seq);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 中介者 + AtomicLong：游标换成 CAS</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">route</span><span class="params">(<span class="type">int</span> k, <span class="type">long</span> seq)</span> &#123;</span><br><span class="line">    <span class="type">long</span> <span class="variable">c</span> <span class="operator">=</span> cursor.getAndIncrement();</span><br><span class="line">    slots[k].onEvent(k, c + seq);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 中介者 + 每线程独立槽：每个线程改自己那一格</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">route</span><span class="params">(<span class="type">int</span> k, <span class="type">long</span> seq)</span> &#123;</span><br><span class="line">    <span class="type">long</span> <span class="variable">c</span> <span class="operator">=</span> ++cursors[k * <span class="number">16</span>];              <span class="comment">// 16 个 long 一格，8 个线程各自占一条 cache line</span></span><br><span class="line">    slots[k].onEvent(k, c + seq);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>三个版本的业务语义一样：给这次分发编号，然后交给接收方。差别只在序号由谁维护。</p>
+<table>
+<thead>
+<tr>
+<th>线程数</th>
+<th>直连</th>
+<th>中介者 synchronized</th>
+<th>中介者 AtomicLong</th>
+<th>中介者 每线程独立槽</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1（JDK 25）</td>
+<td>2,889 &#x2F; 0.35 ns</td>
+<td>220.2 &#x2F; 4.54 ns</td>
+<td>142.3 &#x2F; 7.03 ns</td>
+<td>342.7 &#x2F; 2.92 ns</td>
+</tr>
+<tr>
+<td>4（JDK 25）</td>
+<td>1,429 &#x2F; 2.80 ns</td>
+<td>9.5 &#x2F; 422.5 ns</td>
+<td>23.9 &#x2F; 167.1 ns</td>
+<td>868.0 &#x2F; 4.61 ns</td>
+</tr>
+<tr>
+<td>8（JDK 25）</td>
+<td>1,391.8 &#x2F; 5.75 ns</td>
+<td>7.8 &#x2F; 1,022.8 ns</td>
+<td>19.3 &#x2F; 413.8 ns</td>
+<td>949.7 &#x2F; 8.42 ns</td>
+</tr>
+<tr>
+<td>1（JDK 21）</td>
+<td>2,833.5 &#x2F; 0.35 ns</td>
+<td>197.1 &#x2F; 5.07 ns</td>
+<td>140.9 &#x2F; 7.10 ns</td>
+<td>413.0 &#x2F; 2.42 ns</td>
+</tr>
+<tr>
+<td>4（JDK 21）</td>
+<td>1,331.5 &#x2F; 3.00 ns</td>
+<td>20.2 &#x2F; 197.7 ns</td>
+<td>22.5 &#x2F; 177.4 ns</td>
+<td>739.6 &#x2F; 5.41 ns</td>
+</tr>
+<tr>
+<td>8（JDK 21）</td>
+<td>1,551.0 &#x2F; 5.16 ns</td>
+<td>17.0 &#x2F; 470.8 ns</td>
+<td>18.7 &#x2F; 427.3 ns</td>
+<td>1,111.0 &#x2F; 7.20 ns</td>
+</tr>
+</tbody></table>
+<h3 id="零竞争下中介者就已经不便宜"><a href="#零竞争下中介者就已经不便宜" class="headerlink" title="零竞争下中介者就已经不便宜"></a>零竞争下中介者就已经不便宜</h3><p>单线程那一行的三个中介者版本和直连差了 8 到 20 倍。这时候队列里没有第二个线程，也没有人来抢锁。</p>
+<p>代价分两块。一块是锁：一次没人竞争的 monitorenter 加 monitorexit 在 M1 上要 4.54 ns，是直连 0.35 ns 的 13 倍。另一块是 <code>AtomicLong.getAndIncrement()</code> 在无竞争时也要 7.03 ns，因为它在 ARM 上是一条独占加载加一条条件存储的循环，比一次普通读改写贵得多。</p>
+<p>**中介者的分发路径上只要出现一次同步原语，成本就从「纳秒的零头」跳到「几个纳秒」。**这个跳跃和参与者有几个、事件发到哪里都无关。</p>
+<h3 id="8-线程下差-121-倍"><a href="#8-线程下差-121-倍" class="headerlink" title="8 线程下差 121 倍"></a>8 线程下差 121 倍</h3><p>线程加到 8 个，8 个线程一起进同一个中介者。JDK 25 那一行：</p>
+<ul>
+<li>直连 1,391.8 百万次&#x2F;秒，中介者每线程独立槽 949.7 百万次&#x2F;秒。两者都是「没有共享可变状态」的形状，高线程数下的下降来自本机负载，不是代码。</li>
+<li>中介者 AtomicLong 19.3 百万次&#x2F;秒。8 个核抢同一个 <code>AtomicLong</code>，CAS 失败就要重来。</li>
+<li>中介者 synchronized 7.8 百万次&#x2F;秒，是同一行里每线程独立槽的 <strong>1&#x2F;121</strong>，也是它自己单线程吞吐的 <strong>1&#x2F;28</strong>。线程越多，吞吐越低。</li>
+</ul>
+<h3 id="锁的代价不在阻塞"><a href="#锁的代价不在阻塞" class="headerlink" title="锁的代价不在阻塞"></a>锁的代价不在阻塞</h3><p>用 JFR 数一下 <code>jdk.JavaMonitorEnter</code>（阈值设成 0 ns，记录所有走慢路径的监视器进入）。8 线程、150 ms 的窗口：</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>分发次数</th>
+<th>JavaMonitorEnter 事件</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>中介者 synchronized</td>
+<td>5,559,808</td>
+<td>7,338</td>
+</tr>
+<tr>
+<td>中介者 AtomicLong</td>
+<td>2,862,592</td>
+<td>1</td>
+</tr>
+</tbody></table>
+<p><code>7,338 ÷ 5,559,808 = 0.13%</code>。挂起的操作只有千分之一多一点，剩下的 99.87% 都走的快速路径，而同一次运行里每次分发仍然要 222 ns。锁竞争的成本主要落在监视器字所在的那条 cache line 上：它要在 8 个核之间来回搬，每次进入监视器都得从上一个核手里抢过来。AtomicLong 那一行一个 <code>JavaMonitorEnter</code> 都没有（唯一那 1 个来自 JVM 内部），它不用监视器，可同一次运行里每次分发要 419.7 ns，和锁版本是同一量级。CAS 争的是同一条缓存行，换掉锁换不掉那条线。</p>
+<p>这一条对设计有直接影响：**「我的临界区只有两行，所以加锁没关系」这个推理在竞争激烈的中介者上不成立。**临界区长度决定的是抢不到锁的线程等多久，决定不了 cache line 来回搬的次数。</p>
+<h3 id="同一段锁代码，两个-JDK-差一倍多"><a href="#同一段锁代码，两个-JDK-差一倍多" class="headerlink" title="同一段锁代码，两个 JDK 差一倍多"></a>同一段锁代码，两个 JDK 差一倍多</h3><p>把两个 JDK 的 8 线程那一行并排看：JDK 21 的 synchronized 版本 17.0 百万次&#x2F;秒，JDK 25 是 7.8。JDK 21 上 <code>AtomicLong</code>（18.7）和 synchronized（17.0）几乎打平，JDK 25 上是 19.3 对 7.8。字节码是同一份，差别在 JVM 的监视器实现，膨胀锁的排队策略和自旋策略在 JDK 22 到 25 之间改过几轮。</p>
+<p>别把这理解成 JDK 25 变慢了。它说的是：<strong>拿锁版本的吞吐做容量规划，得钉死 JDK 版本量一遍</strong>，跨版本外推不可靠。相比之下，直连和每线程独立槽那一列的跨版本差异小得多，因为它们没有走同步原语。</p>
+<h3 id="中介者的状态，哪些能拆"><a href="#中介者的状态，哪些能拆" class="headerlink" title="中介者的状态，哪些能拆"></a>中介者的状态，哪些能拆</h3><p>能不能按线程拆开，要看状态的用途：</p>
+<ul>
+<li><strong>能拆的</strong>：每次分发的序号（每个线程自己编号，全局顺序本来就没保证）、统计计数（最后求和）、按发送方分片的限流配额、每个连接的缓冲。这类状态的用途是「累加」或者「局部」，拆开之后语义不变。</li>
+<li><strong>不能拆的</strong>：轮转负载均衡的游标（拆开就退化成每个线程各转各的）、全局唯一序号（拆开就不唯一）、容量上限（拆开之后总容量会超）、「谁是当前主节点」这类需要强一致的标志。</li>
+</ul>
+<p>第四节的每线程独立槽属于第一类。第二类没法靠数据结构消掉，只能降低更新频率：批量取号（一次 CAS 拿 100 个号再在自己线程里分）、分片（把参与者按 hash 分成 8 组，每组一个游标）、或者改写协议让顺序不再需要全局保证。</p>
+<p>这一节没有测量，把第四节的结果翻译成选择。判断某个状态能不能拆，问一句：**把它复制 8 份之后，系统还对不对？**对，就拆；不对，就往下走。</p>
+<h2 id="五、实测三：引用数随参与者数量怎么长"><a href="#五、实测三：引用数随参与者数量怎么长" class="headerlink" title="五、实测三：引用数随参与者数量怎么长"></a>五、实测三：引用数随参与者数量怎么长</h2><p>中介者省掉的引用可以数出来。N 个参与者两两互持是 N(N−1) 条；中介者是 N 条登记加 N 条反向引用。下表两列引用条数是按实际建出来的结构数的，堆占用用 <code>-XX:+UseSerialGC</code> 加三次 <code>System.gc()</code> 取前后差。</p>
+<table>
+<thead>
+<tr>
+<th>参与者 N</th>
+<th>直连引用条数</th>
+<th>中介者引用条数</th>
+<th>直连堆占用</th>
+<th>中介者堆占用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>8</td>
+<td>56</td>
+<td>16</td>
+<td>4.9 KiB</td>
+<td>8.6 KiB</td>
+</tr>
+<tr>
+<td>64</td>
+<td>4,032</td>
+<td>128</td>
+<td>21.5 KiB</td>
+<td>5.3 KiB</td>
+</tr>
+<tr>
+<td>512</td>
+<td>261,632</td>
+<td>1,024</td>
+<td>1.05 MiB</td>
+<td>42 KiB</td>
+</tr>
+<tr>
+<td>2048</td>
+<td>4,192,256</td>
+<td>4,096</td>
+<td>16.2 MiB</td>
+<td>176 KiB</td>
+</tr>
+</tbody></table>
+<p>N &#x3D; 8 那一行，中介者比直连多占 3.7 KiB。一个 <code>HashMap</code> 有自己的表数组和节点对象，参与者少到个位数时，这笔固定开销比省下的 40 条引用贵。<strong>中介者省内存这件事有起算点</strong>：N &#x3D; 8 时它更占地方，到 N &#x3D; 64 已经省下 16 KiB，N &#x3D; 2048 时差 94 倍。</p>
+<p>另一处是增长方式。参与者从 512 涨到 2048（4 倍），直连的引用涨 16 倍，中介者涨 4 倍。这个斜率差决定上限在哪：直连的 N 涨到几千，光是引用表就吃掉几十兆；中介者到几万都不会成为瓶颈。比省下来的那点内存更重要的是斜率。</p>
+<h2 id="六、实测四：注册表大了以后查表贵不贵"><a href="#六、实测四：注册表大了以后查表贵不贵" class="headerlink" title="六、实测四：注册表大了以后查表贵不贵"></a>六、实测四：注册表大了以后查表贵不贵</h2><p>第三节量到查一次表 1.6 ns，那是在 8 个参与者的注册表里查。真实系统里注册表可能大得多。把注册表从 8 条塞到 100 万条，同时换两种目标访问模式：</p>
+<ul>
+<li><strong>目标固定 7 个</strong>：注册表很大，但事件只发给固定的那几个收件人。</li>
+<li><strong>目标散布全表</strong>：每次事件的收件人在整张表上跳（步长 7919 个条目），把注册表的每个角落都摸一遍。</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>注册表条数 M</th>
+<th>中介者 目标固定 7 个</th>
+<th>中介者 目标散布全表</th>
+<th>数组 目标散布全表</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>8</td>
+<td>2.31 ns</td>
+<td>2.01 ns</td>
+<td>0.74 ns</td>
+</tr>
+<tr>
+<td>1,024</td>
+<td>2.21 ns</td>
+<td>2.47 ns</td>
+<td>0.60 ns</td>
+</tr>
+<tr>
+<td>131,072</td>
+<td>2.20 ns</td>
+<td>19.87 ns</td>
+<td>2.06 ns</td>
+</tr>
+<tr>
+<td>1,048,576</td>
+<td>2.28 ns</td>
+<td>53.12 ns</td>
+<td>7.15 ns</td>
+</tr>
+</tbody></table>
+<p>（JDK 25，300 万次分发取中位数。JDK 21 的同一组数方向一致，散布访问那一列的两组数相差 3 ns 以内。）</p>
+<p>**查表成本由目标的分散程度决定。**注册表从 8 条涨到 100 万条，目标固定时查表成本纹丝不动，一直在 2.2 ns 上下，因为要查的那几个条目和它们的哈希桶一直待在缓存里。目标一旦散布到全表，成本从 2.0 ns 涨到 53 ns，26 倍，每一次查表都要把哈希桶、节点、键字符串挨个从内存里拉一遍。</p>
+<p>数组分发也一起变慢（0.74 ns 到 7.15 ns），因为它也要去摸那 100 万个目标对象。区别是数组只需要一次引用加载，中介者查表要三次（桶、节点、值）。所以散布访问下中介者比数组贵 7.4 倍，而集中访问下两者差不多。</p>
+<p>这一条修正了第三节的结论：1.6 ns 对应的是查一张热表。事件总线、插件系统、连接池这类中介者的注册表通常几十到几百条，参与者之间又总是少数几个人在通信，所以 2 ns 上下是个可靠的估计。真到了每次事件都发给不同的收件人、注册表又有几十万条的时候，按名字查表会变成整个系统最贵的一行。</p>
+<p>要不要给中介者加索引，判据在这一节里：**看收件人的分布。**目标集中就不需要索引，几百万条的注册表照样是 2.2 ns；目标分散就该换成数组或者整数 id，十几万条的表已经要 19.9 ns。索引的常见做法是让发送方在注册时拿到一个整数句柄，之后按句柄分发，一次哈希就变成一次数组下标。代价是调用方又多了个要保管的东西：路由的耦合从「知道对方是谁」变成「知道对方的编号」。</p>
+<h2 id="七、JDK-里的三个中介者怎么处理自己的热点"><a href="#七、JDK-里的三个中介者怎么处理自己的热点" class="headerlink" title="七、JDK 里的三个中介者怎么处理自己的热点"></a>七、JDK 里的三个中介者怎么处理自己的热点</h2><p>JDK 自己有三个典型的协调者，都在 java.base 和 java.sql 里。看它们怎么把读和写分开，比看模式定义有用。</p>
+<h3 id="DriverManager：注册表用写时复制"><a href="#DriverManager：注册表用写时复制" class="headerlink" title="DriverManager：注册表用写时复制"></a>DriverManager：注册表用写时复制</h3><p>JDK 25 的 <code>java.sql/java/sql/DriverManager.java:85</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> CopyOnWriteArrayList&lt;DriverInfo&gt; registeredDrivers = <span class="keyword">new</span> <span class="title class_">CopyOnWriteArrayList</span>&lt;&gt;();</span><br></pre></td></tr></table></figure>
+
+<p><code>getDriver</code> 和 <code>getConnection</code> 都直接遍历它，没有加锁：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// :246-248  getDriver 里</span></span><br><span class="line"><span class="comment">// Walk through the loaded registeredDrivers attempting to locate someone</span></span><br><span class="line"><span class="comment">// who understands the given URL.</span></span><br><span class="line"><span class="keyword">for</span> (DriverInfo aDriver : registeredDrivers) &#123;</span><br></pre></td></tr></table></figure>
+
+<p>写路径在 <code>registerDriver</code> 里，<code>:312</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">registeredDrivers.addIfAbsent(<span class="keyword">new</span> <span class="title class_">DriverInfo</span>(driver, da));</span><br></pre></td></tr></table></figure>
+
+<p>每次注册复制整个数组。注册发生在启动阶段，分发发生在每次取连接时，取舍对得上两者的频率差。</p>
+<p><code>getConnection</code> 找驱动时不建索引，挨个问每个已注册的驱动，第一个返回非空连接的胜出（<code>:607-618</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> (DriverInfo aDriver : registeredDrivers) &#123;</span><br><span class="line">    <span class="keyword">if</span> (isDriverAllowed(aDriver.driver, callerCL)) &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            println(<span class="string">&quot;    trying &quot;</span> + aDriver.driver.getClass().getName());</span><br><span class="line">            <span class="type">Connection</span> <span class="variable">con</span> <span class="operator">=</span> aDriver.driver.connect(url, info);</span><br><span class="line">            <span class="keyword">if</span> (con != <span class="literal">null</span>) &#123;</span><br><span class="line">                <span class="comment">// Success!</span></span><br><span class="line">                println(<span class="string">&quot;getConnection returning &quot;</span> + aDriver.driver.getClass().getName());</span><br><span class="line">                <span class="keyword">return</span> (con);</span><br></pre></td></tr></table></figure>
+
+<p>注册表在这里不承担路由，只承担遍历。驱动数量通常个位数，线性扫描比维护一张「URL 模式到驱动」的索引便宜，也不用处理模式冲突。这和第六节量到的是一回事：查表只有在表大到值得索引、且目标分散的时候才需要优化，JDBC 驱动这张表一直没到那个规模。</p>
+<p><code>getConnection</code> 的第二个细节是 <code>ensureDriversInitialized()</code>（<code>:601</code>）每次调用都会执行一次。它第一句读的是 <code>volatile</code> 布尔量（<code>:516-518</code>，<code>if (driversInitialized) &#123; return; &#125;</code>），热路径上没有锁，只有第一次会走到 <code>synchronized</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// :515-523</span></span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">ensureDriversInitialized</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (driversInitialized) &#123;</span><br><span class="line">        <span class="keyword">return</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">synchronized</span> (lockForInitDrivers) &#123;</span><br><span class="line">        <span class="keyword">if</span> (driversInitialized) &#123;</span><br><span class="line">            <span class="keyword">return</span>;</span><br><span class="line">        &#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>lockForInitDrivers</code> 是 <code>:92</code> 的一个普通对象。这正是中介者该有的形状：注册表在运行期几乎不变，读路径不带锁，复制的代价留给罕见的写。</p>
+<h3 id="ServiceLoader：缓存挂在实例上"><a href="#ServiceLoader：缓存挂在实例上" class="headerlink" title="ServiceLoader：缓存挂在实例上"></a>ServiceLoader：缓存挂在实例上</h3><p><code>java.base/java/util/ServiceLoader.java</code> 有两个缓存列表，都是实例字段：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// :396  iterator 走的缓存</span></span><br><span class="line"><span class="keyword">private</span> <span class="keyword">final</span> List&lt;S&gt; instantiatedProviders = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;();</span><br><span class="line"><span class="comment">// :400  stream 走的缓存</span></span><br><span class="line"><span class="keyword">private</span> <span class="keyword">final</span> List&lt;Provider&lt;S&gt;&gt; loadedProviders = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;();</span><br></pre></td></tr></table></figure>
+
+<p>迭代器的 <code>next()</code>（<code>:1250-1259</code>）第一次走查找器，之后直接从缓存下标取：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> S <span class="title function_">next</span><span class="params">()</span> &#123;</span><br><span class="line">    checkReloadCount();</span><br><span class="line">    S next;</span><br><span class="line">    <span class="keyword">if</span> (index &lt; instantiatedProviders.size()) &#123;</span><br><span class="line">        next = instantiatedProviders.get(index);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        next = lookupIterator1.next().get();</span><br><span class="line">        instantiatedProviders.add(next);</span><br><span class="line">    &#125;</span><br><span class="line">    index++;</span><br><span class="line">    <span class="keyword">return</span> next;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>缓存挂在实例上，这个中介者就没有跨实例的共享状态，两个线程各自 <code>ServiceLoader.load()</code> 拿到的两套缓存互不影响。代价是同一个服务每次加载都会把实现类重新找一遍、实例化一遍，缓存不共享。</p>
+<h3 id="ThreadPoolExecutor：只有增删-worker-才加锁"><a href="#ThreadPoolExecutor：只有增删-worker-才加锁" class="headerlink" title="ThreadPoolExecutor：只有增删 worker 才加锁"></a>ThreadPoolExecutor：只有增删 worker 才加锁</h3><p>提交路径是 <code>java.base/java/util/concurrent/ThreadPoolExecutor.java</code> 的 <code>execute</code>（<code>:1292</code>），它第一句读的是 <code>ctl</code>（<code>:382</code> 的 <code>AtomicInteger</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// :1314-1319</span></span><br><span class="line"><span class="type">int</span> <span class="variable">c</span> <span class="operator">=</span> ctl.get();</span><br><span class="line"><span class="keyword">if</span> (workerCountOf(c) &lt; corePoolSize) &#123;</span><br><span class="line">    <span class="keyword">if</span> (addWorker(command, <span class="literal">true</span>))</span><br><span class="line">        <span class="keyword">return</span>;</span><br><span class="line">    c = ctl.get();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>worker 集合的增删走一把 <code>ReentrantLock</code>，注释写明了这一点：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// :466-470</span></span><br><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Set containing all worker threads in pool. Accessed only when</span></span><br><span class="line"><span class="comment"> * holding mainLock.</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">private</span> <span class="keyword">final</span> HashSet&lt;Worker&gt; workers = <span class="keyword">new</span> <span class="title class_">HashSet</span>&lt;&gt;();</span><br></pre></td></tr></table></figure>
+
+<p><code>:464</code> 是 <code>private final ReentrantLock mainLock = new ReentrantLock();</code>。<code>mainLock</code> 只在增删 worker、统计峰值、中断空闲线程这些动作上持有。常规提交走的是 <code>ctl</code> 的 CAS 加队列的 <code>offer</code>，不碰它。</p>
+<h3 id="三个中介者的共同点"><a href="#三个中介者的共同点" class="headerlink" title="三个中介者的共同点"></a>三个中介者的共同点</h3><table>
+<thead>
+<tr>
+<th>中介者</th>
+<th>中介了什么</th>
+<th>读路径</th>
+<th>写路径</th>
+<th>共享的是</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>DriverManager</code></td>
+<td>JDBC 驱动注册表</td>
+<td>无锁遍历 <code>CopyOnWriteArrayList</code></td>
+<td>复制整个数组</td>
+<td>一个数组引用</td>
+</tr>
+<tr>
+<td><code>ServiceLoader</code></td>
+<td>服务接口与实现类</td>
+<td>读实例字段 <code>ArrayList</code></td>
+<td>追加</td>
+<td>无跨实例共享</td>
+</tr>
+<tr>
+<td><code>ThreadPoolExecutor</code></td>
+<td>任务与工作线程</td>
+<td><code>ctl</code> 的 CAS 加队列无锁 <code>offer</code></td>
+<td><code>mainLock</code> 保护 <code>workers</code></td>
+<td>一个 <code>AtomicInteger</code> 加一把只在增删时用的锁</td>
+</tr>
+</tbody></table>
+<p>三个都遵守同一条规则：**读路径不加锁，写路径才加锁或复制。**第四节里那两个掉到 7.8 百万次每秒和 19.3 百万次每秒的版本，违反的正是这一条，它们让每一次读都去改共享状态。</p>
+<p>它们还有一个共同点：注册表都不大。JDBC 驱动个位数，<code>ServiceLoader</code> 的服务实现通常几十个，线程池的 worker 最多几百个。第六节的结论在这里成立：表小、目标集中，线性扫描和 <code>HashMap</code> 都够用，谁也没有为查表做特殊处理。三个中介者的力气都花在写路径上，因为它们的注册表在启动之后就基本不变。</p>
+<h2 id="八、结论"><a href="#八、结论" class="headerlink" title="八、结论"></a>八、结论</h2><h3 id="什么时候用中介者"><a href="#什么时候用中介者" class="headerlink" title="什么时候用中介者"></a>什么时候用中介者</h3><p>两个条件同时成立：</p>
+<ol>
+<li>谁该收到消息在运行期才定得下来，或者会变。参与者数量固定、调用关系写死在代码里的，直接持有引用更省事。</li>
+<li>这个决定逻辑要是散在各处会互相矛盾。8 个参与者各自维护一份路由表，改一次规则要改 8 个地方，这是中介者的正经理由。</li>
+</ol>
+<h3 id="什么时候不用"><a href="#什么时候不用" class="headerlink" title="什么时候不用"></a>什么时候不用</h3><ul>
+<li><strong>调用关系是固定的。</strong> 依赖注入、传一个函数、直接持有引用都能解耦，而且不用给中介者一次查表。</li>
+<li><strong>中介者要在每个事件上改共享状态。</strong> 第四节里 synchronized 版本 8 线程下的吞吐是它自己单线程的 1&#x2F;28，是同一行每线程独立槽版本的 1&#x2F;121。换成 <code>AtomicLong</code> 也只是从 7.8 涨到 19.3 百万次每秒，因为 CAS 争的还是同一条 cache line。这是结构问题，调优解决不了。</li>
+<li><strong>参与者只有几个，只是想让 API 好看一点。</strong> 第三节里多一层转发测不出来，但登记表在 N 小于几十的时候比直连多占内存。事件总线、消息队列、发布订阅这些现成的东西也提供了「发送方不认识接收方」的性质。</li>
+</ul>
+<h3 id="单点意味着延迟加在所有人身上"><a href="#单点意味着延迟加在所有人身上" class="headerlink" title="单点意味着延迟加在所有人身上"></a>单点意味着延迟加在所有人身上</h3><p>中介者是所有分发的必经之路。第四节 8 线程里，每个线程调用的中介者是同一个对象：中介者 synchronized 版本每次分发 1,022.8 ns，直连 5.75 ns。差的这 178 倍摊在每个参与者身上。</p>
+<p>这是「单点」的具体含义，指延迟和吞吐上的单点，不是可用性上的单点故障（那一面没法用微基准量）：中介者的每一次加锁、每一次复制、每一次缓存未命中，都要乘以分发次数。</p>
+<h3 id="中介者还拿走了调用栈"><a href="#中介者还拿走了调用栈" class="headerlink" title="中介者还拿走了调用栈"></a>中介者还拿走了调用栈</h3><p>直连时，一个事件从 A 到 C 的路径在代码里写得出来：A 的方法里有一行 <code>peers[t].onEvent(...)</code>，断点打上去就是。中介者时代码里只看得到 <code>send(msg)</code>，收件人要等运行期查表才知道。排查「这个事件为什么没送到」的问题，从读代码变成读日志。</p>
+<p>这一条没法用微基准量。但它和第四节的数是同一件事：中介者把决定权集中到了一处，也就把「谁收到什么」这个事实从代码挪进了运行期的状态。状态可以改，代码不会。第四节里那些把状态按线程拆开的版本之所以快，正是因为它们把「谁收到」重新变成了一个不用共享的东西。</p>
+<h3 id="中介者的热点怎么消"><a href="#中介者的热点怎么消" class="headerlink" title="中介者的热点怎么消"></a>中介者的热点怎么消</h3><p>按代价从低到高：</p>
+<ol>
+<li>**不留状态。**只做转发的中介者测不出开销，第三节前两行就是这个情况。</li>
+<li>**状态能按线程拆就拆开。**第四节的每线程独立槽把共享状态换成每线程一份，8 线程吞吐 949.7 百万次每秒，和直连的 1,391.8 是一个量级。</li>
+<li>**状态只能有一份，就把更新频率降下来。**JDK 的做法是写时复制（<code>DriverManager</code>）、CAS（<code>ThreadPoolExecutor</code> 的 <code>ctl</code>）、或者把锁缩到只保护增删。</li>
+<li>**都做不到，就按事件频率算总账。**锁版本 8 线程下每次分发要等 1,022.8 ns，聚合吞吐 7.8 百万次每秒。够用就够用，不够用就得改结构。</li>
+</ol>
+<h3 id="一条判断顺序"><a href="#一条判断顺序" class="headerlink" title="一条判断顺序"></a>一条判断顺序</h3><div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph TD
+    Q0[&quot;参与者之间要不要互相认识&quot;] --&gt;|&quot;调用关系固定，只是不想互相 import&quot;| A0[&quot;不需要中介者：持有引用或传函数&quot;]
+    Q0 --&gt;|&quot;运行期才知道谁该收到&quot;| Q1[&quot;每次分发要不要改中介者的共享状态&quot;]
+    Q1 --&gt;|&quot;不用，注册后只读&quot;| A1[&quot;中介者 + 不可变快照&lt;br&#x2F;&gt;读路径无锁&quot;]
+    Q1 --&gt;|&quot;要：全局序号、轮转游标、限流计数&quot;| Q2[&quot;这个状态能不能按线程拆开&quot;]
+    Q2 --&gt;|&quot;能&quot;| A2[&quot;每线程一份&lt;br&#x2F;&gt;吞吐随核数涨&quot;]
+    Q2 --&gt;|&quot;不能，只能有一份&quot;| Q3[&quot;收件人是固定几个还是散布全表&quot;]
+    Q3 --&gt;|&quot;固定几个&quot;| A3[&quot;按名字查表可以接受&lt;br&#x2F;&gt;热条目约 2 ns&quot;]
+    Q3 --&gt;|&quot;散布全表&quot;| A4[&quot;换成数组或整数 id&lt;br&#x2F;&gt;按名字查表 53 ns&quot;]
+  </pre></div>
+
+<h3 id="走一遍判断顺序"><a href="#走一遍判断顺序" class="headerlink" title="走一遍判断顺序"></a>走一遍判断顺序</h3><p>一个聊天服务：房间里的用户互相发消息，中介者是那个房间管理器。</p>
+<p>第一个问题，用户之间要不要互相认识。不要，而且接收方在运行期才确定（谁在这个房间、谁在线、谁被拉黑），问题一过关。</p>
+<p>第二个问题，每次分发要不要改中介者的共享状态。「按房间查成员列表」是只读的，成员列表只在有人进出房间时变。用写时复制的快照，分发路径上就没有同步原语，落在第四节那张表的第一列和第四列之间。</p>
+<p>第三个问题不用问，状态不可变，没有东西要拆。需要共享的是「谁在哪个房间」这张表，它的更新频率是成员进出，不是每条消息，属于第三节里「写路径罕见」的形状。</p>
+<p>第四个问题，收件人集中还是分散。一条消息发给同一个房间的成员，收件人列表是热的，按名字查表大约 2 ns。</p>
+<p>这个中介者的分发路径可以做到 2 ns 上下，成本几乎全在扇出和实际投递上。给每条消息加一个全局序号做去重，就会掉进第四节那个洞：8 个线程抢一个计数器，每次分发 400 ns 起步。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>中介者省掉的是参与者之间的引用：N &#x3D; 2048 时从 4,192,256 条降到 4,096 条，堆占用从 16.2 MiB 降到 176 KiB。代价是集中了一个决定点。参与者不到几十个的时候，中介者反而更占内存。</li>
+<li>只做转发的中介者测不出额外开销。JDK 25 上点对点直连 2.13 ns、中介者按位次 1.94 ns；广播 3.85 ns 对 3.21 ns。<code>-XX:+PrintInlining</code> 显示 JIT 把 <code>dispatch</code> 和 <code>onEvent</code> 都内联了，两个版本编译成同一段代码。</li>
+<li>按名字查注册表每次 1.6 ns，是单次投递成本（0.29 ns）的 5 倍多。广播一个事件查 7 次表，事件耗时从 3.21 ns 涨到 14.52 ns。</li>
+<li>中介者只要在每个事件上碰一次共享状态，零竞争下就要 4.54 ns（<code>synchronized</code>）或 7.03 ns（<code>AtomicLong</code>），直连是 0.35 ns。</li>
+<li>8 线程共用一个中介者：直连 1,391.8 百万次&#x2F;秒，每线程独立槽 949.7，<code>AtomicLong</code> 19.3，<code>synchronized</code> 7.8。最后一个比自己单线程时慢 28 倍。</li>
+<li>锁的成本主要落在 cache line 上。8 线程 150 ms 窗口里，5,559,808 次分发只触发了 7,338 次监视器慢路径（0.13%），而同一次运行里每次分发要 222 ns。搬 cache line 比挂线程贵。</li>
+<li>查表的成本由目标的分散程度决定：注册表从 8 条涨到 100 万条，目标固定 7 个时一直是 2.2 ns；目标散布全表时从 2.0 ns 涨到 53 ns。</li>
+<li>JDK 的三个中介者都让读路径无锁，只在写路径加锁或复制。<code>DriverManager</code> 用 <code>CopyOnWriteArrayList</code>（JDK 25 <code>DriverManager.java:85</code>），初始化才用 <code>lockForInitDrivers</code>（<code>:92</code>、<code>:515-523</code>）；<code>ThreadPoolExecutor</code> 的 <code>mainLock</code>（<code>:464</code>）只保护 <code>workers</code>（<code>:470</code>），提交走 <code>ctl</code> 的 CAS。</li>
+<li>同一段 <code>synchronized</code> 代码，8 线程下 JDK 21 是 17.0 百万次&#x2F;秒，JDK 25 是 7.8，差一倍多。锁版本的容量规划不能跨 JDK 版本外推。</li>
+<li>判断顺序：先问调用关系固不固定，再问每次分发要不要改共享状态，再问状态能不能按线程拆，最后问收件人是固定几个还是散布全表。四问都在第三节到第六节里有对应的数字。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.sql/java/sql/DriverManager.html">DriverManager (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/21/docs/api/java.sql/java/sql/DriverManager.html">DriverManager (Java SE 21)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/ServiceLoader.html">ServiceLoader (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html">ThreadPoolExecutor (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/AbstractExecutorService.html">AbstractExecutorService (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/CopyOnWriteArrayList.html">CopyOnWriteArrayList (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://refactoring.guru/design-patterns/mediator">Mediator Pattern</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://jcip.net/">Java Concurrency in Practice</a></li>
+</ul>
+<blockquote>
+<p>系列索引：<a href="/pattern/">设计模式系列</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/2495256397.html">https://lianglliu.github.io/2495256397.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a><a class="post-meta__tags" href="/tags/%E5%B9%B6%E5%8F%91/">并发</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/4222041279.html" title="设计模式——备忘录：快照的代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-5.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">设计模式——备忘录：快照的代价</div></div><div class="info-2"><div class="info-item-1"> 备忘录把「回到过去」变成两个方法调用：save() 存下一版，restore() 回到某一版。存一版花多少时间、占多少内存，模式定义里没有答案。全量深拷贝、增量日志、写时拷贝三条路都能实现回滚，代价相差两个数量级。本文用 1 万条记录（含标签集合）的状态、1000 个事务、每事务改 10 条，量三条路的每事务耗时与分配字节，再量历史上限 10&#x2F;100&#x2F;1000 版时的保留内存和回滚耗时。  一、回滚能力买的是什么发起人（Originator）把状态装进一个备忘录对象，管理者（Caretaker）把备忘录收进版本链，需要时再把某一版交回发起人恢复。快照粒度、版本存放位置、版本何时失效，这些都不在模式定义里。 三个问题决定价格：  存的是全部状态，还是这一版改动的增量。 版本链保留多少版。 代价在存的那一刻付，还是在每次改动时付。  第一个问题把实现分成三条路，后两个问题决定账单什么时候来。 三条路全量深拷贝：save() 把当前状态整份复制一份挂到链上，回滚时把复制出来的那份换回来。 增量日志：save() 只记一个位置，每次改动之前把旧值写进日志，回滚时按逆...</div></div></div></a><a class="pagination-related" href="/712561657.html" title="设计模式——解释器：解释还是编译"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">设计模式——解释器：解释还是编译</div></div><div class="info-2"><div class="info-item-1"> 解释器模式把一门语言的求值写成对象树上的递归。同一棵树可以在构建期换成闭包树，每个节点变成一个捕获了子闭包的函数。两种形态的求值都是每个节点一次调用，差别落在调用点能不能被 JIT 静态化。用 27 节点和 7 节点两个表达式、各 100 万次求值，可以把这句话量出来。  一、两个求值器四则运算的最小文法：数字、变量、加减乘除。节点是一组 record，求值是节点自己的方法： 12345678sealed interface Node &#123; double eval(double[] v); &#125;record Num(double k) implements Node &#123; public double eval(double[] v) &#123; return k; &#125; &#125;record Var(int i) implements Node &#123; public double eval(double[] v) &#123; return v[i]; &#125; &#125;record Add(Node l, Node r) i...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——装饰器：缓冲链的代价</div></div><div class="info-2"><div class="info-item-1"> 装饰器把「给一个对象加能力」变成了廉价操作：new BufferedInputStream(new FileInputStream(f)) 只是多写一层。但每一层都会改写下层被调用的形态——调用次数、每次的块大小、flush 与 close 的语义。这些改动在源码里看不到，只能测。本文用一个 48 MiB 文件、libc 层的真实 read(2) 计数，和两个 JDK（21.0.8 与 25）回答一个问题：这条链上多包一层，到底买到了什么，代价在哪。  一、装饰器换到的东西继承式的算术给一个数据源加「缓冲」和「校验」两种能力。如果用继承，每多一种能力就要多一层子类，而两种能力的叠加顺序又各自是一个类：      classDiagram     direction TB     class FileDataSource     class BufferedFile     class ChecksumFile     class BufferedChecksumFile     class ChecksumBufferedFile     FileDataSource &lt;...</div></div></div></a><a class="pagination-related" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——被语言吃掉的那些模式</div></div><div class="info-2"><div class="info-item-1"> GoF 那本书写于 1994 年，示例语言是 C++ 与 Smalltalk。Java 要到 1995 年才发布，lambda 要等到 2014 年。23 种模式里有一部分在补语言的窟窿：用接口加实现类代替一等函数，用抽象方法代替传入函数，用两次分派代替模式匹配，用建造者代替命名参数。这篇文章把其中六组摆在一起对照，并且跑三组实验：Visitor、Strategy、Template Method，在 JDK 21.0.8 与 JDK 25 上各测一遍。数据里有个反直觉的结果——写得短的那个版本在两个 JDK 上都没有更快，Visitor 那一组甚至慢了 17.8%。测量方法与环境写在第一节末尾。  1994 年缺的那些东西GoF 的示例用 C++ 写成，Smalltalk 补充。当时的语言没有这些东西：  一等函数（Java 8，JSR 335 引入 lambda 与方法引用） 语言的 for-each（Java 5 才有，靠 Iterable 支撑） record（JEP 395，JDK 16 转正） sealed 继承层次（JEP 409，JDK 17 转正） switch...</div></div></div></a><a class="pagination-related" href="/712561657.html" title="设计模式——解释器：解释还是编译"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——解释器：解释还是编译</div></div><div class="info-2"><div class="info-item-1"> 解释器模式把一门语言的求值写成对象树上的递归。同一棵树可以在构建期换成闭包树，每个节点变成一个捕获了子闭包的函数。两种形态的求值都是每个节点一次调用，差别落在调用点能不能被 JIT 静态化。用 27 节点和 7 节点两个表达式、各 100 万次求值，可以把这句话量出来。  一、两个求值器四则运算的最小文法：数字、变量、加减乘除。节点是一组 record，求值是节点自己的方法： 12345678sealed interface Node &#123; double eval(double[] v); &#125;record Num(double k) implements Node &#123; public double eval(double[] v) &#123; return k; &#125; &#125;record Var(int i) implements Node &#123; public double eval(double[] v) &#123; return v[i]; &#125; &#125;record Add(Node l, Node r) i...</div></div></div></a><a class="pagination-related" href="/3162181737.html" title="设计模式——桥接：两个维度独立变化"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-8.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——桥接：两个维度独立变化</div></div><div class="info-2"><div class="info-item-1"> 两个维度各自独立变化时，继承把它们乘起来：4 种报表 × 4 种格式 &#x3D; 16 个叶子类，加第 5 种报表要再写 4 个。桥接把乘积拆成和：两个层次各管一个维度，运行时用一个引用把交叉点接上。代价是热路径上每次调用多一跳。JIT 内联掉这一跳，它是零成本；内联不掉，就是每次 0.6 纳秒。  一、桥接换的是算术一个报表导出模块。报表有 4 种，导出格式有 4 种，两者的交叉决定行为：销售报表按 CSV 输出，和库存报表按 CSV 输出，是两个不同的实现，共享的只有「把逗号换成竖线」这类细节。 用继承写，交叉点就是类：      classDiagram     direction TB     class Report {         &lt;&lt;abstract&gt;&gt;         +export(data)     }     class SalesCsv     class SalesJson     class SalesXml     class SalesMarkdown     class InventoryCsv     class...</div></div></div></a><a class="pagination-related" href="/2622618202.html" title="设计模式——代理：动态代理的成本与边界"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-8.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——代理：动态代理的成本与边界</div></div><div class="info-2"><div class="info-item-1"> 代理保持调用方手里的类型不变，中间多插一层。日志、鉴权、重试、延迟加载、远程调用都落在这一层上。手写静态代理的问题是类数按「接口数 × 关注点数」涨，每个类里都是逐方法转发的样板。Proxy.newProxyInstance 把这件事挪到运行时：一次调用生成一个实现全部接口的类，一个 InvocationHandler 接管所有方法。代价在生成的字节码里：每个方法开头一次 anewarray，每个基本类型参数一次装箱。下面用 1 亿次调用把这份代价量出来，再单独量类生成与缓存。  一、代理解决的问题静态代理的算术三个接口、四个关注点。日志、鉴权、重试、指标，每个都要包一层，静态写法就得写这么多个类：      classDiagram     direction LR     class OrderService     class UserService     class PayService     class LoggingOrder     class AuthOrder     class RetryOrder     class MetricsOrder     ...</div></div></div></a><a class="pagination-related" href="/205079771.html" title="设计模式——适配器：边界在哪"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——适配器：边界在哪</div></div><div class="info-2"><div class="info-item-1"> 适配器只做一件事：把调用方要的接口翻译成现有对象提供的接口，不改变被包装对象的行为。常见的反对意见是「多一层调用会拖慢热点路径」。JIT 打开、调用点单态时，这层开销量出来是零；调用点收到多个实现类型时，量出约三倍。两种情况本文都用 1 亿次调用测一遍，并贴出 -XX:+PrintInlining 对每一次内联决定的原文。  一、问题：那一层调用值多少钱手里有一个只能按字节取的类，调用方要的是一个按字符取的接口，中间补一个类： 1234567interface CharReader &#123; int read(); &#125;          // 调用方要求的接口final class SourceAdapter implements CharReader &#123;    private final ByteSource src;             // 已有的实现，改不了    SourceAdapter(ByteSource src) &#123; this.src = src; &#125;    @Override public int read()...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E6%8D%A2%E6%8E%89%E7%9A%84%E6%98%AF%E5%BC%95%E7%94%A8%EF%BC%8C%E4%B9%9F%E6%98%AF%E5%86%B3%E5%AE%9A%E6%9D%83"><span class="toc-number">1.</span> <span class="toc-text">一、换掉的是引用，也是决定权</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E6%AC%A1%E5%88%86%E5%8F%91%E7%BB%8F%E8%BF%87%E7%9A%84%E5%B1%82"><span class="toc-number">1.1.</span> <span class="toc-text">一次分发经过的层</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%B1%80%E9%99%90"><span class="toc-number">2.</span> <span class="toc-text">二、实验设计与局限</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E6%B5%8B%E4%B8%80%EF%BC%9A%E4%B8%80%E6%AC%A1%E4%BA%8B%E4%BB%B6%E4%BB%8E%E5%8F%91%E5%87%BA%E5%88%B0%E9%80%81%E8%BE%BE"><span class="toc-number">3.</span> <span class="toc-text">三、实测一：一次事件从发出到送达</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%A4%9A%E4%B8%80%E5%B1%82%E8%BD%AC%E5%8F%91%E6%B5%8B%E4%B8%8D%E5%87%BA%E6%9D%A5"><span class="toc-number">3.1.</span> <span class="toc-text">多一层转发测不出来</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%8A%B1%E9%92%B1%E7%9A%84%E5%9C%B0%E6%96%B9%E6%98%AF%E6%8C%89%E5%90%8D%E5%AD%97%E6%89%BE%E7%9B%AE%E6%A0%87"><span class="toc-number">3.2.</span> <span class="toc-text">花钱的地方是按名字找目标</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%B9%BF%E6%92%AD%E6%97%B6%E5%A4%9A%E5%87%BA%E6%9D%A5%E7%9A%84%E5%B7%A5%E4%BD%9C%E9%87%8F%E8%90%BD%E5%9C%A8%E8%B0%81%E5%A4%B4%E4%B8%8A"><span class="toc-number">3.3.</span> <span class="toc-text">广播时多出来的工作量落在谁头上</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%AE%9E%E6%B5%8B%E4%BA%8C%EF%BC%9A8-%E4%B8%AA%E7%BA%BF%E7%A8%8B%E5%85%B1%E7%94%A8%E4%B8%80%E4%B8%AA%E4%B8%AD%E4%BB%8B%E8%80%85"><span class="toc-number">4.</span> <span class="toc-text">四、实测二：8 个线程共用一个中介者</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%9B%B6%E7%AB%9E%E4%BA%89%E4%B8%8B%E4%B8%AD%E4%BB%8B%E8%80%85%E5%B0%B1%E5%B7%B2%E7%BB%8F%E4%B8%8D%E4%BE%BF%E5%AE%9C"><span class="toc-number">4.1.</span> <span class="toc-text">零竞争下中介者就已经不便宜</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-%E7%BA%BF%E7%A8%8B%E4%B8%8B%E5%B7%AE-121-%E5%80%8D"><span class="toc-number">4.2.</span> <span class="toc-text">8 线程下差 121 倍</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%94%81%E7%9A%84%E4%BB%A3%E4%BB%B7%E4%B8%8D%E5%9C%A8%E9%98%BB%E5%A1%9E"><span class="toc-number">4.3.</span> <span class="toc-text">锁的代价不在阻塞</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%90%8C%E4%B8%80%E6%AE%B5%E9%94%81%E4%BB%A3%E7%A0%81%EF%BC%8C%E4%B8%A4%E4%B8%AA-JDK-%E5%B7%AE%E4%B8%80%E5%80%8D%E5%A4%9A"><span class="toc-number">4.4.</span> <span class="toc-text">同一段锁代码，两个 JDK 差一倍多</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%AD%E4%BB%8B%E8%80%85%E7%9A%84%E7%8A%B6%E6%80%81%EF%BC%8C%E5%93%AA%E4%BA%9B%E8%83%BD%E6%8B%86"><span class="toc-number">4.5.</span> <span class="toc-text">中介者的状态，哪些能拆</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%AE%9E%E6%B5%8B%E4%B8%89%EF%BC%9A%E5%BC%95%E7%94%A8%E6%95%B0%E9%9A%8F%E5%8F%82%E4%B8%8E%E8%80%85%E6%95%B0%E9%87%8F%E6%80%8E%E4%B9%88%E9%95%BF"><span class="toc-number">5.</span> <span class="toc-text">五、实测三：引用数随参与者数量怎么长</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E5%AE%9E%E6%B5%8B%E5%9B%9B%EF%BC%9A%E6%B3%A8%E5%86%8C%E8%A1%A8%E5%A4%A7%E4%BA%86%E4%BB%A5%E5%90%8E%E6%9F%A5%E8%A1%A8%E8%B4%B5%E4%B8%8D%E8%B4%B5"><span class="toc-number">6.</span> <span class="toc-text">六、实测四：注册表大了以后查表贵不贵</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81JDK-%E9%87%8C%E7%9A%84%E4%B8%89%E4%B8%AA%E4%B8%AD%E4%BB%8B%E8%80%85%E6%80%8E%E4%B9%88%E5%A4%84%E7%90%86%E8%87%AA%E5%B7%B1%E7%9A%84%E7%83%AD%E7%82%B9"><span class="toc-number">7.</span> <span class="toc-text">七、JDK 里的三个中介者怎么处理自己的热点</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#DriverManager%EF%BC%9A%E6%B3%A8%E5%86%8C%E8%A1%A8%E7%94%A8%E5%86%99%E6%97%B6%E5%A4%8D%E5%88%B6"><span class="toc-number">7.1.</span> <span class="toc-text">DriverManager：注册表用写时复制</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ServiceLoader%EF%BC%9A%E7%BC%93%E5%AD%98%E6%8C%82%E5%9C%A8%E5%AE%9E%E4%BE%8B%E4%B8%8A"><span class="toc-number">7.2.</span> <span class="toc-text">ServiceLoader：缓存挂在实例上</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ThreadPoolExecutor%EF%BC%9A%E5%8F%AA%E6%9C%89%E5%A2%9E%E5%88%A0-worker-%E6%89%8D%E5%8A%A0%E9%94%81"><span class="toc-number">7.3.</span> <span class="toc-text">ThreadPoolExecutor：只有增删 worker 才加锁</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%89%E4%B8%AA%E4%B8%AD%E4%BB%8B%E8%80%85%E7%9A%84%E5%85%B1%E5%90%8C%E7%82%B9"><span class="toc-number">7.4.</span> <span class="toc-text">三个中介者的共同点</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E7%BB%93%E8%AE%BA"><span class="toc-number">8.</span> <span class="toc-text">八、结论</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%94%A8%E4%B8%AD%E4%BB%8B%E8%80%85"><span class="toc-number">8.1.</span> <span class="toc-text">什么时候用中介者</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%B8%8D%E7%94%A8"><span class="toc-number">8.2.</span> <span class="toc-text">什么时候不用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8D%95%E7%82%B9%E6%84%8F%E5%91%B3%E7%9D%80%E5%BB%B6%E8%BF%9F%E5%8A%A0%E5%9C%A8%E6%89%80%E6%9C%89%E4%BA%BA%E8%BA%AB%E4%B8%8A"><span class="toc-number">8.3.</span> <span class="toc-text">单点意味着延迟加在所有人身上</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%AD%E4%BB%8B%E8%80%85%E8%BF%98%E6%8B%BF%E8%B5%B0%E4%BA%86%E8%B0%83%E7%94%A8%E6%A0%88"><span class="toc-number">8.4.</span> <span class="toc-text">中介者还拿走了调用栈</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%AD%E4%BB%8B%E8%80%85%E7%9A%84%E7%83%AD%E7%82%B9%E6%80%8E%E4%B9%88%E6%B6%88"><span class="toc-number">8.5.</span> <span class="toc-text">中介者的热点怎么消</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E6%9D%A1%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">8.6.</span> <span class="toc-text">一条判断顺序</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%B5%B0%E4%B8%80%E9%81%8D%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">8.7.</span> <span class="toc-text">走一遍判断顺序</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">9.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">10.</span> <span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  const parseViewBox = viewBox => {
+    if (!viewBox) return null
+    const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return null
+    return parts
+  }
+
+  const getSvgViewBox = svg => {
+    const attr = parseViewBox(svg.getAttribute('viewBox'))
+    if (attr) return attr
+
+    // Fallback: use bbox to build a viewBox
+    try {
+      const bbox = svg.getBBox()
+      if (bbox && bbox.width && bbox.height) return [bbox.x, bbox.y, bbox.width, bbox.height]
+    } catch (e) {
+      // getBBox may fail on some edge cases; ignore
+    }
+
+    const w = Number(svg.getAttribute('width')) || 0
+    const h = Number(svg.getAttribute('height')) || 0
+    if (w > 0 && h > 0) return [0, 0, w, h]
+    return [0, 0, 100, 100]
+  }
+
+  const setSvgViewBox = (svg, vb) => {
+    svg.setAttribute('viewBox', `${vb[0]} ${vb[1]} ${vb[2]} ${vb[3]}`)
+  }
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
+  const openSvgInNewTab = ({ source, initViewBox }) => {
+    const getClonedSvg = () => {
+      if (typeof source === 'string') {
+        const template = document.createElement('template')
+        template.innerHTML = source.trim()
+        const svg = template.content.querySelector('svg')
+        return svg ? svg.cloneNode(true) : null
+      }
+      if (source && typeof source.cloneNode === 'function') {
+        return source.cloneNode(true)
+      }
+      return null
+    }
+
+    const clone = getClonedSvg()
+    if (!clone) return
+    if (initViewBox && initViewBox.length === 4) {
+      clone.setAttribute('viewBox', initViewBox.join(' '))
+    }
+    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    if (!clone.getAttribute('xmlns:xlink') && clone.innerHTML.includes('xlink:')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    }
+    // inject background to match current theme
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const bg = getComputedStyle(document.body).backgroundColor || (isDark ? '#1e1e1e' : '#ffffff')
+    if (!clone.style.background) clone.style.background = bg
+
+    const serializer = new XMLSerializer()
+    const svgSource = serializer.serializeToString(clone)
+    const htmlSource = `<!doctype html><html><head><meta charset="utf-8" />
+      <style>
+        html, body { width: 100%; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; background: ${bg}; }
+        svg { max-width: 100%; max-height: 100%; height: auto; width: auto; }
+      </style>
+      </head><body>${svgSource}</body></html>`
+    const blob = new Blob([htmlSource], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener')
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  const attachMermaidViewerButton = wrap => {
+    let btn = wrap.querySelector('.mermaid-open-btn')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mermaid-open-btn'
+      wrap.appendChild(btn)
+    }
+
+    btn.innerHTML = '<i class="fa fa-search fa-fw" aria-hidden="true"></i>'
+
+    if (!btn.__mermaidViewerBound) {
+      btn.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        const svg = wrap.__mermaidOriginalSvg || wrap.querySelector('svg')
+        if (!svg) return
+        const initViewBox = wrap.__mermaidInitViewBox
+        openSvgInNewTab({ source: svg, initViewBox })
+      })
+      btn.__mermaidViewerBound = true
+    }
+  }
+
+  // Zoom around a point (px, py) in the SVG viewport (in viewBox coordinates)
+  const zoomAtPoint = (vb, factor, px, py) => {
+    const w = vb[2] * factor
+    const h = vb[3] * factor
+    const nx = px - (px - vb[0]) * factor
+    const ny = py - (py - vb[1]) * factor
+    return [nx, ny, w, h]
+  }
+
+  const initMermaidGestures = wrap => {
+    // Clean up previous event listeners and pending frames
+    if (wrap.__mermaidAbortController) {
+      wrap.__mermaidAbortController.abort()
+      if (wrap.__mermaidRafId) cancelAnimationFrame(wrap.__mermaidRafId)
+    }
+    const ac = new AbortController()
+    wrap.__mermaidAbortController = ac
+    const svg = wrap.querySelector('svg')
+    if (!svg) return
+
+    // Ensure viewBox exists so gestures always work
+    const initVb = getSvgViewBox(svg)
+    wrap.__mermaidInitViewBox = initVb
+    wrap.__mermaidCurViewBox = initVb.slice()
+    setSvgViewBox(svg, initVb)
+    // Disable default gestures to prevent scroll chaining and pinch-zoom penetration in Chrome
+    svg.style.touchAction = 'none'
+
+    // Cache BoundingClientRect, throttled on scroll to reduce reflow
+    let cachedRect = svg.getBoundingClientRect()
+    let rectDirty = false
+    const markRectDirty = () => { rectDirty = true }
+    window.addEventListener('resize', markRectDirty, { signal: ac.signal })
+    window.addEventListener('scroll', markRectDirty, { signal: ac.signal, capture: true })
+    const getRect = () => {
+      if (rectDirty) {
+        cachedRect = svg.getBoundingClientRect()
+        rectDirty = false
+      }
+      return cachedRect
+    }
+
+    // Precompute clamp bounds from initial viewBox
+    const minW = initVb[2] * 0.1
+    const maxW = initVb[2] * 10
+    const minH = initVb[3] * 0.1
+    const maxH = initVb[3] * 10
+    const clampVb = vb => {
+      const out = vb.slice()
+      out[2] = clamp(out[2], minW, maxW)
+      out[3] = clamp(out[3], minH, maxH)
+      return out
+    }
+
+    // Throttle DOM updates using requestAnimationFrame
+    let pendingVb = null
+    let rafId = null
+    const applyVb = () => {
+      if (pendingVb) {
+        wrap.__mermaidCurViewBox = pendingVb
+        setSvgViewBox(svg, pendingVb)
+        pendingVb = null
+      }
+      rafId = null
+      wrap.__mermaidRafId = null
+    }
+    const setCurVb = vb => {
+      pendingVb = clampVb(vb)
+      if (!rafId) {
+        rafId = requestAnimationFrame(applyVb)
+        wrap.__mermaidRafId = rafId
+      }
+    }
+
+    const state = {
+      pointers: new Map(),
+      startVb: null,
+      startDist: 0,
+      lastPointerX: 0,
+      lastPointerY: 0
+    }
+
+    const onPointerDown = e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      svg.setPointerCapture(e.pointerId)
+      const curVb = wrap.__mermaidCurViewBox
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 1) {
+        state.startVb = curVb.slice()
+        state.lastPointerX = e.clientX
+        state.lastPointerY = e.clientY
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        state.startDist = Math.hypot(dx, dy)
+        state.startVb = curVb.slice()
+      }
+    }
+
+    const onPointerMove = e => {
+      if (!state.pointers.has(e.pointerId)) return
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      if (state.pointers.size === 1 && state.startVb) {
+        const p = state.pointers.values().next().value
+        const dxClient = p.x - state.lastPointerX
+        const dyClient = p.y - state.lastPointerY
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+        const dx = dxClient * (curVb[2] / rect.width)
+        const dy = dyClient * (curVb[3] / rect.height)
+        setCurVb([curVb[0] - dx, curVb[1] - dy, curVb[2], curVb[3]])
+        return
+      }
+      if (state.pointers.size === 2 && state.startVb && state.startDist > 0) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        const dist = Math.hypot(dx, dy)
+        if (!dist) return
+        const factor = state.startDist / dist
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const px = curVb[0] + (cx - rect.left) * (curVb[2] / rect.width)
+        const py = curVb[1] + (cy - rect.top) * (curVb[3] / rect.height)
+        setCurVb(zoomAtPoint(state.startVb, factor, px, py))
+      }
+    }
+
+    const onPointerUpOrCancel = e => {
+      // Release PointerCapture to avoid event capture anomalies
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) {
+        svg.releasePointerCapture(e.pointerId)
+      }
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size === 0) {
+        state.startVb = null
+        state.startDist = 0
+      } else if (state.pointers.size === 1) {
+        const p = state.pointers.values().next().value
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+      }
+    }
+
+    const onWheel = e => {
+      // Prevent event bubbling from triggering external scroll
+      e.preventDefault()
+      e.stopPropagation()
+      // Normalize deltaY across deltaMode (Chrome uses pixels, Safari uses lines)
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= 400
+
+      // Continuous zoom factor: smoother than fixed 1.1/0.9 steps
+      const zoomFactor = Math.pow(1.001, delta)
+
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      const px = curVb[0] + (e.clientX - rect.left) * (curVb[2] / rect.width)
+      const py = curVb[1] + (e.clientY - rect.top) * (curVb[3] / rect.height)
+      setCurVb(zoomAtPoint(curVb, zoomFactor, px, py))
+    }
+
+    const onDblClick = () => {
+      const init = wrap.__mermaidInitViewBox
+      if (init) setCurVb(init)
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown, { signal: ac.signal })
+    svg.addEventListener('pointermove', onPointerMove, { signal: ac.signal })
+    svg.addEventListener('pointerup', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('pointercancel', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('wheel', onWheel, { passive: false, signal: ac.signal })
+    svg.addEventListener('dblclick', onDblClick, { signal: ac.signal })
+  }
+
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      // Clean up event listeners before removing old SVG
+      if (item.__mermaidAbortController) {
+        item.__mermaidAbortController.abort()
+      }
+      const oldSvg = item.querySelector('svg')
+      if (oldSvg) oldSvg.remove()
+      let config = {}
+      try {
+        config = mermaidSrc.dataset.config ? JSON.parse(mermaidSrc.dataset.config) : {}
+      } catch (e) {
+        console.warn('[mermaid] failed to parse dataset.config:', e)
+      }
+      if (!config.theme) {
+        config.theme = theme
+      }
+      const mermaidThemeConfig = `%%{init: ${JSON.stringify(config)}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+        if (true) initMermaidGestures(item)
+        item.__mermaidOriginalSvg = svg
+        if (true) attachMermaidViewerButton(item)
+      }
+
+      const handleError = err => {
+        console.error(`[mermaid] render failed for block #${index}:`, err)
+        const errorEl = document.createElement('div')
+        errorEl.className = 'mermaid-error'
+        errorEl.textContent = `Mermaid render error: ${err.message || err}`
+        mermaidSrc.insertAdjacentElement('afterend', errorEl)
+      }
+
+      try {
+        const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+        // mermaid v9 and v10 compatibility
+        if (typeof renderFn === 'string') {
+          renderMermaid(renderFn)
+        } else {
+          renderFn.then(({ svg }) => renderMermaid(svg)).catch(handleError)
+        }
+      } catch (err) {
+        handleError(err)
+      }
+    })
+  }
+
+  const codeToMermaid = $article => {
+    const codeMermaidEle = $article.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    const $article = document.getElementById('article-container')
+    if (!$article) return
+
+    if (false) codeToMermaid($article)
+    const $mermaid = $article.querySelectorAll('.mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

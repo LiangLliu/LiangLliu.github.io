@@ -1,0 +1,1035 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式——责任链：三种形态 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="用 1 亿个元素量三种责任链形态的每元素成本随链长的变化，对照 JDK 21 与 25：处理链每个节点约 0.72 ns，logging 的 Handler 链每次调用重建一个数组，Stream 的 stage 链每元素要把链走两遍，8 个 stage 比单方法内联慢 33 倍。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="设计模式——责任链：三种形态">
+<meta property="og:url" content="https://lianglliu.github.io/3520122771.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="用 1 亿个元素量三种责任链形态的每元素成本随链长的变化，对照 JDK 21 与 25：处理链每个节点约 0.72 ns，logging 的 Handler 链每次调用重建一个数组，Stream 的 stage 链每元素要把链走两遍，8 个 stage 比单方法内联慢 33 倍。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png">
+<meta property="article:published_time" content="2026-09-17T06:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T06:00:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="设计模式">
+<meta property="article:tag" content="责任链">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "设计模式——责任链：三种形态",
+  "url": "https://lianglliu.github.io/3520122771.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png",
+  "datePublished": "2026-09-17T06:00:00.000Z",
+  "dateModified": "2026-09-17T06:00:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/3520122771.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '设计模式——责任链：三种形态',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">设计模式——责任链：三种形态</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">设计模式——责任链：三种形态</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T06:00:00.000Z" title="发表于 2026-09-17 14:00:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">7.1k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>27分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>责任链把「谁处理这个请求」从调用点挪到了运行时。调用方发出一次，节点自己决定接不接。<br>JDK 里这条链有三种落地形态，表达「拦住了」的方式各不相同：处理链返回 <code>boolean</code>，过滤链返回替换对象或 <code>null</code>，Stream 的 stage 链用反向询问的取消标记。<br>本文用 1 亿个元素量三种形态的每元素成本随链长的变化，用 8 节点链量命中位置的影响，再从 JDK 源码指出差别出自哪一行。</p>
+</blockquote>
+<h2 id="一、三种形态，三种收场"><a href="#一、三种形态，三种收场" class="headerlink" title="一、三种形态，三种收场"></a>一、三种形态，三种收场</h2><p>一个请求要穿过若干检查点，每个检查点各自判断：这个我能处理，或者这不归我管，交给下一个。责任链（Chain of Responsibility）把这条传递路径做成对象结构，但「传递」本身在 JDK 里有三条不同的实现路线。</p>
+<p><strong>处理链</strong>的节点返回 <code>boolean</code>。命中返回 <code>true</code>，调用方知道事情办完了；全部返回 <code>false</code> 就是没人管。停下来的信号沿返回值传回调用方。</p>
+<p><strong>过滤链</strong>的节点不报告「办没办成」，返回一个替换对象或者 <code>null</code>。返回新对象表示这一层改写了请求、需要重发；返回 <code>null</code> 表示这一层放行，继续看下一个节点。<code>java.net.http</code> 用这个形状：请求过滤器正序遍历，响应过滤器倒序遍历，任何一层想重发就中断整个遍历。</p>
+<p><strong>stage 链</strong>的方向是反的。数据往前推（<code>accept</code> 递给下游），停止的信号往回问。每个 stage 的 sink 不保存「还要不要」的状态，末端 sink 返回取消时，上游逐层转发这个回答。Stream 的 <code>findFirst</code>、<code>anyMatch</code> 走这条路。</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph TD
+    subgraph H[&quot;形态一 处理链：return boolean&quot;]
+        H1[&quot;handler1.handle&quot;] --&gt;|&quot;false，交棒&quot;| H2[&quot;handler2.handle&quot;]
+        H2 --&gt;|&quot;false&quot;| H3[&quot;handler3.handle&quot;]
+        H3 --&gt;|&quot;true&quot;| HR[&quot;调用方收到 true，链停在这里&quot;]
+    end
+    subgraph F[&quot;形态二 过滤链：return 对象或 null&quot;]
+        F1[&quot;filter1.request&quot;] --&gt;|&quot;同一对象，放行&quot;| F2[&quot;filter2.request&quot;]
+        F2 --&gt;|&quot;新对象&quot;| FR[&quot;中断遍历，调用方重发&quot;]
+        F2 --&gt;|&quot;null&quot;| F3[&quot;filter3.request&quot;]
+    end
+    subgraph S[&quot;形态三 stage 链：accept 向下，取消标记向上&quot;]
+        S1[&quot;stage1.accept&quot;] --&gt;|&quot;元素&quot;| S2[&quot;stage2.accept&quot;]
+        S2 --&gt;|&quot;元素&quot;| S3[&quot;末端 sink&quot;]
+        S3 -.-&gt;|&quot;cancellationRequested&quot;| S2
+        S2 -.-&gt; S1
+    end
+    HR ~~~ F1
+    F3 ~~~ S1
+  </pre></div>
+
+<p>三条路线的表达能力不一样：形态一把停止点放在「哪个节点接下了」，形态二放在「哪个节点要重发」，形态三只有末端能终止，中间节点想让整条链提前结束，得靠 <code>takeWhile</code> 这种带状态的操作。</p>
+<h2 id="二、实验设计"><a href="#二、实验设计" class="headerlink" title="二、实验设计"></a>二、实验设计</h2><p>机器与本机 JDK：</p>
+<ul>
+<li>Apple M1 Pro，macOS Darwin 25.6.0，arm64</li>
+<li>JDK 21.0.8+12-LTS-250 与 JDK 25+37-LTS-3491，各跑一遍</li>
+<li>每轮新起一个 JVM，先预热再计时，取 5 轮的中位数</li>
+<li>本机没有 JMH。这是单机微基准，用来判断量级和形状，不能当成硬件上限</li>
+<li>计时循环在全局锁内串行执行。锁能排除同机其它进程抢 CPU，排不掉频率调节与热噪声</li>
+</ul>
+<p>三组实验：</p>
+<ol>
+<li><strong>链长</strong>：链长 1&#x2F;2&#x2F;4&#x2F;8，每个元素走完整条链，共 1 亿个元素。同时用一份带计数器的链数出每元素实际调用了几个节点。这个计数是精确的，不受计时误差影响，用来确认「走满整条链」这一前提成立。</li>
+<li><strong>短路位置</strong>：固定 8 节点链，让元素分别在第 1、第 4、第 8 个节点被拦下，外加「没有一个节点拦得住」的穿透情况和「最后一个节点兜底」的对照。</li>
+<li><strong>Stream 对照</strong>：<code>LongStream.range(0, 1e8)</code> 上叠 1&#x2F;2&#x2F;4&#x2F;8 个 <code>map</code> stage，再 <code>filter</code> 加 <code>sum()</code>。对照组是把同样的运算写在一个方法里、由 JIT 内联的循环。另外测 <code>findFirst</code> 的短路：命中位置从数组第 1 个元素挪到第 2000 万个，以及完全不命中。</li>
+</ol>
+<p>三种形态的节点语义不同，绝对数字不能横向比。能横向比的是各自随链长的增长斜率，那才是「链有多长要付多少钱」。</p>
+<h3 id="测量怎么自检"><a href="#测量怎么自检" class="headerlink" title="测量怎么自检"></a>测量怎么自检</h3><p>每组实验都带断言，跑错会直接抛异常终止 JVM：</p>
+<ul>
+<li>Stream 每一组 stage 数下的求和结果，必须等于单方法内联的求和结果。8 个 stage 时这个数是 1,350,076,499,944。</li>
+<li>处理链的命中数必须等于元素数；短路实验里「命中第 k 个节点」的命中数必须是 1 亿。</li>
+<li><code>findFirst</code> 的 Stream 版和单方法版必须返回同一个值，不命中时都返回 -1。</li>
+</ul>
+<p>这些断言拦住的是「写错了但跑得挺快」这类结果。基线跑对了，比较才有意义。所有数字和断言输出都在 <code>/tmp/pattern-runs/ChainOfResp.log</code> 里。</p>
+<h2 id="三、实测一：链长决定每元素成本"><a href="#三、实测一：链长决定每元素成本" class="headerlink" title="三、实测一：链长决定每元素成本"></a>三、实测一：链长决定每元素成本</h2><h3 id="处理链"><a href="#处理链" class="headerlink" title="处理链"></a>处理链</h3><p>链上的节点是同一种类，每个持一个 <code>(mask, tag)</code>，判断 <code>(x &amp; mask) == tag</code>：命中返回 <code>true</code>，否则转给下一个；走完全部节点还没命中就返回 <code>false</code>。构造数据时只让最后一个节点命中，这样「走满整条链」是确定的，没有概率平均。1 亿个元素：</p>
+<table>
+<thead>
+<tr>
+<th>链长（节点数）</th>
+<th>JDK 21</th>
+<th>JDK 25</th>
+<th>JDK 21 每元素</th>
+<th>JDK 25 每元素</th>
+<th>节点调用&#x2F;元素</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>318 ms</td>
+<td>317 ms</td>
+<td>3.18 ns</td>
+<td>3.18 ns</td>
+<td>1</td>
+</tr>
+<tr>
+<td>2</td>
+<td>412 ms</td>
+<td>352 ms</td>
+<td>4.12 ns</td>
+<td>3.52 ns</td>
+<td>2</td>
+</tr>
+<tr>
+<td>4</td>
+<td>666 ms</td>
+<td>493 ms</td>
+<td>6.67 ns</td>
+<td>4.94 ns</td>
+<td>4</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1212 ms</td>
+<td>821 ms</td>
+<td>12.12 ns</td>
+<td>8.22 ns</td>
+<td>8</td>
+</tr>
+</tbody></table>
+<p>最后一列是带计数器的同一份链数出来的节点调用数，它精确等于链长，说明每个元素都走满了整条链。</p>
+<p>这两个数不是估算。计数器在节点的 <code>handle</code> 方法第一行自增，链跑完后把所有节点的计数加起来。1 亿个元素、链长 8 得到 8 亿，链长 1 得到 1 亿，都是整数。计时会受调度和频率影响，计数不会，所以「走满整条链」这个前提不依赖计时。</p>
+<p>从 1 个节点到 8 个节点，JDK 25 上每元素从 3.18 ns 涨到 8.22 ns，2.6 倍；JDK 21 上 3.8 倍。节点数只涨了 8 倍，耗时没跟上，前两个节点几乎是免费的。</p>
+<p>原因是这条链的每一层只做一次位与、一次比较、一次方法调用，而 1 亿次迭代之间互相独立。M1 Pro 是乱序执行，前一个元素还没走完，后一个元素的链已经进入流水线，链的深度被盖住了一部分。斜率在 4 节点之后才显出来：每多一个节点，每元素多花约 0.72 ns。JDK 21 的斜率更陡，8 节点时 JDK 21 是 12.12 ns、JDK 25 是 8.22 ns。两个版本这条链的源码一致，差的是编译器版本。</p>
+<p>每节点 0.72 ns 换算到 1 亿个元素上：链长 8 的处理链比链长 1 多花 0.5 秒。<strong>在这条形态上，链长不是主要成本。</strong></p>
+<h3 id="JDK-自己的处理链：java-util-logging"><a href="#JDK-自己的处理链：java-util-logging" class="headerlink" title="JDK 自己的处理链：java.util.logging"></a>JDK 自己的处理链：java.util.logging</h3><p><code>java.util.logging</code> 的 Handler 链是形态一的现成实现。给一个关闭了父传播的 Logger 挂 1&#x2F;2&#x2F;4&#x2F;8 个空 Handler，预建一个 <code>LogRecord</code>，调 2000 万次 <code>logger.log(record)</code>：</p>
+<table>
+<thead>
+<tr>
+<th>Handler 数</th>
+<th>JDK 21 <code>logger.log</code></th>
+<th>JDK 25 <code>logger.log</code></th>
+<th>JDK 21 手写 for 循环</th>
+<th>JDK 25 手写 for 循环</th>
+<th>每次调用分配字节</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>15.92 ns</td>
+<td>19.26 ns</td>
+<td>2.24 ns</td>
+<td>2.52 ns</td>
+<td>24</td>
+</tr>
+<tr>
+<td>2</td>
+<td>15.62 ns</td>
+<td>16.97 ns</td>
+<td>4.18 ns</td>
+<td>4.17 ns</td>
+<td>24</td>
+</tr>
+<tr>
+<td>4</td>
+<td>25.84 ns</td>
+<td>21.28 ns</td>
+<td>8.37 ns</td>
+<td>8.33 ns</td>
+<td>32</td>
+</tr>
+<tr>
+<td>8</td>
+<td>30.96 ns</td>
+<td>30.27 ns</td>
+<td>16.70 ns</td>
+<td>16.69 ns</td>
+<td>48</td>
+</tr>
+</tbody></table>
+<p>两列「手写 for 循环」是同样的 Handler 数组上直接循环 <code>publish</code>，用来看 JDK 那层包装值多少钱。</p>
+<p>1 个 Handler 时 <code>logger.log</code> 是 19.26 ns，手写循环是 2.52 ns。8 个 Handler 时是 30.27 ns 对 16.69 ns，差距从 16.74 ns 缩到 13.58 ns。那笔固定开销来自等级判断、过滤器检查和一次数组分配，三样都在每次调用的路径上，没有缓存；Handler 越多，这笔开销摊得越薄。</p>
+<p>1 个 Handler 反而比 2 个 Handler 慢，两个 JDK 上都是这个方向（JDK 25 是 19.26 对 16.97 ns，JDK 21 是 15.92 对 15.62 ns），原因没有继续追。</p>
+<p>分配那一列是干净的证据。每次调用分配 24 字节（1 个和 2 个 Handler）、32 字节（4 个）、48 字节（8 个），手写循环始终是 0。</p>
+<h3 id="Stream-的-stage-链"><a href="#Stream-的-stage-链" class="headerlink" title="Stream 的 stage 链"></a>Stream 的 stage 链</h3><p><code>LongStream.range(0, 1e8)</code> 上叠 stage 再终结。1 亿个元素：</p>
+<table>
+<thead>
+<tr>
+<th>stage 数</th>
+<th>JDK 21 流水线</th>
+<th>JDK 25 流水线</th>
+<th>JDK 21 单方法</th>
+<th>JDK 25 单方法</th>
+<th>倍数（JDK 25）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>0.50 ns</td>
+<td>0.50 ns</td>
+<td>0.34 ns</td>
+<td>0.34 ns</td>
+<td>1×</td>
+</tr>
+<tr>
+<td>2</td>
+<td>3.65 ns</td>
+<td>3.50 ns</td>
+<td>0.34 ns</td>
+<td>0.35 ns</td>
+<td>10×</td>
+</tr>
+<tr>
+<td>4</td>
+<td>7.84 ns</td>
+<td>7.59 ns</td>
+<td>0.65 ns</td>
+<td>0.65 ns</td>
+<td>12×</td>
+</tr>
+<tr>
+<td>8</td>
+<td>28.09 ns</td>
+<td>24.35 ns</td>
+<td>0.71 ns</td>
+<td>0.73 ns</td>
+<td>33×</td>
+</tr>
+</tbody></table>
+<p>1 个 stage 时流水线只比单方法慢一点：JDK 25 是 0.50 ns 对 0.34 ns。到 8 个 stage 就是 24.35 ns 对 0.73 ns，33 倍。单方法那一列从 1 个 stage 到 8 个 stage 只从 0.34 ns 涨到 0.73 ns，两头都没有量级上的变化。</p>
+<p>曲线形状不同：手写循环的斜率接近零，流水线的斜率是每 stage 约 3.41 ns 并且随 stage 数变大。JDK 21 与 25 在这个形状上一致。</p>
+<p><img src="/assets/patterns/chain-length-cost.png" alt="三种责任链形态的每元素成本随链长变化，以及 8 节点链的命中位置对比"></p>
+<h3 id="JIT-把这几纳秒花在哪了"><a href="#JIT-把这几纳秒花在哪了" class="headerlink" title="JIT 把这几纳秒花在哪了"></a>JIT 把这几纳秒花在哪了</h3><p>用 <code>-XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining</code> 跑同一段代码。1 个 stage 时内联是成功的，<code>RangeLongSpliterator.forEachRemaining</code> 里能看到整条 sink 链被展开：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">@ 48   java.util.stream.LongPipeline$3$1::accept (20 bytes)   inline (hot)</span><br><span class="line">  @ 9    ChainBench$$Lambda::applyAsLong (5 bytes)   inline (hot)</span><br><span class="line">    @ 1    ChainBench::f0 (4 bytes)   inline (hot)</span><br><span class="line">  @ 14   java.util.stream.LongPipeline$9$1::accept (24 bytes)   inline (hot)</span><br><span class="line">    @ 5    ChainBench$$Lambda::test (5 bytes)   inline (hot)</span><br><span class="line">    @ 18   java.util.stream.ReduceOps$8ReducingSink::accept (19 bytes)   inline (hot)</span><br><span class="line">      @ 10   LongPipeline$$Lambda::applyAsLong (6 bytes)   inline (hot)</span><br></pre></td></tr></table></figure>
+
+<p>stage 多了以后，同一个位置变成：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">@ 14   java.util.stream.LongPipeline$9$1::accept (24 bytes)   inline (hot)</span><br><span class="line">       callee changed to  java.util.stream.LongPipeline$3$1::accept (20 bytes)</span><br><span class="line">       failed to inline: recursive inlining is too deep</span><br></pre></td></tr></table></figure>
+
+<p><code>LongPipeline$3$1</code> 是 <code>map</code> 生成的 sink，<code>LongPipeline$9$1</code> 是 <code>filter</code> 生成的 sink，每个 stage 的 <code>accept</code> 都在方法体里调 <code>downstream.accept</code>。HotSpot 按类型画像切开这个调用点之后，认为它在做递归内联，于是撞上了深度上限。两个 JDK 的默认值都是 <code>MaxRecursiveInlineLevel = 1</code>、<code>MaxInlineLevel = 15</code>：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ java -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E &quot;MaxInlineLevel|MaxRecursiveInlineLevel&quot;</span><br><span class="line">     intx MaxInlineLevel                           = 15                                     &#123;C2 product&#125; &#123;default&#125;</span><br><span class="line">     intx MaxRecursiveInlineLevel                  = 1                                      &#123;C2 product&#125; &#123;default&#125;</span><br></pre></td></tr></table></figure>
+
+<p>depth 环里每次 <code>p.depth &gt; 0</code> 就包一层 sink，包到第 N 层时第 N 层的 <code>accept</code> 想内联下一层，而编译器认为这是同一个方法在调自己。结果是链上每层都留下一个真实的调用，每 stage 那几纳秒就是这么来的。</p>
+<p><code>-XX:+PrintInlining</code> 是诊断工具，它的输出依赖编译时机和类型画像，不是稳定契约。上面两段摘录来自同一份代码的两次运行，能说明机制，不能当成逐字节复现的产物。</p>
+<h3 id="换算成时间才知道值不值"><a href="#换算成时间才知道值不值" class="headerlink" title="换算成时间才知道值不值"></a>换算成时间才知道值不值</h3><p>斜率乘上元素数就是实际开销。JDK 25 上处理链每节点约 0.72 ns，stage 链每 stage 约 3.41 ns：</p>
+<table>
+<thead>
+<tr>
+<th>元素数</th>
+<th>处理链每多 1 个节点</th>
+<th>stage 链每多 1 个 stage</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1 万</td>
+<td>0.007 ms</td>
+<td>0.03 ms</td>
+</tr>
+<tr>
+<td>100 万</td>
+<td>0.72 ms</td>
+<td>3.4 ms</td>
+</tr>
+<tr>
+<td>1 亿</td>
+<td>72 ms</td>
+<td>341 ms</td>
+</tr>
+</tbody></table>
+<p>这张表是从实测斜率推出来的，不是单独测的。第一列末尾那个 72 ms 可以和实测量对照：8 节点链比 1 节点链多花 821 ms 减 317 ms，除以 7 个节点，每节点每亿元素约 72 ms。</p>
+<p>每秒 1000 个请求的服务，链长 8 和链长 1 的差别是每个请求 5.04 ns，一秒累计 5 微秒。这个量级不需要优化。要付钱的是 stage 链：同样是 1 亿个元素，每多一个 stage 就是 341 ms，8 个 stage 和写成一个方法差 33 倍。</p>
+<h2 id="四、JDK-源码里的三处收场"><a href="#四、JDK-源码里的三处收场" class="headerlink" title="四、JDK 源码里的三处收场"></a>四、JDK 源码里的三处收场</h2><h3 id="处理链：Logger-log-每次调用重建一次-Handler-数组"><a href="#处理链：Logger-log-每次调用重建一次-Handler-数组" class="headerlink" title="处理链：Logger.log 每次调用重建一次 Handler 数组"></a>处理链：<code>Logger.log</code> 每次调用重建一次 Handler 数组</h3><p><code>java.util.logging</code> 的 Handler 链是形态一。<code>Logger.log(LogRecord)</code> 的循环在 JDK 25 的 <code>java.logging/java/util/logging/Logger.java</code> 第 955 到 974 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Logger</span> <span class="variable">logger</span> <span class="operator">=</span> <span class="built_in">this</span>;</span><br><span class="line"><span class="keyword">while</span> (logger != <span class="literal">null</span>) &#123;</span><br><span class="line">    <span class="keyword">final</span> Handler[] loggerHandlers = isSystemLogger</span><br><span class="line">        ? logger.accessCheckedHandlers()</span><br><span class="line">        : logger.getHandlers();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (Handler handler : loggerHandlers) &#123;</span><br><span class="line">        handler.publish(record);</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>loggerHandlers</code> 取自 <code>while</code> 循环内部。<code>accessCheckedHandlers()</code> 在同一个文件第 2068 到 2070 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Handler[] accessCheckedHandlers() &#123;</span><br><span class="line">    <span class="keyword">return</span> config.handlers.toArray(emptyHandlers);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>JDK 21 是同一个实现，<code>Logger.java</code> 第 2098 到 2100 行。<code>config.handlers</code> 是一个 <code>CopyOnWriteArrayList</code>，<code>toArray(T[])</code> 只在传入数组的长度恰好等于列表长度时才复用它，否则新建一个。长度是 0 时传的是静态的 <code>emptyHandlers</code>（JDK 25 第 222 行），有元素时就是一次新分配。上一节量到的 24、32、48 字节就是它。</p>
+<p>这条链没有短路的位置。<code>Handler.publish</code> 在 <code>java.logging/java/util/logging/Handler.java</code> 第 149 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">abstract</span> <span class="keyword">void</span> <span class="title function_">publish</span><span class="params">(LogRecord record)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>没有返回值。一个 Handler 处理完，下一个照样收到同一条记录，没有任何一个位置能表达「已经有人处理过了，后面不用看」。</p>
+<h3 id="过滤链：一张-List，两个方向，null-表示放行"><a href="#过滤链：一张-List，两个方向，null-表示放行" class="headerlink" title="过滤链：一张 List，两个方向，null 表示放行"></a>过滤链：一张 List，两个方向，<code>null</code> 表示放行</h3><p><code>java.net.http</code> 的 <code>HeaderFilter</code> 是形态二。接口在 <code>java.net.http/jdk/internal/net/http/HeaderFilter.java</code> 第 35 到 45 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">interface</span> <span class="title class_">HeaderFilter</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">void</span> <span class="title function_">request</span><span class="params">(HttpRequestImpl r, MultiExchange&lt;?&gt; e)</span> <span class="keyword">throws</span> IOException;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/**</span></span><br><span class="line"><span class="comment">     * Returns null if response ok to be given to user.  Non null is a request</span></span><br><span class="line"><span class="comment">     * that must be resent and its response given to user. If impl throws an</span></span><br><span class="line"><span class="comment">     * exception that is returned to user instead.</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    HttpRequestImpl <span class="title function_">response</span><span class="params">(Response r)</span> <span class="keyword">throws</span> IOException;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>请求方向不返回任何东西，这一层只加头、记状态，没有地方表达拦截。响应方向返回 <code>HttpRequestImpl</code>，<code>null</code> 表示放行。遍历在 <code>MultiExchange.java</code> 第 231 到 255 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">requestFilters</span><span class="params">(HttpRequestImpl r)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">    Log.logTrace(<span class="string">&quot;Applying request filters&quot;</span>);</span><br><span class="line">    <span class="keyword">for</span> (HeaderFilter filter : filters) &#123;</span><br><span class="line">        Log.logTrace(<span class="string">&quot;Applying &#123;0&#125;&quot;</span>, filter);</span><br><span class="line">        filter.request(r, <span class="built_in">this</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    Log.logTrace(<span class="string">&quot;All filters applied&quot;</span>);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span> HttpRequestImpl <span class="title function_">responseFilters</span><span class="params">(Response response)</span> <span class="keyword">throws</span> IOException</span><br><span class="line">&#123;</span><br><span class="line">    Log.logTrace(<span class="string">&quot;Applying response filters&quot;</span>);</span><br><span class="line">    ListIterator&lt;HeaderFilter&gt; reverseItr = filters.listIterator(filters.size());</span><br><span class="line">    <span class="keyword">while</span> (reverseItr.hasPrevious()) &#123;</span><br><span class="line">        <span class="type">HeaderFilter</span> <span class="variable">filter</span> <span class="operator">=</span> reverseItr.previous();</span><br><span class="line">        Log.logTrace(<span class="string">&quot;Applying &#123;0&#125;&quot;</span>, filter);</span><br><span class="line">        <span class="type">HttpRequestImpl</span> <span class="variable">newreq</span> <span class="operator">=</span> filter.response(response);</span><br><span class="line">        <span class="keyword">if</span> (newreq != <span class="literal">null</span>) &#123;</span><br><span class="line">            Log.logTrace(<span class="string">&quot;New request: stopping filters&quot;</span>);</span><br><span class="line">            <span class="keyword">return</span> newreq;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    Log.logTrace(<span class="string">&quot;All filters applied&quot;</span>);</span><br><span class="line">    <span class="keyword">return</span> <span class="literal">null</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>请求正序、响应倒序，同一个 <code>ListIterator</code>，只是初始位置在末尾。第 248 到 250 行的 <code>if (newreq != null) return newreq;</code> 就是短路：<code>RedirectFilter</code> 判定要重定向时返回一个新的 <code>HttpRequestImpl</code>，<code>MultiExchange</code> 拿它重发，后面的过滤器这一轮不再执行。</p>
+<p>链本身是一张普通 <code>ArrayList</code>，<code>FilterFactory.getFilterChain()</code> 用反射实例化节点，<code>FilterFactory.java</code> 第 40 到 52 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">List&lt;HeaderFilter&gt; <span class="title function_">getFilterChain</span><span class="params">()</span> &#123;</span><br><span class="line">    List&lt;HeaderFilter&gt; l = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;(filterClasses.size());</span><br><span class="line">    <span class="keyword">for</span> (Class&lt;? <span class="keyword">extends</span> <span class="title class_">HeaderFilter</span>&gt; clazz : filterClasses) &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="comment">// Requires a public no arg constructor.</span></span><br><span class="line">            <span class="type">HeaderFilter</span> <span class="variable">headerFilter</span> <span class="operator">=</span> clazz.getConstructor().newInstance();</span><br><span class="line">            l.add(headerFilter);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (ReflectiveOperationException e) &#123;</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">InternalError</span>(e);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> l;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>HttpClientImpl.initFilters()</code> 把顺序定死，<code>HttpClientImpl.java</code> 第 1674 到 1680 行：认证、重定向，Cookie 只在配了 <code>CookieHandler</code> 时才加。这条链的节点数在客户端构造时确定，之后不再变。</p>
+<p>一个请求在这条链上要走两个方向。发出时正序遍历：认证过滤器往系统头里塞凭据，Cookie 过滤器塞 Cookie，两个 <code>request</code> 方法都返回 <code>void</code>，所以无论它们做了什么，后面的节点照样执行。响应回来时倒序遍历：先走 Cookie 把 <code>Set-Cookie</code> 交给 <code>CookieHandler</code>，再走重定向判断，最后才回到认证过滤器。<code>RedirectFilter.handleResponse</code> 判定需要重定向时返回 <code>HttpRequestImpl.newInstanceForRedirection(...)</code>（<code>RedirectFilter.java</code> 第 136 行），这个非 null 返回值让倒序遍历当场中断，<code>MultiExchange</code> 用新请求重发。</p>
+<p>倒序的理由在重定向这一层。重定向会生成一次全新的往返，如果 Cookie 过滤器排在重定向之后，那次新往返的响应就绕过了 Cookie 处理。链上唯一能中断遍历的位置是返回非 null 的那一层；<code>void request</code> 那一侧没有这个位置。</p>
+<h3 id="stage-链：每个元素要把链走两遍"><a href="#stage-链：每个元素要把链走两遍" class="headerlink" title="stage 链：每个元素要把链走两遍"></a>stage 链：每个元素要把链走两遍</h3><p>Stream 的中间操作链是形态三。链的构造在 <code>AbstractPipeline.wrapSink</code>，JDK 25 的 <code>java.base/java/util/stream/AbstractPipeline.java</code> 第 604 到 611 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> &lt;P_IN&gt; Sink&lt;P_IN&gt; <span class="title function_">wrapSink</span><span class="params">(Sink&lt;E_OUT&gt; sink)</span> &#123;</span><br><span class="line">    Objects.requireNonNull(sink);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> ( <span class="meta">@SuppressWarnings(&quot;rawtypes&quot;)</span> AbstractPipeline p=AbstractPipeline.<span class="built_in">this</span>; p.depth &gt; <span class="number">0</span>; p=p.previousStage) &#123;</span><br><span class="line">        sink = p.opWrapSink(p.previousStage.combinedFlags, sink);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> (Sink&lt;P_IN&gt;) sink;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>每个 stage 把自己的 sink 包在已有的 sink 外面，从末端往上包，返回的是最上游那个，源数据喂给它。JDK 21 的同名方法在 <code>AbstractPipeline.java</code> 第 543 到 550 行，代码一致。</p>
+<p>「停」能不能生效，取决于末端 sink 的 <code>cancellationRequested()</code>。<code>Sink.ChainedReference</code> 把它一路转下去，JDK 25 的 <code>Sink.java</code> 第 264 到 267 行，JDK 21 在同一个位置：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">cancellationRequested</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> downstream.cancellationRequested();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>循环本身出现在两处。JDK 25 <code>AbstractPipeline.java</code> 第 565 到 576 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> &lt;P_IN&gt; <span class="keyword">void</span> <span class="title function_">copyInto</span><span class="params">(Sink&lt;P_IN&gt; wrappedSink, Spliterator&lt;P_IN&gt; spliterator)</span> &#123;</span><br><span class="line">    Objects.requireNonNull(wrappedSink);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (!StreamOpFlag.SHORT_CIRCUIT.isKnown(getStreamAndOpFlags())) &#123;</span><br><span class="line">        wrappedSink.begin(spliterator.getExactSizeIfKnown());</span><br><span class="line">        spliterator.forEachRemaining(wrappedSink);</span><br><span class="line">        wrappedSink.end();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">else</span> &#123;</span><br><span class="line">        copyIntoWithCancel(wrappedSink, spliterator);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>有短路能力的流水线走的是另一条循环。<code>LongPipeline.forEachWithCancel</code> 在 JDK 25 的 <code>LongPipeline.java</code> 第 158 到 164 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> <span class="type">boolean</span> <span class="title function_">forEachWithCancel</span><span class="params">(Spliterator&lt;Long&gt; spliterator, Sink&lt;Long&gt; sink)</span> &#123;</span><br><span class="line">    Spliterator.<span class="type">OfLong</span> <span class="variable">spl</span> <span class="operator">=</span> adapt(spliterator);</span><br><span class="line">    <span class="type">LongConsumer</span> <span class="variable">adaptedSink</span> <span class="operator">=</span>  adapt(sink);</span><br><span class="line">    <span class="type">boolean</span> cancelled;</span><br><span class="line">    <span class="keyword">do</span> &#123; &#125; <span class="keyword">while</span> (!(cancelled = sink.cancellationRequested()) &amp;&amp; spl.tryAdvance(adaptedSink));</span><br><span class="line">    <span class="keyword">return</span> cancelled;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>每个元素之前先问一次 <code>cancellationRequested()</code>。这一问要沿着 sink 链从上游走到末端，于是<strong>每处理一个元素，整条链要走两遍</strong>：一遍 <code>accept</code> 往下送数据，一遍 <code>cancellationRequested</code> 往上问要不要停。JDK 21 的同一方法在 <code>LongPipeline.java</code> 第 157 到 163 行。</p>
+<p>中间节点只有 <code>takeWhile</code> 能让链提前停，它的做法在 <code>java.base/java/util/stream/WhileOps.java</code> 第 198 到 219 行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">Sink&lt;Long&gt; <span class="title function_">opWrapSink</span><span class="params">(<span class="type">int</span> flags, Sink&lt;Long&gt; sink)</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Sink</span>.ChainedLong&lt;&gt;(sink) &#123;</span><br><span class="line">        <span class="type">boolean</span> <span class="variable">take</span> <span class="operator">=</span> <span class="literal">true</span>;</span><br><span class="line">        ...</span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">accept</span><span class="params">(<span class="type">long</span> t)</span> &#123;</span><br><span class="line">            <span class="keyword">if</span> (take &amp;&amp; (take = predicate.test(t))) &#123;</span><br><span class="line">                downstream.accept(t);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">cancellationRequested</span><span class="params">()</span> &#123;</span><br><span class="line">            <span class="keyword">return</span> !take || downstream.cancellationRequested();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>它自己的状态（<code>!take</code>）和末端的回答取或。<code>makeTakeWhileLong</code> 在这个 sink 上挂的是 <code>StreamOpFlag.NOT_SIZED | StreamOpFlag.IS_SHORT_CIRCUIT</code>（第 50 行），也就是告诉整条流水线「这个 stage 有资格触发短路循环」。普通 <code>map</code> 或 <code>filter</code> 的 stage 没有这个资格，它们的 <code>cancellationRequested()</code> 只是纯转发。</p>
+<h3 id="两个-LTS-之间这三条链没有变"><a href="#两个-LTS-之间这三条链没有变" class="headerlink" title="两个 LTS 之间这三条链没有变"></a>两个 LTS 之间这三条链没有变</h3><p>本文引用的实现逐行比对过 JDK 21 与 JDK 25 的 <code>src.zip</code>：</p>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>21 与 25 的差异</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>AbstractPipeline.wrapSink</code></td>
+<td>无</td>
+</tr>
+<tr>
+<td><code>AbstractPipeline.copyInto</code></td>
+<td>无</td>
+</tr>
+<tr>
+<td><code>AbstractPipeline.copyIntoWithCancel</code></td>
+<td>只差一个 <code>@SuppressWarnings</code> 注解</td>
+</tr>
+<tr>
+<td><code>Logger.log(LogRecord)</code> 的 Handler 循环</td>
+<td>无</td>
+</tr>
+<tr>
+<td><code>MultiExchange.responseFilters</code></td>
+<td>无</td>
+</tr>
+</tbody></table>
+<p>整个文件的行数有变化：<code>AbstractPipeline.java</code> 在两个 LTS 之间有 107 行不同，<code>Logger.java</code> 有 105 行。本文的行号只在对应版本里成立，跨版本引用要重新数。</p>
+<h2 id="五、实测二：短路位置决定要走几步"><a href="#五、实测二：短路位置决定要走几步" class="headerlink" title="五、实测二：短路位置决定要走几步"></a>五、实测二：短路位置决定要走几步</h2><p>固定 8 节点链。节点 i 检查 <code>x</code> 的第 i 个四位组是否等于 <code>i+1</code>，构造数据时让它只在指定位置命中。1 亿个元素：</p>
+<table>
+<thead>
+<tr>
+<th>命中位置</th>
+<th>走过的节点数</th>
+<th>JDK 21 每元素</th>
+<th>JDK 25 每元素</th>
+<th>节点调用&#x2F;元素</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>第 1 个节点</td>
+<td>1</td>
+<td>3.15 ns</td>
+<td>3.15 ns</td>
+<td>1</td>
+</tr>
+<tr>
+<td>第 4 个节点</td>
+<td>4</td>
+<td>4.66 ns</td>
+<td>4.81 ns</td>
+<td>4</td>
+</tr>
+<tr>
+<td>第 8 个节点</td>
+<td>8</td>
+<td>8.06 ns</td>
+<td>8.09 ns</td>
+<td>8</td>
+</tr>
+<tr>
+<td>无人命中，8 个节点全部穿透</td>
+<td>8</td>
+<td>9.38 ns</td>
+<td>9.25 ns</td>
+<td>8</td>
+</tr>
+<tr>
+<td>第 8 个节点兜底命中</td>
+<td>8</td>
+<td>8.52 ns</td>
+<td>8.31 ns</td>
+<td>8</td>
+</tr>
+</tbody></table>
+<p>JDK 25 上第 1 个节点命中是 3.15 ns&#x2F;元素，第 4 个是 4.81 ns，第 8 个是 8.09 ns。节点调用计数精确等于 1、4、8。</p>
+<p>两行都是 8 次节点调用，可以对照。第 8 个节点返回 <code>true</code> 时是 8.09 ns，8 个节点全部返回 <code>false</code>、让调用方拿到「没人管」的结果时是 9.25 ns，差 0.94 ns。链长一样，分歧只有返回值。这个差值来自链尾的 <code>next == null</code> 检查落在了返回路径上，而 <code>SINK</code> 的写入被 <code>if</code> 挡掉了。</p>
+<p><strong>短路的成本是线性的</strong>：命中第 K 个节点，每元素就是 K 次节点调用。8 节点链上第 1 个节点命中比第 8 个快 2.6 倍，一亿次调用上这个差额就是拦得早的收益。</p>
+<h2 id="六、Stream-的短路：省下的是扫描量"><a href="#六、Stream-的短路：省下的是扫描量" class="headerlink" title="六、Stream 的短路：省下的是扫描量"></a>六、Stream 的短路：省下的是扫描量</h2><p>同一件事在 <code>findFirst</code> 上是另一个形状。数组长 2000 万，8 个 <code>map</code> stage 之后接 <code>filter</code> 和 <code>findFirst</code>，命中值放在数组的不同位置：</p>
+<table>
+<thead>
+<tr>
+<th>命中位置</th>
+<th>每次扫描元素数</th>
+<th>调用次数</th>
+<th>Stream 每元素</th>
+<th>单方法每元素</th>
+<th>倍数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>数组第 1 个</td>
+<td>1</td>
+<td>2,000,000</td>
+<td>151.91 ns</td>
+<td>2.17 ns</td>
+<td>70×</td>
+</tr>
+<tr>
+<td>数组中间（第 1000 万个）</td>
+<td>10,000,001</td>
+<td>15</td>
+<td>27.18 ns</td>
+<td>0.76 ns</td>
+<td>36×</td>
+</tr>
+<tr>
+<td>数组最后一个</td>
+<td>20,000,000</td>
+<td>7</td>
+<td>27.61 ns</td>
+<td>0.72 ns</td>
+<td>38×</td>
+</tr>
+<tr>
+<td>不存在，扫完全部</td>
+<td>20,000,000</td>
+<td>7</td>
+<td>26.93 ns</td>
+<td>0.29 ns</td>
+<td>91×</td>
+</tr>
+</tbody></table>
+<p>每元素扫描成本在两列之间是常数：Stream 大约 27.18 ns&#x2F;元素，单方法内联是 0.76 ns&#x2F;元素。挪动命中位置不改变每元素成本，改变的是要扫多少元素。</p>
+<p>短路的收益上限由扫描量决定，而每元素成本的差额由 sink 链决定。命中在数组中间时，Stream 要扫 1000 万个元素才能停下，单方法只需要扫同样的 1000 万个，但每个元素便宜 36 倍。命中在第一个元素时，Stream 每次调用固定花 152 ns 构建一次 sink 链，而每元素只处理一个数据。建链比处理数据贵得多。</p>
+<p><strong>Stream 的短路不减少每元素的成本，只减少处理的元素数</strong>，这是它和形态一、二的关键差别。想让链本身变便宜，只能减少 stage 数。</p>
+<h2 id="七、判断顺序"><a href="#七、判断顺序" class="headerlink" title="七、判断顺序"></a>七、判断顺序</h2><p>三种形态选哪一种，取决于「谁有资格让链停下来」和「停下来之后调用方要做什么」：</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph TD
+    Q0[&quot;一个请求要穿过若干检查点&quot;] --&gt; Q1{&quot;调用方要不要知道是谁接下的？&quot;}
+    Q1 --&gt;|&quot;要，而且只需要知道办没办成&quot;| A1[&quot;形态一 处理链&lt;br&#x2F;&gt;返回 boolean&lt;br&#x2F;&gt;例：Logger 的 Handler 链&quot;]
+    Q1 --&gt;|&quot;要，而且这一层会改写请求&quot;| A2[&quot;形态二 过滤链&lt;br&#x2F;&gt;返回替换对象或 null&lt;br&#x2F;&gt;例：HttpClient 的 HeaderFilter&quot;]
+    Q1 --&gt;|&quot;不要，只要最终结果&quot;| A3[&quot;形态三 stage 链&lt;br&#x2F;&gt;末端 sink 的取消标记&lt;br&#x2F;&gt;例：Stream 的 map&#x2F;filter&quot;]
+    A2 --&gt; R2{&quot;节点数在运行期会变吗？&quot;}
+    R2 --&gt;|&quot;会&quot;| N2[&quot;用 List 装节点，每次遍历现取&lt;br&#x2F;&gt;注意请求与响应两个方向&quot;]
+    R2 --&gt;|&quot;不会&quot;| N3[&quot;构造时定死，可以缓存成数组&quot;]
+    A3 --&gt; R3{&quot;每元素要不要做重活？&quot;}
+    R3 --&gt;|&quot;要&quot;| N4[&quot;先把 stage 数压到 2 个以内&lt;br&#x2F;&gt;或写成一个方法&quot;]
+    R3 --&gt;|&quot;不要&quot;| N5[&quot;流水线的可读性几乎免费&quot;]
+  </pre></div>
+
+<h3 id="什么时候用"><a href="#什么时候用" class="headerlink" title="什么时候用"></a>什么时候用</h3><p><strong>处理链</strong>：检查点的数量在运行期变化，而且每个检查点都可能结束这次处理。每节点 0.72 ns，链长 8 以内都便宜。</p>
+<p><strong>过滤链</strong>：节点会对请求本身动手，需要重发。这个形态的代价来自方向：响应方向倒序遍历，加节点时要同时想清楚它在两个方向上的位置。</p>
+<p><strong>stage 链</strong>：数据量大、每个元素的处理简单、stage 少。可读性换来的成本是每 stage 约 3.41 ns。</p>
+<h3 id="什么时候不用"><a href="#什么时候不用" class="headerlink" title="什么时候不用"></a>什么时候不用</h3><ul>
+<li><strong>处理链的节点少于 3 个时，<code>if</code> 更快。</strong> 链长 1 的实测是 3.18 ns&#x2F;元素，一次直接的 <code>if</code> 判断就在这个量级；把两个判断做成链，换来的是运行期增删节点的能力，不需要这个能力就别付。</li>
+<li><strong>Handler 链上挂一个 Handler 就要算一次分配。</strong> 每次 <code>logger.log</code> 都会 <code>toArray</code> 一个新数组，24 到 48 字节。日志量大、Handler 只有一个时，这个分配是纯开销。</li>
+<li><strong>Stream 的短路省不掉每元素的骨架成本。</strong> <code>findFirst</code> 每元素 27.18 ns 对单方法内联的 0.76 ns。要在千万级元素上按条件提前退出，<code>for</code> 循环加 <code>break</code> 依然更快。</li>
+<li><strong>任何节点都可能成为瓶颈时，把最热的那个前移。</strong> 第 1 个节点命中与第 8 个节点命中差 2.6 倍。</li>
+</ul>
+<h3 id="把链压平"><a href="#把链压平" class="headerlink" title="把链压平"></a>把链压平</h3><p>三组测量给出的都是链本身的开销，要省掉它，只能在构造时把链压平，运行时不再有链：</p>
+<ul>
+<li>处理链：1 个节点 3.18 ns，8 个节点 8.22 ns。节点集合固定时，把 8 个判断写成 8 行 <code>if</code>，成本回到一个判断的量级，代价是运行期不能增删节点。</li>
+<li>stage 链：8 个 stage 是 24.35 ns，写成一个方法是 0.73 ns。这里的差距是 33 倍，压平的收益最大。</li>
+<li>Handler 链：8 个 Handler 时 JDK 路径是 30.27 ns，手写循环是 16.69 ns。差距 13.58 ns 是每次调用的固定开销，和链上有几个 Handler 无关，压平这条链省不掉它。</li>
+</ul>
+<p><code>HttpClient</code> 的过滤链在客户端构造时定死，后面不再变，所以它有资格压平。日志的 Handler 可以在运行时 <code>addHandler</code>，每次调用重新取一遍数组是它付的保险费。压平之前先回答一个问题：节点集合在运行期会不会变。</p>
+<h3 id="一条判断顺序"><a href="#一条判断顺序" class="headerlink" title="一条判断顺序"></a>一条判断顺序</h3><p>先问「几个节点可能拦下这个请求」。答案是一个，就用一次 <code>if</code>。答案是多个且每个都可能改写请求，用过滤链。然后是「每个元素要付多少钱」：处理链每节点 0.72 ns，stage 链每 stage 3.41 ns。最后问「节点集合在运行期变不变」：会变就用 <code>List</code> 每次遍历现取，不变就在构造时定死，别在热路径上重建。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>三种形态的区别在「停」怎么表达：处理链用 <code>boolean</code> 返回值（<code>Handler.publish</code> 是 <code>void</code>，所以 JDK 的 Handler 链根本没有短路的表达位置），过滤链用返回替换对象或 <code>null</code>（<code>MultiExchange.responseFilters</code> 第 250 行 <code>return newreq</code>），stage 链用末端 sink 的 <code>cancellationRequested</code> 反向转发。</li>
+<li>处理链每节点约 0.72 ns（JDK 25）。链长从 1 到 8，耗时涨 2.6 倍，节点数涨 8 倍。乱序执行把前两个节点的成本盖住了。</li>
+<li><code>Logger.log</code> 每次调用重新取一次 Handler 数组（<code>Logger.java</code> 第 955-974 行调 <code>accessCheckedHandlers()</code>，第 2068-2070 行 <code>config.handlers.toArray(emptyHandlers)</code>）。实测每次调用分配 24&#x2F;24&#x2F;32&#x2F;48 字节，对应 1&#x2F;2&#x2F;4&#x2F;8 个 Handler，手写 for 循环是 0 字节。</li>
+<li>Stream 的每 stage 成本约 3.41 ns：8 stage 的流水线是 24.35 ns&#x2F;元素，单方法内联是 0.73 ns，33 倍。1 个 stage 时两者接近（0.50 对 0.34）。</li>
+<li>这个差距的原因是 C2 判定 sink 链在做递归内联：<code>PrintInlining</code> 输出 <code>failed to inline: recursive inlining is too deep</code>，两个 JDK 的 <code>MaxRecursiveInlineLevel</code> 默认都是 1。</li>
+<li>8 节点链上第 1 个节点命中是 3.15 ns&#x2F;元素，第 8 个是 8.09 ns，差 2.6 倍。全部穿透（8 个节点都返回 <code>false</code>）是 9.25 ns，比第 8 个节点兜底还多 0.94 ns。</li>
+<li>Stream 的短路只减少扫描量，不减少每元素成本：命中位置从数组头部挪到第 2000 万个，每元素成本稳定在 27.18 ns 上下，单方法内联稳定在 0.76 ns 上下。</li>
+<li>带短路的流水线每元素把 sink 链走两遍（<code>LongPipeline.forEachWithCancel</code>，第 158-164 行），一遍 <code>accept</code> 向下，一遍 <code>cancellationRequested</code> 向上。</li>
+<li>中间 stage 想自己喊停只有 <code>takeWhile</code>，实现是把自身状态和末端回答取或（<code>WhileOps.java</code> 第 214-217 行），并声明 <code>StreamOpFlag.IS_SHORT_CIRCUIT</code>（<code>WhileOps.java</code> 第 50 行）。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://refactoring.guru/design-patterns/chain-of-responsibility">Chain of Responsibility（refactoring.guru）</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.logging/java/util/logging/Handler.html">Handler (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.logging/java/util/logging/Logger.html">Logger (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.net.http/java/net/http/HttpClient.html">HttpClient (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/stream/Sink.html">Sink (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/stream/AbstractPipeline.html">AbstractPipeline (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/stream/package-summary.html">java.util.stream 包说明</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://bugs.openjdk.org/browse/JDK-8075939">JDK-8075939: Stream.flatMap() causes breaking of short-circuiting of terminal operations</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.logging/java/util/logging/package-summary.html">java.util.logging 包说明</a></li>
+</ul>
+<blockquote>
+<p>相邻的几篇：<a href="/3777229427.html">模板方法</a> 讲继承体系里的钩子，<a href="/3654303619.html">策略</a> 讲把算法换掉，<a href="/1805545517.html">装饰器</a> 讲怎么往一条链上叠能力，<a href="/2495256397.html">中介者</a> 讲把 N×N 的调用收敛到一个中间人。</p>
+</blockquote>
+<blockquote>
+<p>系列索引：<a href="/pattern/">设计模式系列</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/3520122771.html">https://lianglliu.github.io/3520122771.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a><a class="post-meta__tags" href="/tags/%E8%B4%A3%E4%BB%BB%E9%93%BE/">责任链</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/712561657.html" title="设计模式——解释器：解释还是编译"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">设计模式——解释器：解释还是编译</div></div><div class="info-2"><div class="info-item-1"> 解释器模式把一门语言的求值写成对象树上的递归。同一棵树可以在构建期换成闭包树，每个节点变成一个捕获了子闭包的函数。两种形态的求值都是每个节点一次调用，差别落在调用点能不能被 JIT 静态化。用 27 节点和 7 节点两个表达式、各 100 万次求值，可以把这句话量出来。  一、两个求值器四则运算的最小文法：数字、变量、加减乘除。节点是一组 record，求值是节点自己的方法： 12345678sealed interface Node &#123; double eval(double[] v); &#125;record Num(double k) implements Node &#123; public double eval(double[] v) &#123; return k; &#125; &#125;record Var(int i) implements Node &#123; public double eval(double[] v) &#123; return v[i]; &#125; &#125;record Add(Node l, Node r) i...</div></div></div></a><a class="pagination-related" href="/3348503170.html" title="sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法</div></div><div class="info-2"><div class="info-item-1"> 客户端上的 TUN 模式和「代理模式」的差别在于接管范围：代理模式只服务主动配置了代理的应用，TUN 模式把整机流量都交给 sing-box。代价是必须处理路由、DNS 与分流，而且这三个东西经常出问题，所以验证方法比配置本身更重要。这篇在一台一次性 Ubuntu 虚拟机（arm64）上用 sing-box 1.14.1 跑完整套接管：TUN 接口与路由的变化、DNS 劫持、用一条 reject 规则证明分流生效、退出后的自动回收，以及 1.14 会直接拒绝启动的三处旧写法原文报错。  1. 便宜的说法与真实的代价服务端那篇讲的是「在一台服务器上暴露代理」；客户端这边解决的是另一个问题：本机有一堆程序，浏览器、终端、Docker、后台服务，逐个配代理既麻烦又会漏。TUN 的做法是造一个虚拟网卡，把默认路由指过去，让内核把流量交给 sing-box 决定怎么走。 听上去只是「接管」，但要同时成立四件事：  路由要从物理网卡切到 TUN，且不能把 sing-box 自己的出站流量也绕回去（回环） DNS 要一起接管，否则域名解析仍然暴露在明网，分流规则也无从匹配 分流规则要能验证：...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——不可变与防御性拷贝</div></div><div class="info-2"><div class="info-item-1"> 不可变有两个动作：造的时候不让别人改，交出去的时候把边界封住。共享和拷贝是两笔账：共享把成本压在构造那一刻，拷贝把成本摊到每一次读取上。1 亿次读取、1024 元素的列表、一组布尔验证，把这两笔账分开算，跑在两个 LTS 上：JDK 21.0.8 与 JDK 25。  一、两笔账记在谁头上对象内部持有 1024 字节的数组，上层有很多只读的调用方，写法有两种。 123456789static final class SharedRepo &#123;    private final int[] data = new int[256];    int[] data() &#123; return data; &#125;                       // 交出引用&#125;static final class CopyRepo &#123;    private final int[] data = new int[256];    int[] data() &#123; return Arrays.copyOf(data, data.length); &#1...</div></div></div></a><a class="pagination-related" href="/4222041279.html" title="设计模式——备忘录：快照的代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-5.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——备忘录：快照的代价</div></div><div class="info-2"><div class="info-item-1"> 备忘录把「回到过去」变成两个方法调用：save() 存下一版，restore() 回到某一版。存一版花多少时间、占多少内存，模式定义里没有答案。全量深拷贝、增量日志、写时拷贝三条路都能实现回滚，代价相差两个数量级。本文用 1 万条记录（含标签集合）的状态、1000 个事务、每事务改 10 条，量三条路的每事务耗时与分配字节，再量历史上限 10&#x2F;100&#x2F;1000 版时的保留内存和回滚耗时。  一、回滚能力买的是什么发起人（Originator）把状态装进一个备忘录对象，管理者（Caretaker）把备忘录收进版本链，需要时再把某一版交回发起人恢复。快照粒度、版本存放位置、版本何时失效，这些都不在模式定义里。 三个问题决定价格：  存的是全部状态，还是这一版改动的增量。 版本链保留多少版。 代价在存的那一刻付，还是在每次改动时付。  第一个问题把实现分成三条路，后两个问题决定账单什么时候来。 三条路全量深拷贝：save() 把当前状态整份复制一份挂到链上，回滚时把复制出来的那份换回来。 增量日志：save() 只记一个位置，每次改动之前把旧值写进日志，回滚时按逆...</div></div></div></a><a class="pagination-related" href="/204879800.html" title="设计模式——状态：状态位还是状态类"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——状态：状态位还是状态类</div></div><div class="info-2"><div class="info-item-1"> FutureTask 管一个任务从提交到结束的全部状态，字段是 volatile int state，七个常量，靠 CAS 迁移。ExecutorService 和 CompletableFuture 都建在它上面，JDK 没给它写七个状态类。GoF 的状态模式走另一条路：一个状态一个类，事件交给多态处理，状态自己决定下一步。书上那个 TCP 连接例子好写，代价没有现成数字。本文把同一个四状态状态机写成五种形式，在 JDK 21 与 25 上各跑 5033 万次事件，量耗时与分配，再用字节码和 JIT 日志解释差距从哪来。  一、状态放在哪里状态的存储方式和迁移的决策方式可以拆开看。GoF 把两件事绑在一起：状态是一个对象，迁移由虚调用决定。JDK 里常见的是另一种组合：状态是一个 int，迁移是一串比较和位运算。 两边的差别用一台四状态、五事件的状态机就能摆出来，后面所有实验共用它：      stateDiagram-v2     [*] --&gt; NEW     NEW --&gt; RUN : START     NEW --&gt; FAIL : CANCEL  ...</div></div></div></a><a class="pagination-related" href="/2622618202.html" title="设计模式——代理：动态代理的成本与边界"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-8.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——代理：动态代理的成本与边界</div></div><div class="info-2"><div class="info-item-1"> 代理保持调用方手里的类型不变，中间多插一层。日志、鉴权、重试、延迟加载、远程调用都落在这一层上。手写静态代理的问题是类数按「接口数 × 关注点数」涨，每个类里都是逐方法转发的样板。Proxy.newProxyInstance 把这件事挪到运行时：一次调用生成一个实现全部接口的类，一个 InvocationHandler 接管所有方法。代价在生成的字节码里：每个方法开头一次 anewarray，每个基本类型参数一次装箱。下面用 1 亿次调用把这份代价量出来，再单独量类生成与缓存。  一、代理解决的问题静态代理的算术三个接口、四个关注点。日志、鉴权、重试、指标，每个都要包一层，静态写法就得写这么多个类：      classDiagram     direction LR     class OrderService     class UserService     class PayService     class LoggingOrder     class AuthOrder     class RetryOrder     class MetricsOrder     ...</div></div></div></a><a class="pagination-related" href="/4240986029.html" title="设计模式——抽象工厂：产品族的一致性"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——抽象工厂：产品族的一致性</div></div><div class="info-2"><div class="info-item-1"> 抽象工厂常被描述成「创建一族对象」的接口，可是创建不值钱：new、Supplier、Map 查表、switch 都能做。值钱的那部分在编译期：一个族少实现一个产品，javac 直接拒绝编译；族与产品的对应关系写进接口，不用靠人记。本文用 Button&#x2F;Checkbox 两套主题、三种写法，量 100 万次创建的耗时与类加载数量，并贴出 javac 与运行期的输出。  一、产品族的一致性是谁的责任两套主题，两个产品。每个主题要同时提供 Button 和 Checkbox，同一个界面里的两个控件必须来自同一套主题。      classDiagram     direction TB     class GuiFactory {         &lt;&lt;interface&gt;&gt;         +button() Button         +checkbox() Checkbox     }     class MacFactory     class WinFactory     class Button {         &lt;&lt;int...</div></div></div></a><a class="pagination-related" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——被语言吃掉的那些模式</div></div><div class="info-2"><div class="info-item-1"> GoF 那本书写于 1994 年，示例语言是 C++ 与 Smalltalk。Java 要到 1995 年才发布，lambda 要等到 2014 年。23 种模式里有一部分在补语言的窟窿：用接口加实现类代替一等函数，用抽象方法代替传入函数，用两次分派代替模式匹配，用建造者代替命名参数。这篇文章把其中六组摆在一起对照，并且跑三组实验：Visitor、Strategy、Template Method，在 JDK 21.0.8 与 JDK 25 上各测一遍。数据里有个反直觉的结果——写得短的那个版本在两个 JDK 上都没有更快，Visitor 那一组甚至慢了 17.8%。测量方法与环境写在第一节末尾。  1994 年缺的那些东西GoF 的示例用 C++ 写成，Smalltalk 补充。当时的语言没有这些东西：  一等函数（Java 8，JSR 335 引入 lambda 与方法引用） 语言的 for-each（Java 5 才有，靠 Iterable 支撑） record（JEP 395，JDK 16 转正） sealed 继承层次（JEP 409，JDK 17 转正） switch...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E4%B8%89%E7%A7%8D%E5%BD%A2%E6%80%81%EF%BC%8C%E4%B8%89%E7%A7%8D%E6%94%B6%E5%9C%BA"><span class="toc-number">1.</span> <span class="toc-text">一、三种形态，三种收场</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1"><span class="toc-number">2.</span> <span class="toc-text">二、实验设计</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%B5%8B%E9%87%8F%E6%80%8E%E4%B9%88%E8%87%AA%E6%A3%80"><span class="toc-number">2.1.</span> <span class="toc-text">测量怎么自检</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E6%B5%8B%E4%B8%80%EF%BC%9A%E9%93%BE%E9%95%BF%E5%86%B3%E5%AE%9A%E6%AF%8F%E5%85%83%E7%B4%A0%E6%88%90%E6%9C%AC"><span class="toc-number">3.</span> <span class="toc-text">三、实测一：链长决定每元素成本</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%A4%84%E7%90%86%E9%93%BE"><span class="toc-number">3.1.</span> <span class="toc-text">处理链</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#JDK-%E8%87%AA%E5%B7%B1%E7%9A%84%E5%A4%84%E7%90%86%E9%93%BE%EF%BC%9Ajava-util-logging"><span class="toc-number">3.2.</span> <span class="toc-text">JDK 自己的处理链：java.util.logging</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Stream-%E7%9A%84-stage-%E9%93%BE"><span class="toc-number">3.3.</span> <span class="toc-text">Stream 的 stage 链</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#JIT-%E6%8A%8A%E8%BF%99%E5%87%A0%E7%BA%B3%E7%A7%92%E8%8A%B1%E5%9C%A8%E5%93%AA%E4%BA%86"><span class="toc-number">3.4.</span> <span class="toc-text">JIT 把这几纳秒花在哪了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8D%A2%E7%AE%97%E6%88%90%E6%97%B6%E9%97%B4%E6%89%8D%E7%9F%A5%E9%81%93%E5%80%BC%E4%B8%8D%E5%80%BC"><span class="toc-number">3.5.</span> <span class="toc-text">换算成时间才知道值不值</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81JDK-%E6%BA%90%E7%A0%81%E9%87%8C%E7%9A%84%E4%B8%89%E5%A4%84%E6%94%B6%E5%9C%BA"><span class="toc-number">4.</span> <span class="toc-text">四、JDK 源码里的三处收场</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%A4%84%E7%90%86%E9%93%BE%EF%BC%9ALogger-log-%E6%AF%8F%E6%AC%A1%E8%B0%83%E7%94%A8%E9%87%8D%E5%BB%BA%E4%B8%80%E6%AC%A1-Handler-%E6%95%B0%E7%BB%84"><span class="toc-number">4.1.</span> <span class="toc-text">处理链：Logger.log 每次调用重建一次 Handler 数组</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%BF%87%E6%BB%A4%E9%93%BE%EF%BC%9A%E4%B8%80%E5%BC%A0-List%EF%BC%8C%E4%B8%A4%E4%B8%AA%E6%96%B9%E5%90%91%EF%BC%8Cnull-%E8%A1%A8%E7%A4%BA%E6%94%BE%E8%A1%8C"><span class="toc-number">4.2.</span> <span class="toc-text">过滤链：一张 List，两个方向，null 表示放行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#stage-%E9%93%BE%EF%BC%9A%E6%AF%8F%E4%B8%AA%E5%85%83%E7%B4%A0%E8%A6%81%E6%8A%8A%E9%93%BE%E8%B5%B0%E4%B8%A4%E9%81%8D"><span class="toc-number">4.3.</span> <span class="toc-text">stage 链：每个元素要把链走两遍</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%A4%E4%B8%AA-LTS-%E4%B9%8B%E9%97%B4%E8%BF%99%E4%B8%89%E6%9D%A1%E9%93%BE%E6%B2%A1%E6%9C%89%E5%8F%98"><span class="toc-number">4.4.</span> <span class="toc-text">两个 LTS 之间这三条链没有变</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%AE%9E%E6%B5%8B%E4%BA%8C%EF%BC%9A%E7%9F%AD%E8%B7%AF%E4%BD%8D%E7%BD%AE%E5%86%B3%E5%AE%9A%E8%A6%81%E8%B5%B0%E5%87%A0%E6%AD%A5"><span class="toc-number">5.</span> <span class="toc-text">五、实测二：短路位置决定要走几步</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81Stream-%E7%9A%84%E7%9F%AD%E8%B7%AF%EF%BC%9A%E7%9C%81%E4%B8%8B%E7%9A%84%E6%98%AF%E6%89%AB%E6%8F%8F%E9%87%8F"><span class="toc-number">6.</span> <span class="toc-text">六、Stream 的短路：省下的是扫描量</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">7.</span> <span class="toc-text">七、判断顺序</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%94%A8"><span class="toc-number">7.1.</span> <span class="toc-text">什么时候用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%B8%8D%E7%94%A8"><span class="toc-number">7.2.</span> <span class="toc-text">什么时候不用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8A%8A%E9%93%BE%E5%8E%8B%E5%B9%B3"><span class="toc-number">7.3.</span> <span class="toc-text">把链压平</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E6%9D%A1%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">7.4.</span> <span class="toc-text">一条判断顺序</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">8.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">9.</span> <span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  const parseViewBox = viewBox => {
+    if (!viewBox) return null
+    const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return null
+    return parts
+  }
+
+  const getSvgViewBox = svg => {
+    const attr = parseViewBox(svg.getAttribute('viewBox'))
+    if (attr) return attr
+
+    // Fallback: use bbox to build a viewBox
+    try {
+      const bbox = svg.getBBox()
+      if (bbox && bbox.width && bbox.height) return [bbox.x, bbox.y, bbox.width, bbox.height]
+    } catch (e) {
+      // getBBox may fail on some edge cases; ignore
+    }
+
+    const w = Number(svg.getAttribute('width')) || 0
+    const h = Number(svg.getAttribute('height')) || 0
+    if (w > 0 && h > 0) return [0, 0, w, h]
+    return [0, 0, 100, 100]
+  }
+
+  const setSvgViewBox = (svg, vb) => {
+    svg.setAttribute('viewBox', `${vb[0]} ${vb[1]} ${vb[2]} ${vb[3]}`)
+  }
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
+  const openSvgInNewTab = ({ source, initViewBox }) => {
+    const getClonedSvg = () => {
+      if (typeof source === 'string') {
+        const template = document.createElement('template')
+        template.innerHTML = source.trim()
+        const svg = template.content.querySelector('svg')
+        return svg ? svg.cloneNode(true) : null
+      }
+      if (source && typeof source.cloneNode === 'function') {
+        return source.cloneNode(true)
+      }
+      return null
+    }
+
+    const clone = getClonedSvg()
+    if (!clone) return
+    if (initViewBox && initViewBox.length === 4) {
+      clone.setAttribute('viewBox', initViewBox.join(' '))
+    }
+    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    if (!clone.getAttribute('xmlns:xlink') && clone.innerHTML.includes('xlink:')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    }
+    // inject background to match current theme
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const bg = getComputedStyle(document.body).backgroundColor || (isDark ? '#1e1e1e' : '#ffffff')
+    if (!clone.style.background) clone.style.background = bg
+
+    const serializer = new XMLSerializer()
+    const svgSource = serializer.serializeToString(clone)
+    const htmlSource = `<!doctype html><html><head><meta charset="utf-8" />
+      <style>
+        html, body { width: 100%; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; background: ${bg}; }
+        svg { max-width: 100%; max-height: 100%; height: auto; width: auto; }
+      </style>
+      </head><body>${svgSource}</body></html>`
+    const blob = new Blob([htmlSource], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener')
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  const attachMermaidViewerButton = wrap => {
+    let btn = wrap.querySelector('.mermaid-open-btn')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mermaid-open-btn'
+      wrap.appendChild(btn)
+    }
+
+    btn.innerHTML = '<i class="fa fa-search fa-fw" aria-hidden="true"></i>'
+
+    if (!btn.__mermaidViewerBound) {
+      btn.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        const svg = wrap.__mermaidOriginalSvg || wrap.querySelector('svg')
+        if (!svg) return
+        const initViewBox = wrap.__mermaidInitViewBox
+        openSvgInNewTab({ source: svg, initViewBox })
+      })
+      btn.__mermaidViewerBound = true
+    }
+  }
+
+  // Zoom around a point (px, py) in the SVG viewport (in viewBox coordinates)
+  const zoomAtPoint = (vb, factor, px, py) => {
+    const w = vb[2] * factor
+    const h = vb[3] * factor
+    const nx = px - (px - vb[0]) * factor
+    const ny = py - (py - vb[1]) * factor
+    return [nx, ny, w, h]
+  }
+
+  const initMermaidGestures = wrap => {
+    // Clean up previous event listeners and pending frames
+    if (wrap.__mermaidAbortController) {
+      wrap.__mermaidAbortController.abort()
+      if (wrap.__mermaidRafId) cancelAnimationFrame(wrap.__mermaidRafId)
+    }
+    const ac = new AbortController()
+    wrap.__mermaidAbortController = ac
+    const svg = wrap.querySelector('svg')
+    if (!svg) return
+
+    // Ensure viewBox exists so gestures always work
+    const initVb = getSvgViewBox(svg)
+    wrap.__mermaidInitViewBox = initVb
+    wrap.__mermaidCurViewBox = initVb.slice()
+    setSvgViewBox(svg, initVb)
+    // Disable default gestures to prevent scroll chaining and pinch-zoom penetration in Chrome
+    svg.style.touchAction = 'none'
+
+    // Cache BoundingClientRect, throttled on scroll to reduce reflow
+    let cachedRect = svg.getBoundingClientRect()
+    let rectDirty = false
+    const markRectDirty = () => { rectDirty = true }
+    window.addEventListener('resize', markRectDirty, { signal: ac.signal })
+    window.addEventListener('scroll', markRectDirty, { signal: ac.signal, capture: true })
+    const getRect = () => {
+      if (rectDirty) {
+        cachedRect = svg.getBoundingClientRect()
+        rectDirty = false
+      }
+      return cachedRect
+    }
+
+    // Precompute clamp bounds from initial viewBox
+    const minW = initVb[2] * 0.1
+    const maxW = initVb[2] * 10
+    const minH = initVb[3] * 0.1
+    const maxH = initVb[3] * 10
+    const clampVb = vb => {
+      const out = vb.slice()
+      out[2] = clamp(out[2], minW, maxW)
+      out[3] = clamp(out[3], minH, maxH)
+      return out
+    }
+
+    // Throttle DOM updates using requestAnimationFrame
+    let pendingVb = null
+    let rafId = null
+    const applyVb = () => {
+      if (pendingVb) {
+        wrap.__mermaidCurViewBox = pendingVb
+        setSvgViewBox(svg, pendingVb)
+        pendingVb = null
+      }
+      rafId = null
+      wrap.__mermaidRafId = null
+    }
+    const setCurVb = vb => {
+      pendingVb = clampVb(vb)
+      if (!rafId) {
+        rafId = requestAnimationFrame(applyVb)
+        wrap.__mermaidRafId = rafId
+      }
+    }
+
+    const state = {
+      pointers: new Map(),
+      startVb: null,
+      startDist: 0,
+      lastPointerX: 0,
+      lastPointerY: 0
+    }
+
+    const onPointerDown = e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      svg.setPointerCapture(e.pointerId)
+      const curVb = wrap.__mermaidCurViewBox
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 1) {
+        state.startVb = curVb.slice()
+        state.lastPointerX = e.clientX
+        state.lastPointerY = e.clientY
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        state.startDist = Math.hypot(dx, dy)
+        state.startVb = curVb.slice()
+      }
+    }
+
+    const onPointerMove = e => {
+      if (!state.pointers.has(e.pointerId)) return
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      if (state.pointers.size === 1 && state.startVb) {
+        const p = state.pointers.values().next().value
+        const dxClient = p.x - state.lastPointerX
+        const dyClient = p.y - state.lastPointerY
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+        const dx = dxClient * (curVb[2] / rect.width)
+        const dy = dyClient * (curVb[3] / rect.height)
+        setCurVb([curVb[0] - dx, curVb[1] - dy, curVb[2], curVb[3]])
+        return
+      }
+      if (state.pointers.size === 2 && state.startVb && state.startDist > 0) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        const dist = Math.hypot(dx, dy)
+        if (!dist) return
+        const factor = state.startDist / dist
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const px = curVb[0] + (cx - rect.left) * (curVb[2] / rect.width)
+        const py = curVb[1] + (cy - rect.top) * (curVb[3] / rect.height)
+        setCurVb(zoomAtPoint(state.startVb, factor, px, py))
+      }
+    }
+
+    const onPointerUpOrCancel = e => {
+      // Release PointerCapture to avoid event capture anomalies
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) {
+        svg.releasePointerCapture(e.pointerId)
+      }
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size === 0) {
+        state.startVb = null
+        state.startDist = 0
+      } else if (state.pointers.size === 1) {
+        const p = state.pointers.values().next().value
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+      }
+    }
+
+    const onWheel = e => {
+      // Prevent event bubbling from triggering external scroll
+      e.preventDefault()
+      e.stopPropagation()
+      // Normalize deltaY across deltaMode (Chrome uses pixels, Safari uses lines)
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= 400
+
+      // Continuous zoom factor: smoother than fixed 1.1/0.9 steps
+      const zoomFactor = Math.pow(1.001, delta)
+
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      const px = curVb[0] + (e.clientX - rect.left) * (curVb[2] / rect.width)
+      const py = curVb[1] + (e.clientY - rect.top) * (curVb[3] / rect.height)
+      setCurVb(zoomAtPoint(curVb, zoomFactor, px, py))
+    }
+
+    const onDblClick = () => {
+      const init = wrap.__mermaidInitViewBox
+      if (init) setCurVb(init)
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown, { signal: ac.signal })
+    svg.addEventListener('pointermove', onPointerMove, { signal: ac.signal })
+    svg.addEventListener('pointerup', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('pointercancel', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('wheel', onWheel, { passive: false, signal: ac.signal })
+    svg.addEventListener('dblclick', onDblClick, { signal: ac.signal })
+  }
+
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      // Clean up event listeners before removing old SVG
+      if (item.__mermaidAbortController) {
+        item.__mermaidAbortController.abort()
+      }
+      const oldSvg = item.querySelector('svg')
+      if (oldSvg) oldSvg.remove()
+      let config = {}
+      try {
+        config = mermaidSrc.dataset.config ? JSON.parse(mermaidSrc.dataset.config) : {}
+      } catch (e) {
+        console.warn('[mermaid] failed to parse dataset.config:', e)
+      }
+      if (!config.theme) {
+        config.theme = theme
+      }
+      const mermaidThemeConfig = `%%{init: ${JSON.stringify(config)}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+        if (true) initMermaidGestures(item)
+        item.__mermaidOriginalSvg = svg
+        if (true) attachMermaidViewerButton(item)
+      }
+
+      const handleError = err => {
+        console.error(`[mermaid] render failed for block #${index}:`, err)
+        const errorEl = document.createElement('div')
+        errorEl.className = 'mermaid-error'
+        errorEl.textContent = `Mermaid render error: ${err.message || err}`
+        mermaidSrc.insertAdjacentElement('afterend', errorEl)
+      }
+
+      try {
+        const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+        // mermaid v9 and v10 compatibility
+        if (typeof renderFn === 'string') {
+          renderMermaid(renderFn)
+        } else {
+          renderFn.then(({ svg }) => renderMermaid(svg)).catch(handleError)
+        }
+      } catch (err) {
+        handleError(err)
+      }
+    })
+  }
+
+  const codeToMermaid = $article => {
+    const codeMermaidEle = $article.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    const $article = document.getElementById('article-container')
+    if (!$article) return
+
+    if (false) codeToMermaid($article)
+    const $mermaid = $article.querySelectorAll('.mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

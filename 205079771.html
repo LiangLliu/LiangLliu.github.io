@@ -1,0 +1,1032 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式——适配器：边界在哪 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="用 1 亿次调用对照四种调用形态，配 -XX:+PrintInlining 的内联决策原文：适配器在单态调用点上被内联掉，1 亿次调用量不出成本；成本出现在同一个调用点收到多个实现类型的时候。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="设计模式——适配器：边界在哪">
+<meta property="og:url" content="https://lianglliu.github.io/205079771.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="用 1 亿次调用对照四种调用形态，配 -XX:+PrintInlining 的内联决策原文：适配器在单态调用点上被内联掉，1 亿次调用量不出成本；成本出现在同一个调用点收到多个实现类型的时候。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png">
+<meta property="article:published_time" content="2026-09-17T03:30:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T03:30:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="设计模式">
+<meta property="article:tag" content="适配器模式">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "设计模式——适配器：边界在哪",
+  "url": "https://lianglliu.github.io/205079771.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png",
+  "datePublished": "2026-09-17T03:30:00.000Z",
+  "dateModified": "2026-09-17T03:30:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/205079771.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '设计模式——适配器：边界在哪',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">设计模式——适配器：边界在哪</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">设计模式——适配器：边界在哪</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T03:30:00.000Z" title="发表于 2026-09-17 11:30:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">7.6k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>27分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>适配器只做一件事：把调用方要的接口翻译成现有对象提供的接口，不改变被包装对象的行为。<br>常见的反对意见是「多一层调用会拖慢热点路径」。JIT 打开、调用点单态时，这层开销量出来是零；调用点收到多个实现类型时，量出约三倍。<br>两种情况本文都用 1 亿次调用测一遍，并贴出 <code>-XX:+PrintInlining</code> 对每一次内联决定的原文。</p>
+</blockquote>
+<h2 id="一、问题：那一层调用值多少钱"><a href="#一、问题：那一层调用值多少钱" class="headerlink" title="一、问题：那一层调用值多少钱"></a>一、问题：那一层调用值多少钱</h2><p>手里有一个只能按字节取的类，调用方要的是一个按字符取的接口，中间补一个类：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">interface</span> <span class="title class_">CharReader</span> &#123; <span class="type">int</span> <span class="title function_">read</span><span class="params">()</span>; &#125;          <span class="comment">// 调用方要求的接口</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">SourceAdapter</span> <span class="keyword">implements</span> <span class="title class_">CharReader</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> ByteSource src;             <span class="comment">// 已有的实现，改不了</span></span><br><span class="line">    SourceAdapter(ByteSource src) &#123; <span class="built_in">this</span>.src = src; &#125;</span><br><span class="line">    <span class="meta">@Override</span> <span class="keyword">public</span> <span class="type">int</span> <span class="title function_">read</span><span class="params">()</span> &#123; <span class="keyword">return</span> decode(src.next()); &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这段代码产生的新东西只有两样：一个持有 <code>ByteSource</code> 引用的对象，以及 <code>read()</code> 到 <code>next()</code> 之间的一次转发。<code>decode</code> 的逻辑与适配器无关，不装适配器也要执行。</p>
+<p>把这段代码放进热点循环，争议就集中到那次转发上。一种说法是多一层调用是常数开销，可以忽略；另一种说法是热点路径上的额外虚调用会被放大成可观的延迟。两种说法都有人支持：结论取决于 JIT 对那个调用点做了什么，与适配器的写法无关。</p>
+<p>两种说法在 JDK 内部都有例子。<code>Arrays#asList</code> 包装数组，<code>Collections#unmodifiableList</code> 包装列表，这两层在集合代码里用得很密，很少有人为它们的开销担心。反面情形出现在同一段代码处理多种来源时：一个 <code>Reader</code> 变量在循环里轮流指向 <code>InputStreamReader</code> 与 <code>StringReader</code>，调用点上的类型数一多，JIT 的类型 profile 溢出，<code>read()</code> 退化成真实分发。</p>
+<p>本文用一个合成负载把这件事拆开。同一份逻辑工作，四种调用形态，各 1 亿次调用，两个 JDK 各跑一遍。结论分两层：适配器那层转发在内联之后量不出来；能测出来的成本来自调用点上实现的种类数，与适配器对象无关。前者决定要不要为性能改设计，后者决定该往哪里改。</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    classDiagram
+    direction LR
+    class ByteSource {
+        -byte[] buf
+        -int pos
+        +int next()
+    }
+    class CharReader {
+        &lt;&lt;interface&gt;&gt;
+        +int read()
+    }
+    class SourceAdapter {
+        -ByteSource src
+        +int read()
+    }
+    class Caller {
+        +long run(CharReader r, int n)
+    }
+    CharReader &lt;|.. SourceAdapter
+    SourceAdapter --&gt; ByteSource : 每次 read() 转发一次 next()
+    Caller --&gt; CharReader : 只认识新接口
+  </pre></div>
+
+<p>图里 <code>Caller</code> 只认识 <code>CharReader</code>，适配器把 <code>ByteSource</code> 的字节接口挡在后面。适配器带来的全部新东西就是中间那个对象和它上面的一次转发。</p>
+<h3 id="与相邻模式的分界，先划一次"><a href="#与相邻模式的分界，先划一次" class="headerlink" title="与相邻模式的分界，先划一次"></a>与相邻模式的分界，先划一次</h3><p>这三个模式在代码上长得很像，差别在动机：</p>
+<table>
+<thead>
+<tr>
+<th>模式</th>
+<th>对被包装对象做什么</th>
+<th>触发条件</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>适配器</td>
+<td>换接口，不改行为、不加语义</td>
+<td>调用方要的类型和现有类型对不上</td>
+</tr>
+<tr>
+<td><a href="/1805545517.html">装饰器</a></td>
+<td>不改接口，在调用前后加行为</td>
+<td>缓冲、计数、校验这类横切能力</td>
+</tr>
+<tr>
+<td><a href="/3162181737.html">桥接</a></td>
+<td>拆开两个各自独立变化的维度</td>
+<td>形状与颜色、平台与控件各自扩展</td>
+</tr>
+</tbody></table>
+<p>适配器接收一个接口不匹配的对象，输出一个接口匹配的对象，中间不做别的事；装饰器进出是同一个接口，中间做别的事。桥接不翻译已有对象，它承认两个维度都要扩展，把继承关系换成组合。</p>
+<p>本文要划的边界有三条：与相邻模式的分界、性能上量得出来与量不出来的分界、以及什么时候不该写适配器。</p>
+<h2 id="二、实验设计"><a href="#二、实验设计" class="headerlink" title="二、实验设计"></a>二、实验设计</h2><p>四种调用形态共用同一份逻辑：从 64 KiB 的字节缓冲取下一个字节，做一次固定的字节到字符转换，累加结果。</p>
+<table>
+<thead>
+<tr>
+<th>组</th>
+<th>调用形态</th>
+<th>调用点看到的实现类型数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A</td>
+<td>不用新接口，调用处直接 <code>decode(src.next())</code></td>
+<td>不含接口调用</td>
+</tr>
+<tr>
+<td>B</td>
+<td>经 <code>CharReader</code> 接口调用 <code>read()</code>，实例是 <code>SourceAdapter</code></td>
+<td>1</td>
+</tr>
+<tr>
+<td>C</td>
+<td>与 B 相同的循环体，实例在 8 个实现类之间轮换</td>
+<td>8</td>
+</tr>
+<tr>
+<td>D</td>
+<td>旧类 <code>ByteSource</code> 自己 <code>implements CharReader</code>，没有适配器对象</td>
+<td>1</td>
+</tr>
+</tbody></table>
+<p>四个调用点的代码（转载自 <code>/tmp/Adapter/AdapterBench.java</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> <span class="type">long</span> <span class="title function_">direct</span><span class="params">(ByteSource s, <span class="type">int</span> n)</span> &#123;         <span class="comment">// A</span></span><br><span class="line">    <span class="type">long</span> <span class="variable">t</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; n; i++) t += decode(s.next());</span><br><span class="line">    <span class="keyword">return</span> t;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">static</span> <span class="type">long</span> <span class="title function_">viaAdapter</span><span class="params">(CharReader r, <span class="type">int</span> n)</span> &#123;     <span class="comment">// B</span></span><br><span class="line">    <span class="type">long</span> <span class="variable">t</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; n; i++) t += r.read();</span><br><span class="line">    <span class="keyword">return</span> t;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">static</span> <span class="type">long</span> <span class="title function_">viaMega</span><span class="params">(CharReader r, <span class="type">int</span> n)</span> &#123;        <span class="comment">// C，循环体与 B 逐字相同</span></span><br><span class="line">    <span class="type">long</span> <span class="variable">t</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; n; i++) t += r.read();</span><br><span class="line">    <span class="keyword">return</span> t;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">static</span> <span class="type">long</span> <span class="title function_">viaSelf</span><span class="params">(CharReader r, <span class="type">int</span> n)</span> &#123;        <span class="comment">// D，循环体与 B 逐字相同</span></span><br><span class="line">    <span class="type">long</span> <span class="variable">t</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; n; i++) t += r.read();</span><br><span class="line">    <span class="keyword">return</span> t;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>循环体逐字相同，必须分布在三个方法里。</strong> B、C、D 的循环体都是 <code>for (int i = 0; i &lt; n; i++) t += r.read();</code>。HotSpot 的类型 profile 挂在调用点上，三个形态共用一个方法会互相污染，所以它们各自是一个方法。D 与 B 的差别只有一个：传给 D 的参数对象就是 <code>ByteSource</code> 本身，中间没有适配器。</p>
+<p><strong>C 组用 8 个实现类，机器码完全相同。</strong> 8 个类的 <code>read()</code> 都是 <code>return decode(s.next());</code>，字节码逐字节一致（编译日志里都写着 <code>11 bytes</code>）。真实进程里 <code>java.io.Reader</code> 类型的变量会接收 <code>InputStreamReader</code>、<code>StringReader</code>、<code>FileReader</code>、<code>CharArrayReader</code> 这些不同的实现，一个调用点看到多种类型是常态。把 8 个实现的工作量压成完全相同，是为了让 B 与 C 的耗时差只来自分发方式。</p>
+<p><strong>缓冲区取 64 KiB。</strong> 它常驻 L2，保证数组读取不是瓶颈，测出来的是调用本身的成本。缓冲区大小取 2 的幂，运行长度取其整数倍，源位置在每轮前后都停在起点。</p>
+<p><strong>计时流程。</strong> 每组先做 3 轮预热（丢弃），再做 7 轮测量。每轮 A&#x2F;B&#x2F;D 各 100,007,936 次调用，C 组 8 个实现合计 99,614,720 次。报中位数，同时给出 7 轮的最小值与最大值。预热之前还有一次「弄脏 profile」的阶段：C 组每个实现先各跑 196,608 次，让调用点先收集到 8 个类型，再进入正式测量。没有这一步，JIT 会先按单态编译 C 组，等新类型出现再去优化掉，量到的会是那次编译切换的成本。</p>
+<p><strong>校验和。</strong> 四条路径的结果必须完全相等。每轮运行长度取缓冲区长度的整数倍，源位置运行前后都停在起点，四组校验和可以逐位比对（日志里四行都是 <code>checksum ok</code>）。数值对不上的话，说明某个形态少算了，那一轮的数据作废。</p>
+<p><strong>锁。</strong> 计时期间持有 <code>/tmp/pattern-bench.lock</code>，把同一台机器上其它并发测量挡在外面。这台机器上同时有二十多个实验在跑，不串行化的话，相邻进程的一次编译就能污染整轮数据。</p>
+<p><strong>局限。</strong> 负载是合成的，<code>decode</code> 里只有 5 个整数位运算，它比真实的字符解码轻得多。真实解码更重时调用开销占比更小，本文的差值只会更小。测量在一台机器（Apple M1 Pro，10 个逻辑核，macOS 26.6.2）上完成，没有跨架构结论。内联决策是 HotSpot C2 的行为，换成其它 JVM 结论未必一致。</p>
+<p><strong>为什么不用 JMH。</strong> 本文的对照组是同一段循环的四种编译结果，需要控制的是类型 profile 与编译时机。手写骨架可以把「弄脏 profile 的阶段」显式放在测量之前，也能把四组校验和摆在同一份日志里对齐正确性。JMH 的多 fork 与随机化反而会把编译时机藏起来。折中做法是 3 轮预热加 7 轮测量取中位数，并公开每轮原始值供核对。</p>
+<h3 id="判据流程"><a href="#判据流程" class="headerlink" title="判据流程"></a>判据流程</h3><p>分界问题在代码里落成一条判断顺序：</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    flowchart TD
+    S[调用方手里的类型&lt;br&#x2F;&gt;与现有对象的类型] --&gt; Q1{是同一个接口吗}
+    Q1 -- 不是 --&gt; Q2{差异来自两个维度&lt;br&#x2F;&gt;各自独立变化吗}
+    Q1 -- 是 --&gt; Q3{要改变调用行为吗}
+    Q2 -- 是 --&gt; BR[桥接：拆成两个维度]
+    Q2 -- 否 --&gt; AD[适配器：只翻译接口]
+    Q3 -- 是 --&gt; DE[装饰器：同接口加行为]
+    Q3 -- 否 --&gt; PQ{要控制访问吗}
+    PQ -- 是 --&gt; PR[代理]
+    PQ -- 否 --&gt; NC[直接调用]
+  </pre></div>
+
+<h2 id="三、实测：JIT-打开时"><a href="#三、实测：JIT-打开时" class="headerlink" title="三、实测：JIT 打开时"></a>三、实测：JIT 打开时</h2><table>
+<thead>
+<tr>
+<th>组</th>
+<th>调用形态</th>
+<th>JDK 21.0.8 中位数 (ns&#x2F;次)</th>
+<th>JDK 25 中位数 (ns&#x2F;次)</th>
+<th>相对 A</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A</td>
+<td>直接调用</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>1.00</td>
+</tr>
+<tr>
+<td>B</td>
+<td>一层适配</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>1.00× &#x2F; 1.00×</td>
+</tr>
+<tr>
+<td>C</td>
+<td>多实现（8 个类型）</td>
+<td>2.95</td>
+<td>2.78</td>
+<td>3.07× &#x2F; 2.90×</td>
+</tr>
+<tr>
+<td>D</td>
+<td>绕过包装</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>1.00× &#x2F; 1.00×</td>
+</tr>
+</tbody></table>
+<p><img src="/assets/patterns/adapter-inline-cost.png" alt="四种调用方式的单次开销与内联决策"></p>
+<p>A、B、D 落在同一档。JDK 21 上三者的中位数是 0.96、0.96、0.96 ns&#x2F;次，JDK 25 上是 0.96、0.96、0.96 ns&#x2F;次。三者的逐轮波动都在 0.04 ns 以内，B 与 A 的轮次区间重叠：JDK 21 上 B 组的 7 轮最小值 0.96、最大值 1.00，A 组 0.96 到 0.97。这组数据里读不出「加一层适配器」的耗时。</p>
+<p>C 行落在另一档：JDK 21 中位数 2.95 ns&#x2F;次，JDK 25 2.78 ns&#x2F;次，分别是 A 组的 3.07× 与 2.90×。C 组循环体与 B 组逐字相同，静态类型也相同，唯一差别是同一个调用点先后收到 8 个不同的实现类型。</p>
+<p>D 行回答的是另一个问题：如果不想付适配器的钱，能不能绕过它。D 让旧类自己实现新接口，中间没有适配器对象，比 B 少一层。测量结果与 B、A 都在同一档，两个 JDK 上都分不出差别。绕过包装能省下的东西在这份数据里是零。</p>
+<p>跨 JDK 看，同一组在两个 JDK 上的中位数差 +0.00 ns&#x2F;次（A）、-0.17 ns&#x2F;次（C，JDK 25 更低）。这个差异不构成本文任何结论，两个 JDK 都是默认参数的 HotSpot，C2 的内联策略在这个规模上没有可见变化。</p>
+<h3 id="怎么读这张表"><a href="#怎么读这张表" class="headerlink" title="怎么读这张表"></a>怎么读这张表</h3><p>表里带结论的是两个比值：3.07× 与 2.90×。它们说明多实现调用点比单态慢出几倍，量级足以跨过测量噪声。A、B、D 三行的中位数一致，逐轮最大值与最小值的差不超过 0.04 ns，读不出方向。</p>
+<p>D 组的机器码比 B 组短：少了适配器对象，也少了那层转发，测量结果却与 B 组无法区分。这层转发在稳态里不占时间，为省它而让旧类实现新接口，换不到任何东西。</p>
+<p>A 组同样有成本：它每次迭代要调用 <code>next()</code> 与静态 <code>decode</code> 两次，只是 JIT 把这两次都内联了。决定成本的是这些调用能不能被内联，与调用次数关系不大。</p>
+<h3 id="7-轮的原始数字"><a href="#7-轮的原始数字" class="headerlink" title="7 轮的原始数字"></a>7 轮的原始数字</h3><p>JDK 21，单位 ns&#x2F;次：</p>
+<table>
+<thead>
+<tr>
+<th>组</th>
+<th>第 1 轮</th>
+<th>第 2 轮</th>
+<th>第 3 轮</th>
+<th>第 4 轮</th>
+<th>第 5 轮</th>
+<th>第 6 轮</th>
+<th>第 7 轮</th>
+<th>中位数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A 直接调用</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.97</td>
+<td>0.96</td>
+<td>0.97</td>
+<td>0.96</td>
+<td>0.96</td>
+<td><strong>0.96</strong></td>
+</tr>
+<tr>
+<td>B 一层适配</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>1.00</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.96</td>
+<td><strong>0.96</strong></td>
+</tr>
+<tr>
+<td>C 多实现（8 个类型）</td>
+<td>2.97</td>
+<td>2.94</td>
+<td>2.94</td>
+<td>2.95</td>
+<td>2.94</td>
+<td>2.96</td>
+<td>2.97</td>
+<td><strong>2.95</strong></td>
+</tr>
+<tr>
+<td>D 绕过包装</td>
+<td>0.97</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.97</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.96</td>
+<td><strong>0.96</strong></td>
+</tr>
+</tbody></table>
+<p>JDK 25，单位 ns&#x2F;次：</p>
+<table>
+<thead>
+<tr>
+<th>组</th>
+<th>第 1 轮</th>
+<th>第 2 轮</th>
+<th>第 3 轮</th>
+<th>第 4 轮</th>
+<th>第 5 轮</th>
+<th>第 6 轮</th>
+<th>第 7 轮</th>
+<th>中位数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A 直接调用</td>
+<td>0.95</td>
+<td>0.98</td>
+<td>0.96</td>
+<td>0.97</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.96</td>
+<td><strong>0.96</strong></td>
+</tr>
+<tr>
+<td>B 一层适配</td>
+<td>0.95</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.95</td>
+<td><strong>0.96</strong></td>
+</tr>
+<tr>
+<td>C 多实现（8 个类型）</td>
+<td>2.78</td>
+<td>2.81</td>
+<td>2.77</td>
+<td>2.78</td>
+<td>2.78</td>
+<td>2.78</td>
+<td>2.78</td>
+<td><strong>2.78</strong></td>
+</tr>
+<tr>
+<td>D 绕过包装</td>
+<td>0.96</td>
+<td>0.97</td>
+<td>0.96</td>
+<td>0.95</td>
+<td>0.96</td>
+<td>0.96</td>
+<td>0.96</td>
+<td><strong>0.96</strong></td>
+</tr>
+</tbody></table>
+<p>C 组的 7 轮数值同样稳定，两个 JDK 上的最小值都没有落进 A 组的区间，差距稳定在整档上，并且不随 JDK 变化。</p>
+<h2 id="四、内联决策：PrintInlining-的原文"><a href="#四、内联决策：PrintInlining-的原文" class="headerlink" title="四、内联决策：PrintInlining 的原文"></a>四、内联决策：PrintInlining 的原文</h2><p>耗时表给出差距，说明不了差距从哪来。加 <code>-XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining</code> 把 JIT 的内联决策打出来，原因就写在日志的每一行里。</p>
+<p>B 组（单态调用点），JDK 25 的日志原文：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">@ 13   AdapterBench$SourceAdapter::read (11 bytes)   inline (hot)   callee changed to  AdapterBench::viaAdapter (29 bytes)    \-&gt; TypeProfile (197632/197632 counts) = AdapterBench$SourceAdapter</span><br><span class="line">  @ 4   AdapterBench$ByteSource::next (38 bytes)   inline (hot)</span><br><span class="line">  @ 7   AdapterBench::decode (20 bytes)   inline (hot)</span><br></pre></td></tr></table></figure>
+
+<p>三行 <code>inline (hot)</code> 连成一条链：C2 先内联 <code>viaAdapter</code> 里的 <code>CharReader::read</code>，展开之后继续内联 <code>SourceAdapter::read</code> 里的 <code>ByteSource::next</code> 与 <code>decode</code>。<code>\-&gt; TypeProfile (197632/197632 counts) = AdapterBench$SourceAdapter</code> 说明这个调用点从运行开始到现在只见过一个实现类型，计数比是 100%（两个数字相同：197632 次采样里 197632 次是同一个类型）。B 组的循环在机器码层面就是 A 组的循环，调用次数与指令条数都相同。</p>
+<p>C 组（多实现调用点），同一个 JDK 的日志里有一次完整的推翻过程：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">48   37 %     3       AdapterBench::viaMega @ 5 (29 bytes)   made not entrant: OSR invalidation of lower levels</span><br><span class="line">                              @ 13   AdapterBench$Impl0::read (11 bytes)   inline (hot)   callee changed to  AdapterBench$Impl1::read (11 bytes)   inline (hot)   callee changed to  AdapterBench::viaMega (29 bytes)    \-&gt; TypeProfile (94285/280653 counts) = AdapterBench$Impl1   callee changed to  AdapterBench::viaMega (29 bytes)    \-&gt; TypeProfile (186368/280653 counts) = AdapterBench$Impl0</span><br><span class="line">                                @ 4   AdapterBench$ByteSource::next (38 bytes)   inline (hot)   inline (hot)</span><br><span class="line">                                @ 7   AdapterBench::decode (20 bytes)   inline (hot)   inline (hot)</span><br><span class="line">…</span><br><span class="line">49   40 %     4       AdapterBench::viaMega @ 5 (29 bytes)   made not entrant: uncommon trap</span><br><span class="line">…</span><br><span class="line">49   49       4       AdapterBench::viaMega (29 bytes)</span><br><span class="line">…</span><br><span class="line">                              @ 13   AdapterBench$CharReader::read (0 bytes)   failed to inline: virtual call</span><br></pre></td></tr></table></figure>
+
+<p>第一段是 C 组在循环中途编译出的版本（末尾 <code>%</code> 表示 OSR 编译）。那时调用点只见过 <code>Impl0</code> 与 <code>Impl1</code> 两个类型，C2 按双态内联了两份展开，<code>TypeProfile</code> 把两个类型的计数与比例一并写出。紧接着一行 <code>made not entrant: uncommon trap</code>：第三个实现类型出现，双态假设失效，这段编译结果作废，执行回到解释器。</p>
+<p>第二段是重新编译的版本。此时调用点已经见过 8 个类型，<code>CharReader::read</code> 那一行的结论是 <code>failed to inline: virtual call</code>，没有 <code>inline (hot)</code>。此后每次 <code>read()</code> 都是真实的接口分发。</p>
+<p>JDK 21 的日志里同一件事的措辞少一个前缀，结论相同：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">49   43       4       AdapterBench::viaMega (29 bytes)</span><br><span class="line">49   35       3       AdapterBench::viaMega (29 bytes)   made not entrant</span><br><span class="line">                         @ 13   AdapterBench$CharReader::read (0 bytes)   virtual call</span><br></pre></td></tr></table></figure>
+
+<p>单态的两组在 JDK 21 上同样只有一条链：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">@ 13   AdapterBench$SourceAdapter::read (11 bytes)   inline (hot)</span><br><span class="line"> \-&gt; TypeProfile (165064/165064 counts) = AdapterBench$SourceAdapter</span><br><span class="line">  @ 4   AdapterBench$ByteSource::next (38 bytes)   inline (hot)</span><br><span class="line">  @ 7   AdapterBench::decode (20 bytes)   inline (hot)</span><br></pre></td></tr></table></figure>
+
+<p>D 组的日志只是链更短，同样是 <code>inline (hot)</code>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">@ 13   AdapterBench$ByteSource::read (8 bytes)   inline (hot)   callee changed to  AdapterBench::viaSelf (29 bytes)    \-&gt; TypeProfile (1016830/1016830 counts) = AdapterBench$ByteSource</span><br><span class="line">  @ 1   AdapterBench$ByteSource::next (38 bytes)   inline (hot)</span><br><span class="line">  @ 4   AdapterBench::decode (20 bytes)   inline (hot)</span><br></pre></td></tr></table></figure>
+
+<p>触发条件写在 HotSpot 的参数里：<code>TypeProfileWidth</code> 默认值 2（JDK 21 与 JDK 25 上 <code>-XX:+PrintFlagsFinal</code> 都是 <code>= 2</code>），调用点最多记录两个实现类型，第三个出现时按超多态处理。这个参数在 OpenJDK 源码里的定义是 <code>product(intx, TypeProfileWidth, 2, &quot;Number of receiver types to record in call/cast profile&quot;) range(0, 8)</code>（<code>src/hotspot/share/runtime/globals.hpp:1354</code>），上限 8 个类型。方法体积也不是限制：<code>viaAdapter</code> 29 字节、<code>SourceAdapter::read</code> 11 字节、<code>ByteSource::next</code> 38 字节、<code>decode</code> 20 字节，都远在 <code>FreqInlineSize</code> 默认的 325 字节额度之内。</p>
+<p>日志每行的格式是「时间 编译序号 编译层级 方法名」，行首带 <code>%</code> 的是 OSR 编译（循环跑到一半触发的那次）。要自己复现这几段原文，用同一条命令即可：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">java -XX:+UnlockDiagnosticVMOptions -XX:+PrintCompilation \</span><br><span class="line">     -XX:CompileCommand=quiet -XX:CompileCommand=PrintInlining,<span class="string">&#x27;AdapterBench*::*&#x27;</span> \</span><br><span class="line">     -<span class="built_in">cp</span> out AdapterBench 30 4 1 2 quiet</span><br></pre></td></tr></table></figure>
+
+<p>后四个参数是运行长度与轮数：A&#x2F;B&#x2F;D 每组 196 万次、C 组每个实现 26 万次、1 轮预热、2 轮测量；末尾的 <code>quiet</code> 让基准自己不打印，日志里只剩 JVM 的输出。<code>-XX:CompileCommand=quiet</code> 与 <code>PrintInlining,&#39;AdapterBench*::*&#39;</code> 把打印范围限制在这四个类上，两份日志各 200 行上下，可以直接人眼过一遍。</p>
+<p>差距的来源就写在这些日志行里：判定成本的是调用点的类型分布，适配器对象在其中不起作用。B 与 C 的源码差别只是 8 个类名，机器码差别是一次内联和一次接口分发，1 亿次累计成 3.07× 的差距。</p>
+<h2 id="五、关掉-JIT-之后"><a href="#五、关掉-JIT-之后" class="headerlink" title="五、关掉 JIT 之后"></a>五、关掉 JIT 之后</h2><p>把 JIT 关掉（<code>-Xint</code>），内联与类型 profile 都不存在，每层调用都按解释器的规则付钱。同样的四组，A&#x2F;B&#x2F;D 每轮 1,310,720 次调用，C 组 1,048,576 次，1 轮预热后测 3 轮取中位数：</p>
+<table>
+<thead>
+<tr>
+<th>组</th>
+<th>调用形态</th>
+<th>JDK 21 (ns&#x2F;次)</th>
+<th>JDK 25 (ns&#x2F;次)</th>
+<th>相对 A（JDK 25）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A</td>
+<td>直接调用</td>
+<td>53.56</td>
+<td>53.91</td>
+<td>1.00</td>
+</tr>
+<tr>
+<td>B</td>
+<td>一层适配</td>
+<td>77.23</td>
+<td>79.24</td>
+<td>1.47×</td>
+</tr>
+<tr>
+<td>C</td>
+<td>多实现</td>
+<td>77.18</td>
+<td>78.58</td>
+<td>1.46×</td>
+</tr>
+<tr>
+<td>D</td>
+<td>绕过包装</td>
+<td>75.17</td>
+<td>78.94</td>
+<td>1.46×</td>
+</tr>
+</tbody></table>
+<p>解释器下 B 组的耗时是 A 组的 1.47×（79.24 对 53.91 ns&#x2F;次），每次调用多出的 25.33 ns 就是那一层的价格。A 组每次迭代付两次解释调用（<code>next()</code> 与静态 <code>decode</code>），B 组付三次（多一层 <code>read()</code>）。上一节 C 相对 B 的劣势在这里消失：JDK 25 上 C 组 78.58 对 B 组 79.24，JDK 21 上是 77.18 对 77.23，与 D 组几乎重合。解释器下每次调用都要完整分派，调用点上实现的种类数不再产生差别。</p>
+<p>两组数字摆在一起，适配器的成本是这样分布的：解释执行时每多一层调用就多付一次分派；JIT 打开之后，单态调用点上内联把这一层抹掉，多态调用点上同一层开销以接口分发的方式回来。</p>
+<p>解释执行会在这些场景里出现：进程启动阶段的前几千次调用、明确关闭 JIT 的批处理、JIT 判定为冷方法而留在解释器里的调用路径。每一层适配器在这里都实付成本，单位是每次几十纳秒，只有在循环百万次的路径上才值得看一眼。</p>
+<h2 id="六、JDK-源码里的四个适配器"><a href="#六、JDK-源码里的四个适配器" class="headerlink" title="六、JDK 源码里的四个适配器"></a>六、JDK 源码里的四个适配器</h2><h3 id="Arrays-asList：数组接口到-List-接口"><a href="#Arrays-asList：数组接口到-List-接口" class="headerlink" title="Arrays#asList：数组接口到 List 接口"></a>Arrays#asList：数组接口到 List 接口</h3><p>JDK 25，<code>java.base/java/util/Arrays.java:4180</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> &lt;T&gt; List&lt;T&gt; <span class="title function_">asList</span><span class="params">(T... a)</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;(a);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>同文件 <code>:4151-4153</code> 的注释把动机写得很直白：<code>This method acts as bridge between array-based and collection-based APIs</code>。返回的 <code>ArrayList</code> 是文件内的私有类（<code>:4187</code>），它持有原数组（<code>:4194</code> <code>private final E[] a;</code>），<code>get</code> 直接读数组下标（<code>:4224</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">public</span> E <span class="title function_">get</span><span class="params">(<span class="type">int</span> index)</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> a[index];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>适配器在这里的全部开销是一个对象头加一个字段，O(1)，与数组长度无关。<code>set</code> 也是直接写回原数组（<code>:4229</code>），所以列表和数组是同一份数据，改一边另一边跟着变。类注释在 <code>:4138</code> 与 <code>:4143-4145</code> 说明了边界：返回的是 <code>a fixed-size list backed by the specified array</code>，改变长度的操作会抛 <code>UnsupportedOperationException</code>。</p>
+<h3 id="InputStreamReader：字节流接口到字符流接口"><a href="#InputStreamReader：字节流接口到字符流接口" class="headerlink" title="InputStreamReader：字节流接口到字符流接口"></a>InputStreamReader：字节流接口到字符流接口</h3><p>JDK 25，<code>java.base/java/io/InputStreamReader.java:34</code> 的类注释：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* An InputStreamReader is a bridge from byte streams to character streams: It</span><br><span class="line">* reads bytes and decodes them into characters using a specified &#123;@link</span><br><span class="line">* Charset charset&#125;.</span><br></pre></td></tr></table></figure>
+
+<p><code>InputStreamReader</code>（<code>:69</code>）只持有一个 <code>StreamDecoder</code>（<code>:70</code> <code>private final StreamDecoder sd;</code>），方法是清一色的一行转发。<code>read()</code> 在 <code>:174</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="type">int</span> <span class="title function_">read</span><span class="params">()</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">    <span class="keyword">return</span> sd.read();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>read(char[], int, int)</code>（<code>:182</code>）、<code>ready()</code>（<code>:193</code>）、<code>close()</code>（<code>:197</code>）形状相同。整个文件 201 行，除 4 个构造函数与 javadoc 之外，6 个方法的全部内容都是 <code>sd.xxx()</code>。</p>
+<p>JDK 25 全部源码里，类注释直接写 <code>is a bridge from</code> 的只有两处，分别在这一对适配器的 <code>:34</code> 行。</p>
+<p>解码发生在 <code>java.base/sun/nio/cs/StreamDecoder.java</code>。解码器带一个 8192 字节的输入缓冲（<code>:50</code> <code>DEFAULT_BYTE_BUFFER_SIZE = 8192;</code>），字节先读进缓冲再解码：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="variable">n</span> <span class="operator">=</span> in.read(bb.array(), bb.arrayOffset() + pos, rem);   <span class="comment">// StreamDecoder.java:279</span></span><br></pre></td></tr></table></figure>
+
+<p>它还保存一个「读多出来的半个字符」（<code>:59-64</code> 的 <code>haveLeftoverChar</code> 与 <code>leftoverChar</code>），因为 UTF-16 的代理对必须成对处理，而 <code>read()</code> 一次只返回一个字符（<code>:118-148</code>）。适配器在这里既有状态也有逻辑，接口翻译与解码策略叠在一条调用链上。</p>
+<p><code>OutputStreamWriter.java:34</code> 是反方向：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* An OutputStreamWriter is a bridge from character streams to byte streams:</span><br><span class="line">* Characters written to it are encoded into bytes using a specified &#123;@link</span><br><span class="line">* Charset charset&#125;.</span><br></pre></td></tr></table></figure>
+
+<p><code>write(int c)</code>（<code>:187</code>）转发给 <code>se.write(c)</code>，<code>write(char[], int, int)</code>（<code>:205</code>）与 <code>write(String, int, int)</code>（<code>:223</code>）同样转发。<code>:40-43</code> 的注释说明了缓冲的位置：<code>The resulting bytes are accumulated in a buffer before being written to the underlying output stream</code>，字符本身不缓冲，编码后的字节才进缓冲。这一对适配器覆盖同一个问题的两个方向，一侧的接口是字节流，另一侧是字符流，转换发生在中间的解码器与编码器里。</p>
+<h3 id="Collections-unmodifiableList：接口的收窄"><a href="#Collections-unmodifiableList：接口的收窄" class="headerlink" title="Collections#unmodifiableList：接口的收窄"></a>Collections#unmodifiableList：接口的收窄</h3><p>JDK 25，<code>java.base/java/util/Collections.java:1475</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> &lt;T&gt; List&lt;T&gt; <span class="title function_">unmodifiableList</span><span class="params">(List&lt;? extends T&gt; list)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (list.getClass() == UnmodifiableList.class || list.getClass() == UnmodifiableRandomAccessList.class) &#123;</span><br><span class="line">       <span class="keyword">return</span> (List&lt;T&gt;) list;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> (list <span class="keyword">instanceof</span> RandomAccess ?</span><br><span class="line">            <span class="keyword">new</span> <span class="title class_">UnmodifiableRandomAccessList</span>&lt;&gt;(list) :</span><br><span class="line">            <span class="keyword">new</span> <span class="title class_">UnmodifiableList</span>&lt;&gt;(list));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>UnmodifiableList</code>（<code>:1488</code>）持有被包装的列表（<code>:1495</code> <code>final List&lt;? extends E&gt; list;</code>），读操作转发（<code>:1505</code> <code>public E get(int index) &#123;return list.get(index);&#125;</code>），写操作抛异常（<code>:1506</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> E <span class="title function_">set</span><span class="params">(<span class="type">int</span> index, E element)</span> &#123;</span><br><span class="line">    <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">UnsupportedOperationException</span>();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这是适配器的第三种用法：接口形状不变，可用方法的集合收窄。它是一层视图，不复制任何元素，底层列表的改动会直接反映到这层包装上。<code>unmodifiableList</code> 自身还做了幂等判断（<code>:1476</code>），入参已经是不可修改的包装时直接返回原对象，避免包装层层套叠。</p>
+<h3 id="四个适配器的共同点"><a href="#四个适配器的共同点" class="headerlink" title="四个适配器的共同点"></a>四个适配器的共同点</h3><table>
+<thead>
+<tr>
+<th>适配器</th>
+<th>持有的字段</th>
+<th>每次调用做什么</th>
+<th>构造成本</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Arrays#asList</code></td>
+<td><code>E[] a</code></td>
+<td>数组下标读写</td>
+<td>1 个对象</td>
+</tr>
+<tr>
+<td><code>InputStreamReader</code></td>
+<td><code>StreamDecoder sd</code></td>
+<td>转发 + 解码 + 8192 字节缓冲</td>
+<td>1 个对象 + 1 个解码器</td>
+</tr>
+<tr>
+<td><code>OutputStreamWriter</code></td>
+<td><code>StreamEncoder se</code></td>
+<td>转发 + 编码 + 输出缓冲</td>
+<td>1 个对象 + 1 个编码器</td>
+</tr>
+<tr>
+<td><code>Collections#unmodifiableList</code></td>
+<td><code>List&lt;? extends E&gt; list</code></td>
+<td>读转发、写抛异常</td>
+<td>1 个对象</td>
+</tr>
+</tbody></table>
+<p>四个类的构造成本都是 O(1)，没有数据复制。三个字段名（<code>a</code>、<code>sd</code>、<code>list</code>）都指向被适配的对象，转发方法都只有一行。第一节测的就是那一行的价格。</p>
+<p>四个适配器在真实代码里还会和装饰器叠在一起。<code>InputStreamReader</code> 的类注释就推荐这种叠法（<code>InputStreamReader.java:46-51</code>）：<code>For top efficiency, consider wrapping an InputStreamReader within a BufferedReader</code>，理由是适配器每次 <code>read()</code> 都要经过解码器，<code>BufferedReader</code> 把字符也缓冲一层，减少进入解码器的次数。这条链上外层是装饰器（同接口加缓冲），内层是适配器（换接口加解码），两种模式各管一段，互不替代。缓冲层的代价与顺序已经在<a href="/1805545517.html">装饰器一篇</a>里量过。</p>
+<h3 id="怎么核对行号"><a href="#怎么核对行号" class="headerlink" title="怎么核对行号"></a>怎么核对行号</h3><p>上面所有行号都指向 JDK 25 安装目录里的 <code>src.zip</code>，可以直接查：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">unzip -p <span class="string">&quot;<span class="variable">$JAVA_HOME</span>/lib/src.zip&quot;</span> java.base/java/util/Arrays.java | sed -n <span class="string">&#x27;4180,4182p&#x27;</span></span><br><span class="line">unzip -p <span class="string">&quot;<span class="variable">$JAVA_HOME</span>/lib/src.zip&quot;</span> java.base/java/io/InputStreamReader.java | sed -n <span class="string">&#x27;174,176p&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>InputStreamReader</code> 的转发链还可以用 <code>javap</code> 从字节码上看：<code>javap -c -p java.io.InputStreamReader</code> 里每个方法的常量池引用都指向 <code>StreamDecoder</code>，类里没有别的字段。</p>
+<h2 id="七、边界"><a href="#七、边界" class="headerlink" title="七、边界"></a>七、边界</h2><p><strong>适配器与装饰器。</strong> 适配器换接口，调用方拿到的类型与传入的不同：<code>ByteSource</code> 进，<code>CharReader</code> 出。装饰器保持类型不变，在调用前后做别的事：<code>BufferedInputStream</code> 进，<code>BufferedInputStream</code> 出，流本身没变，只是多垫了一层缓冲。判断方法是在构造点看两侧的静态类型，相同是装饰，不同是适配。装饰器的详细数据在<a href="/1805545517.html">装饰器一篇</a>里。</p>
+<p><strong>适配器与桥接。</strong> 适配器处理已经存在的两个不匹配接口，转换发生一次，之后调用方拿到的就是它要的类型。桥接处理的是设计期的问题：两个维度都会各自扩展，把继承换成组合，让 <code>形状 × 颜色</code> 不再需要 2×2 个类。桥接的两个维度之间没有新旧之分，也不用翻译，见<a href="/3162181737.html">桥接一篇</a>。</p>
+<p><strong>适配器与代理。</strong> 代理与被代理对象实现同一个接口，管的是访问控制与转发时机：延迟加载、权限检查、远程调用。适配器的两个接口本来就不同，也没有访问控制语义，见<a href="/2622618202.html">代理一篇</a>。</p>
+<p>四个模式都会产生一个持有引用的中间对象，代码形状接近，性能特征也接近：O(1) 构造加一次转发，受同一套内联规则支配。选哪个由动机决定，性能上四者没有可测的差别。</p>
+<h2 id="八、结论"><a href="#八、结论" class="headerlink" title="八、结论"></a>八、结论</h2><h3 id="什么时候用适配器"><a href="#什么时候用适配器" class="headerlink" title="什么时候用适配器"></a>什么时候用适配器</h3><p>调用方的类型已经定死（第三方库的参数、<code>java.io.Reader</code>、<code>java.util.List</code> 这类标准接口），而现有实现的接口对不上，同时现有实现改不了或者不该改。两个条件同时满足时，适配器是唯一不复制数据的解法。</p>
+<p><code>Arrays#asList</code> 与 <code>Collections#unmodifiableList</code> 另外说明了一种情况：新旧两个接口都是自己的，选择适配器而不改类型，是因为旧接口的语义仍然需要保留（数组仍能按下标写，底层列表的原持有者仍能改）。</p>
+<p>常见场景还有两类。一类是新接口已经上线，旧实现还要继续服务旧调用方，两者之间加一层适配器，两边都不必做破坏性改动；另一类是测试替身，把真实对象换成受控实现，被测代码拿到的类型不变。这两类的共同点是接口所有权不在自己手里，或者改接口的代价大于加一层。</p>
+<h3 id="什么时候不用"><a href="#什么时候不用" class="headerlink" title="什么时候不用"></a>什么时候不用</h3><ul>
+<li><strong>不想付那一层转发</strong>。D 组的数据说明这个方向没有回报：绕过适配器对象、让旧类直接实现新接口，两个 JDK 上都测不出差别。省掉的层数在 1 亿次调用里小于轮间波动，代价是让旧类多背一个新接口。</li>
+<li><strong>想给对象加能力</strong>。加缓冲、加计数、加校验是装饰器的活。用适配器做这件事，调用方得同时认识两个接口。</li>
+<li><strong>调用点是热的，并且会收到多种实现类型</strong>。这时 1 亿次调用的耗时是单态形态的 3 倍左右（JDK 21 为 3.07×，JDK 25 为 2.90×），来源是接口分发本身。这种情况下删掉适配器省不了钱，能省钱的是收敛调用点上的类型，或者把值取出来批量处理。</li>
+</ul>
+<h3 id="适配器不一定是对象"><a href="#适配器不一定是对象" class="headerlink" title="适配器不一定是对象"></a>适配器不一定是对象</h3><p>本文测的 B 组是对象适配器：一个实现新接口的对象持有旧对象，转发靠委托。另一种常见写法是函数级适配，即 A 组的形态，在调用处直接转换，没有新类型。代价是调用方必须认识具体类型，也没法再做多态替换，换来的是省掉一个对象。</p>
+<p>继承式的类适配器在 JDK 里找不到纯正的样本。<code>FileReader extends InputStreamReader</code>（<code>FileReader.java:46</code>）看起来像，被适配的 <code>FileInputStream</code> 仍然由构造参数传入（<code>:59-61</code> <code>super(new FileInputStream(fileName));</code>），它继承的是适配器本身，作用是把数据源固定成一个文件，没有新增任何接口翻译。类适配器要继承被适配类、同时实现新接口，遇到 <code>final</code> 类，或者需要共享同一个被适配对象，就写不下去。</p>
+<h3 id="一条判断顺序"><a href="#一条判断顺序" class="headerlink" title="一条判断顺序"></a>一条判断顺序</h3><ol>
+<li>问调用方手里的接口和现有对象提供的接口是否相同。不同，进入下一步；相同，考虑装饰器或代理。</li>
+<li>问差异是否来自两个都在独立变化的维度。是，用桥接；否，用适配器。</li>
+<li>问这个调用点会不会收到多种实现类型。会，先让类型收敛或者改成批量取值；不会，适配器那层转发在内联之后量不出来。</li>
+</ol>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>1 亿次调用，JIT 打开：直接调用、一层适配、绕过包装三种形态在两个 JDK 上都落在同一档，轮间波动大于三者之间的差；只有多实现调用点的耗时稳定落在单态形态的 3 倍左右（JDK 21 为 3.07×，JDK 25 为 2.90×）。</li>
+<li><code>-XX:+PrintInlining</code> 的原文给出机制：单态调用点打印 <code>inline (hot)</code> 与 <code>TypeProfile (197632/197632 counts) = AdapterBench$SourceAdapter</code>；多实现调用点先按双态内联，第三个类型出现时 <code>made not entrant: uncommon trap</code>，重编译后是 <code>failed to inline: virtual call</code>。</li>
+<li>触发条件是 <code>TypeProfileWidth</code>（默认 2，两个 JDK 相同），决定是否触发的是调用点的实现类型数。</li>
+<li>关掉 JIT（<code>-Xint</code>）之后那层转发的开销直接落在数字上，B 组的耗时约为 A 组的 1.47×。JIT 把解释执行的常数开销抹平；多态分派的开销保留。</li>
+<li>JDK 里的四个适配器：<code>Arrays#asList</code>（<code>Arrays.java:4180</code>，O(1) 视图）、<code>InputStreamReader</code>（<code>InputStreamReader.java:174</code>，一行转发给 <code>StreamDecoder</code>，后者带 8192 字节缓冲与半个字符的状态）、<code>OutputStreamWriter</code>（<code>OutputStreamWriter.java:187</code>，反方向，编码后的字节进缓冲）、<code>Collections#unmodifiableList</code>（<code>Collections.java:1475</code>，视图加接口收窄，对已是不可修改的入参幂等返回）。</li>
+<li>边界：适配器换接口，装饰器不改接口加行为，桥接拆两个独立维度，代理管访问。四者的性能结构相同。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/Arrays.html">Arrays (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/Collections.html">Collections (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/io/InputStreamReader.html">InputStreamReader (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/io/OutputStreamWriter.html">OutputStreamWriter (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/io/Reader.html">Reader (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/List.html">List (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-6.html#jvms-6.5.invokeinterface">JVMS §6.5 invokeinterface</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/openjdk/jdk25u/blob/master/src/java.base/share/classes/sun/nio/cs/StreamDecoder.java">OpenJDK jdk25u: sun.nio.cs.StreamDecoder</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/openjdk/jdk25u/blob/master/src/hotspot/share/runtime/globals.hpp#L1354">OpenJDK jdk25u: runtime&#x2F;globals.hpp（TypeProfileWidth 定义）</a></li>
+</ul>
+<blockquote>
+<p>系列索引：<a href="/pattern/">设计模式系列</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/205079771.html">https://lianglliu.github.io/205079771.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a><a class="post-meta__tags" href="/tags/%E9%80%82%E9%85%8D%E5%99%A8%E6%A8%A1%E5%BC%8F/">适配器模式</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/2303830241.html" title="Java——ScopedValue 替代 ThreadLocal"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">Java——ScopedValue 替代 ThreadLocal</div></div><div class="info-2"><div class="info-item-1"> 传递”当前请求是谁发的”这类数据，过去的标准答案是 ThreadLocal。它在同步阻塞的世界里很好用，但遇到线程池和虚拟线程就开始漏水：值会跨请求残留、每个线程都要存一份、子线程继承要靠另一套 API。ScopedValue 在 JDK 25 转正（JEP 506，Status: Closed / Delivered、Release: 25），它是”单向、不可变、生命周期跟着代码块走”的上下文传递方式。这篇只讲四件事：怎么用、和线程池一起用会怎样、内存是谁按住的、以及什么情况下不该迁移。  实验环境1234$ java -versionjava 25 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)  ScopedValue 在 JDK 25 已经是正式特性，不需要 --enable-preview；而同期的 StructuredTask...</div></div></div></a><a class="pagination-related" href="/2630879553.html" title="设计模式——享元：共享不可变状态"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">设计模式——享元：共享不可变状态</div></div><div class="info-2"><div class="info-item-1"> Integer.valueOf(500) 每次调用返回一个新对象，Integer.valueOf(5) 每次返回同一个。两者的方法体一样，差别在 IntegerCache 的区间上，而这个区间由启动参数决定。享元模式做的就这一件事：把不变的部分抽出来放进池子共享，把每次都不同的部分当参数传进去。Integer 的值是内在状态，调用方要哪个数是外在状态。1 亿次调用、一组 JVM 参数和两个 JDK 量出这条分界线的两个后果：分配字节从每次 16 变成 0，耗时只差 1.5 倍左右。差额的去处在 TLAB 和 GC 里。  一、享元拆开了什么享元把对象的字段拆成两半。实例之间重复的那部分字段，JDK 里的说法是内在状态，抽出来放进池子，每个值只留一个实例。随调用变化的那部分叫外在状态，留在对象外面，每次调用时当参数传进来。      classDiagram     direction LR     class FlyweightFactory {         -Map pool         +get(Key) Flyweight     }     class Flyw...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2151391806.html" title="设计模式——访问者：类型与操作的矩阵"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——访问者：类型与操作的矩阵</div></div><div class="info-2"><div class="info-item-1"> 访问者模式的经典卖点是「加操作容易、加类型难」：操作轴加一个类，类型轴改遍所有操作。sealed interface 与模式匹配之后，这笔账要重算：switch 也有穷尽性检查，加类型时编译器同样点名。4 类型 × 4 操作的矩阵两种写法都写一遍，量耗时、量两个扩展方向的真实 diff，再看 JDK 24+ 的 ClassFile API 为什么选了访问者这一侧。  一、问题出在哪访问者的机制是双分派。第一次分派给节点，第二次分派给操作： 12345678910111213141516// 节点侧public record Add(Expr left, Expr right) implements Expr &#123;    @Override    public &lt;R&gt; R accept(ExprVisitor&lt;R&gt; visitor) &#123;        return visitor.visitAdd(this);    &#125;&#125;// 操作侧public final class EvalVisitor implements E...</div></div></div></a><a class="pagination-related" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——装饰器：缓冲链的代价</div></div><div class="info-2"><div class="info-item-1"> 装饰器把「给一个对象加能力」变成了廉价操作：new BufferedInputStream(new FileInputStream(f)) 只是多写一层。但每一层都会改写下层被调用的形态——调用次数、每次的块大小、flush 与 close 的语义。这些改动在源码里看不到，只能测。本文用一个 48 MiB 文件、libc 层的真实 read(2) 计数，和两个 JDK（21.0.8 与 25）回答一个问题：这条链上多包一层，到底买到了什么，代价在哪。  一、装饰器换到的东西继承式的算术给一个数据源加「缓冲」和「校验」两种能力。如果用继承，每多一种能力就要多一层子类，而两种能力的叠加顺序又各自是一个类：      classDiagram     direction TB     class FileDataSource     class BufferedFile     class ChecksumFile     class BufferedChecksumFile     class ChecksumBufferedFile     FileDataSource &lt;...</div></div></div></a><a class="pagination-related" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——单例的五种写法与代价</div></div><div class="info-2"><div class="info-item-1">概述 单例（Singleton）是被讲得最多、也被误用最多的设计模式之一。这篇只回答三个问题：  五种写法各自把代价付在了哪里？用 JDK 25 的字节码和实测延迟回答。 “唯一性”能不能被打破？实跑反射、反序列化、Unsafe、clone 四条路径，包括对枚举版的攻击。 什么时候不该用单例？全局状态、测试隔离、类加载器边界。  代码均在本机 JDK 21 与 JDK 25 编译运行，txt 块是真实终端输出；涉及线程语义的结论都指到 JLS 具体章节。   五种写法每种实现的构造器里都调用一次 Work.expensive()：一段 4000 万次的整数忙循环（for (int i = 0; i &lt; 40_000_000; i++) x = (x * 31 + i) ^ (x &gt;&gt;&gt; 5);，最后返回 x），在本机约 75ms，好让”初始化成本”在实测里被定位到不同时间点。 一、饿汉式：类初始化时就把实例建好12345678910111213public final class EagerSingleton &#123;    // 类初始化时（JLS ...</div></div></div></a><a class="pagination-related" href="/3478563539.html" title="设计模式——组合：树与叶子的同一接口"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——组合：树与叶子的同一接口</div></div><div class="info-2"><div class="info-item-1"> 组合模式把容器和叶子放在同一个接口后面，客户端写一个递归就能处理整棵树。代价落在三处：每个节点都要过一次接口调用，类型信息被接口抹平，递归深度受线程栈限制。本文用一棵 10 万节点的树、三种遍历写法、三组测量和两个 JDK，把这三笔账量一遍。  一、组合模式换到的东西树形结构里，同一段代码常要处理容器和叶子：目录与文件、窗口与按钮、JSON 对象与字面量。组合模式的做法是让容器实现与叶子相同的接口，容器持有同一类型的子节点数组。      classDiagram     direction TB     class Component {         &lt;&lt;interface&gt;&gt;         +value() int         +children() Component[]     }     class Leaf     class Container {         -Component[] kids     }     Component &lt;|.. Leaf     Component &lt;|.. Container  ...</div></div></div></a><a class="pagination-related" href="/3520122771.html" title="设计模式——责任链：三种形态"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——责任链：三种形态</div></div><div class="info-2"><div class="info-item-1"> 责任链把「谁处理这个请求」从调用点挪到了运行时。调用方发出一次，节点自己决定接不接。JDK 里这条链有三种落地形态，表达「拦住了」的方式各不相同：处理链返回 boolean，过滤链返回替换对象或 null，Stream 的 stage 链用反向询问的取消标记。本文用 1 亿个元素量三种形态的每元素成本随链长的变化，用 8 节点链量命中位置的影响，再从 JDK 源码指出差别出自哪一行。  一、三种形态，三种收场一个请求要穿过若干检查点，每个检查点各自判断：这个我能处理，或者这不归我管，交给下一个。责任链（Chain of Responsibility）把这条传递路径做成对象结构，但「传递」本身在 JDK 里有三条不同的实现路线。 处理链的节点返回 boolean。命中返回 true，调用方知道事情办完了；全部返回 false 就是没人管。停下来的信号沿返回值传回调用方。 过滤链的节点不报告「办没办成」，返回一个替换对象或者 null。返回新对象表示这一层改写了请求、需要重发；返回 null 表示这一层放行，继续看下一个节点。java.net.http 用这个形状：请求过滤器正序遍...</div></div></div></a><a class="pagination-related" href="/550034456.html" title="设计模式——对象池：什么时候是负优化"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——对象池：什么时候是负优化</div></div><div class="info-2"><div class="info-item-1"> 对象池把「分配」换成了「借还」。分配走线程私有的 TLAB，借还抢所有线程共用的队列。收益只能来自免掉构造与初始化，代价是同步。构造越贵，这笔交换越划算；构造越便宜，省下的越少，而同步开销照付。三种构造成本（1 KiB 数组、DirectByteBuffer(1 KiB)、SecureRandom 初始化）乘三种取法（每次 new、ThreadLocal 池、ReentrantLock 池），在 1、8、16 线程下各计时 1 秒，JDK 21 与 JDK 25 都跑，找出池化从赚到亏的那条线。  一、池化把什么换成了什么new 是一条线程私有路径。HotSpot 给每个线程一块 TLAB，分配对象就是把指针往前挪一段，再零初始化。 池化把这条路径改成：从共享队列取一个对象、重置它的状态、用完还回去。取和还都要同步。      graph TD     subgraph A[&quot;每次 new：线程私有&quot;]       A1[&quot;线程本地 TLAB&quot;] --&gt;|&quot;指针加法 + 清零&quot;| A2[&quot;可用的新对象&...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E9%97%AE%E9%A2%98%EF%BC%9A%E9%82%A3%E4%B8%80%E5%B1%82%E8%B0%83%E7%94%A8%E5%80%BC%E5%A4%9A%E5%B0%91%E9%92%B1"><span class="toc-number">1.</span> <span class="toc-text">一、问题：那一层调用值多少钱</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%8E%E7%9B%B8%E9%82%BB%E6%A8%A1%E5%BC%8F%E7%9A%84%E5%88%86%E7%95%8C%EF%BC%8C%E5%85%88%E5%88%92%E4%B8%80%E6%AC%A1"><span class="toc-number">1.1.</span> <span class="toc-text">与相邻模式的分界，先划一次</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1"><span class="toc-number">2.</span> <span class="toc-text">二、实验设计</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%88%A4%E6%8D%AE%E6%B5%81%E7%A8%8B"><span class="toc-number">2.1.</span> <span class="toc-text">判据流程</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E6%B5%8B%EF%BC%9AJIT-%E6%89%93%E5%BC%80%E6%97%B6"><span class="toc-number">3.</span> <span class="toc-text">三、实测：JIT 打开时</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%80%8E%E4%B9%88%E8%AF%BB%E8%BF%99%E5%BC%A0%E8%A1%A8"><span class="toc-number">3.1.</span> <span class="toc-text">怎么读这张表</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-%E8%BD%AE%E7%9A%84%E5%8E%9F%E5%A7%8B%E6%95%B0%E5%AD%97"><span class="toc-number">3.2.</span> <span class="toc-text">7 轮的原始数字</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%86%85%E8%81%94%E5%86%B3%E7%AD%96%EF%BC%9APrintInlining-%E7%9A%84%E5%8E%9F%E6%96%87"><span class="toc-number">4.</span> <span class="toc-text">四、内联决策：PrintInlining 的原文</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%85%B3%E6%8E%89-JIT-%E4%B9%8B%E5%90%8E"><span class="toc-number">5.</span> <span class="toc-text">五、关掉 JIT 之后</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81JDK-%E6%BA%90%E7%A0%81%E9%87%8C%E7%9A%84%E5%9B%9B%E4%B8%AA%E9%80%82%E9%85%8D%E5%99%A8"><span class="toc-number">6.</span> <span class="toc-text">六、JDK 源码里的四个适配器</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#Arrays-asList%EF%BC%9A%E6%95%B0%E7%BB%84%E6%8E%A5%E5%8F%A3%E5%88%B0-List-%E6%8E%A5%E5%8F%A3"><span class="toc-number">6.1.</span> <span class="toc-text">Arrays#asList：数组接口到 List 接口</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#InputStreamReader%EF%BC%9A%E5%AD%97%E8%8A%82%E6%B5%81%E6%8E%A5%E5%8F%A3%E5%88%B0%E5%AD%97%E7%AC%A6%E6%B5%81%E6%8E%A5%E5%8F%A3"><span class="toc-number">6.2.</span> <span class="toc-text">InputStreamReader：字节流接口到字符流接口</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Collections-unmodifiableList%EF%BC%9A%E6%8E%A5%E5%8F%A3%E7%9A%84%E6%94%B6%E7%AA%84"><span class="toc-number">6.3.</span> <span class="toc-text">Collections#unmodifiableList：接口的收窄</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9B%9B%E4%B8%AA%E9%80%82%E9%85%8D%E5%99%A8%E7%9A%84%E5%85%B1%E5%90%8C%E7%82%B9"><span class="toc-number">6.4.</span> <span class="toc-text">四个适配器的共同点</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%80%8E%E4%B9%88%E6%A0%B8%E5%AF%B9%E8%A1%8C%E5%8F%B7"><span class="toc-number">6.5.</span> <span class="toc-text">怎么核对行号</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E8%BE%B9%E7%95%8C"><span class="toc-number">7.</span> <span class="toc-text">七、边界</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E7%BB%93%E8%AE%BA"><span class="toc-number">8.</span> <span class="toc-text">八、结论</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%94%A8%E9%80%82%E9%85%8D%E5%99%A8"><span class="toc-number">8.1.</span> <span class="toc-text">什么时候用适配器</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%B8%8D%E7%94%A8"><span class="toc-number">8.2.</span> <span class="toc-text">什么时候不用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%80%82%E9%85%8D%E5%99%A8%E4%B8%8D%E4%B8%80%E5%AE%9A%E6%98%AF%E5%AF%B9%E8%B1%A1"><span class="toc-number">8.3.</span> <span class="toc-text">适配器不一定是对象</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E6%9D%A1%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">8.4.</span> <span class="toc-text">一条判断顺序</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">9.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">10.</span> <span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  const parseViewBox = viewBox => {
+    if (!viewBox) return null
+    const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return null
+    return parts
+  }
+
+  const getSvgViewBox = svg => {
+    const attr = parseViewBox(svg.getAttribute('viewBox'))
+    if (attr) return attr
+
+    // Fallback: use bbox to build a viewBox
+    try {
+      const bbox = svg.getBBox()
+      if (bbox && bbox.width && bbox.height) return [bbox.x, bbox.y, bbox.width, bbox.height]
+    } catch (e) {
+      // getBBox may fail on some edge cases; ignore
+    }
+
+    const w = Number(svg.getAttribute('width')) || 0
+    const h = Number(svg.getAttribute('height')) || 0
+    if (w > 0 && h > 0) return [0, 0, w, h]
+    return [0, 0, 100, 100]
+  }
+
+  const setSvgViewBox = (svg, vb) => {
+    svg.setAttribute('viewBox', `${vb[0]} ${vb[1]} ${vb[2]} ${vb[3]}`)
+  }
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
+  const openSvgInNewTab = ({ source, initViewBox }) => {
+    const getClonedSvg = () => {
+      if (typeof source === 'string') {
+        const template = document.createElement('template')
+        template.innerHTML = source.trim()
+        const svg = template.content.querySelector('svg')
+        return svg ? svg.cloneNode(true) : null
+      }
+      if (source && typeof source.cloneNode === 'function') {
+        return source.cloneNode(true)
+      }
+      return null
+    }
+
+    const clone = getClonedSvg()
+    if (!clone) return
+    if (initViewBox && initViewBox.length === 4) {
+      clone.setAttribute('viewBox', initViewBox.join(' '))
+    }
+    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    if (!clone.getAttribute('xmlns:xlink') && clone.innerHTML.includes('xlink:')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    }
+    // inject background to match current theme
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const bg = getComputedStyle(document.body).backgroundColor || (isDark ? '#1e1e1e' : '#ffffff')
+    if (!clone.style.background) clone.style.background = bg
+
+    const serializer = new XMLSerializer()
+    const svgSource = serializer.serializeToString(clone)
+    const htmlSource = `<!doctype html><html><head><meta charset="utf-8" />
+      <style>
+        html, body { width: 100%; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; background: ${bg}; }
+        svg { max-width: 100%; max-height: 100%; height: auto; width: auto; }
+      </style>
+      </head><body>${svgSource}</body></html>`
+    const blob = new Blob([htmlSource], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener')
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  const attachMermaidViewerButton = wrap => {
+    let btn = wrap.querySelector('.mermaid-open-btn')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mermaid-open-btn'
+      wrap.appendChild(btn)
+    }
+
+    btn.innerHTML = '<i class="fa fa-search fa-fw" aria-hidden="true"></i>'
+
+    if (!btn.__mermaidViewerBound) {
+      btn.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        const svg = wrap.__mermaidOriginalSvg || wrap.querySelector('svg')
+        if (!svg) return
+        const initViewBox = wrap.__mermaidInitViewBox
+        openSvgInNewTab({ source: svg, initViewBox })
+      })
+      btn.__mermaidViewerBound = true
+    }
+  }
+
+  // Zoom around a point (px, py) in the SVG viewport (in viewBox coordinates)
+  const zoomAtPoint = (vb, factor, px, py) => {
+    const w = vb[2] * factor
+    const h = vb[3] * factor
+    const nx = px - (px - vb[0]) * factor
+    const ny = py - (py - vb[1]) * factor
+    return [nx, ny, w, h]
+  }
+
+  const initMermaidGestures = wrap => {
+    // Clean up previous event listeners and pending frames
+    if (wrap.__mermaidAbortController) {
+      wrap.__mermaidAbortController.abort()
+      if (wrap.__mermaidRafId) cancelAnimationFrame(wrap.__mermaidRafId)
+    }
+    const ac = new AbortController()
+    wrap.__mermaidAbortController = ac
+    const svg = wrap.querySelector('svg')
+    if (!svg) return
+
+    // Ensure viewBox exists so gestures always work
+    const initVb = getSvgViewBox(svg)
+    wrap.__mermaidInitViewBox = initVb
+    wrap.__mermaidCurViewBox = initVb.slice()
+    setSvgViewBox(svg, initVb)
+    // Disable default gestures to prevent scroll chaining and pinch-zoom penetration in Chrome
+    svg.style.touchAction = 'none'
+
+    // Cache BoundingClientRect, throttled on scroll to reduce reflow
+    let cachedRect = svg.getBoundingClientRect()
+    let rectDirty = false
+    const markRectDirty = () => { rectDirty = true }
+    window.addEventListener('resize', markRectDirty, { signal: ac.signal })
+    window.addEventListener('scroll', markRectDirty, { signal: ac.signal, capture: true })
+    const getRect = () => {
+      if (rectDirty) {
+        cachedRect = svg.getBoundingClientRect()
+        rectDirty = false
+      }
+      return cachedRect
+    }
+
+    // Precompute clamp bounds from initial viewBox
+    const minW = initVb[2] * 0.1
+    const maxW = initVb[2] * 10
+    const minH = initVb[3] * 0.1
+    const maxH = initVb[3] * 10
+    const clampVb = vb => {
+      const out = vb.slice()
+      out[2] = clamp(out[2], minW, maxW)
+      out[3] = clamp(out[3], minH, maxH)
+      return out
+    }
+
+    // Throttle DOM updates using requestAnimationFrame
+    let pendingVb = null
+    let rafId = null
+    const applyVb = () => {
+      if (pendingVb) {
+        wrap.__mermaidCurViewBox = pendingVb
+        setSvgViewBox(svg, pendingVb)
+        pendingVb = null
+      }
+      rafId = null
+      wrap.__mermaidRafId = null
+    }
+    const setCurVb = vb => {
+      pendingVb = clampVb(vb)
+      if (!rafId) {
+        rafId = requestAnimationFrame(applyVb)
+        wrap.__mermaidRafId = rafId
+      }
+    }
+
+    const state = {
+      pointers: new Map(),
+      startVb: null,
+      startDist: 0,
+      lastPointerX: 0,
+      lastPointerY: 0
+    }
+
+    const onPointerDown = e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      svg.setPointerCapture(e.pointerId)
+      const curVb = wrap.__mermaidCurViewBox
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 1) {
+        state.startVb = curVb.slice()
+        state.lastPointerX = e.clientX
+        state.lastPointerY = e.clientY
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        state.startDist = Math.hypot(dx, dy)
+        state.startVb = curVb.slice()
+      }
+    }
+
+    const onPointerMove = e => {
+      if (!state.pointers.has(e.pointerId)) return
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      if (state.pointers.size === 1 && state.startVb) {
+        const p = state.pointers.values().next().value
+        const dxClient = p.x - state.lastPointerX
+        const dyClient = p.y - state.lastPointerY
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+        const dx = dxClient * (curVb[2] / rect.width)
+        const dy = dyClient * (curVb[3] / rect.height)
+        setCurVb([curVb[0] - dx, curVb[1] - dy, curVb[2], curVb[3]])
+        return
+      }
+      if (state.pointers.size === 2 && state.startVb && state.startDist > 0) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        const dist = Math.hypot(dx, dy)
+        if (!dist) return
+        const factor = state.startDist / dist
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const px = curVb[0] + (cx - rect.left) * (curVb[2] / rect.width)
+        const py = curVb[1] + (cy - rect.top) * (curVb[3] / rect.height)
+        setCurVb(zoomAtPoint(state.startVb, factor, px, py))
+      }
+    }
+
+    const onPointerUpOrCancel = e => {
+      // Release PointerCapture to avoid event capture anomalies
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) {
+        svg.releasePointerCapture(e.pointerId)
+      }
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size === 0) {
+        state.startVb = null
+        state.startDist = 0
+      } else if (state.pointers.size === 1) {
+        const p = state.pointers.values().next().value
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+      }
+    }
+
+    const onWheel = e => {
+      // Prevent event bubbling from triggering external scroll
+      e.preventDefault()
+      e.stopPropagation()
+      // Normalize deltaY across deltaMode (Chrome uses pixels, Safari uses lines)
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= 400
+
+      // Continuous zoom factor: smoother than fixed 1.1/0.9 steps
+      const zoomFactor = Math.pow(1.001, delta)
+
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      const px = curVb[0] + (e.clientX - rect.left) * (curVb[2] / rect.width)
+      const py = curVb[1] + (e.clientY - rect.top) * (curVb[3] / rect.height)
+      setCurVb(zoomAtPoint(curVb, zoomFactor, px, py))
+    }
+
+    const onDblClick = () => {
+      const init = wrap.__mermaidInitViewBox
+      if (init) setCurVb(init)
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown, { signal: ac.signal })
+    svg.addEventListener('pointermove', onPointerMove, { signal: ac.signal })
+    svg.addEventListener('pointerup', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('pointercancel', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('wheel', onWheel, { passive: false, signal: ac.signal })
+    svg.addEventListener('dblclick', onDblClick, { signal: ac.signal })
+  }
+
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      // Clean up event listeners before removing old SVG
+      if (item.__mermaidAbortController) {
+        item.__mermaidAbortController.abort()
+      }
+      const oldSvg = item.querySelector('svg')
+      if (oldSvg) oldSvg.remove()
+      let config = {}
+      try {
+        config = mermaidSrc.dataset.config ? JSON.parse(mermaidSrc.dataset.config) : {}
+      } catch (e) {
+        console.warn('[mermaid] failed to parse dataset.config:', e)
+      }
+      if (!config.theme) {
+        config.theme = theme
+      }
+      const mermaidThemeConfig = `%%{init: ${JSON.stringify(config)}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+        if (true) initMermaidGestures(item)
+        item.__mermaidOriginalSvg = svg
+        if (true) attachMermaidViewerButton(item)
+      }
+
+      const handleError = err => {
+        console.error(`[mermaid] render failed for block #${index}:`, err)
+        const errorEl = document.createElement('div')
+        errorEl.className = 'mermaid-error'
+        errorEl.textContent = `Mermaid render error: ${err.message || err}`
+        mermaidSrc.insertAdjacentElement('afterend', errorEl)
+      }
+
+      try {
+        const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+        // mermaid v9 and v10 compatibility
+        if (typeof renderFn === 'string') {
+          renderMermaid(renderFn)
+        } else {
+          renderFn.then(({ svg }) => renderMermaid(svg)).catch(handleError)
+        }
+      } catch (err) {
+        handleError(err)
+      }
+    })
+  }
+
+  const codeToMermaid = $article => {
+    const codeMermaidEle = $article.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    const $article = document.getElementById('article-container')
+    if (!$article) return
+
+    if (false) codeToMermaid($article)
+    const $mermaid = $article.querySelectorAll('.mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

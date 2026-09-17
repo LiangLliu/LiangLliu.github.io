@@ -1,0 +1,951 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式——观察者：从 Observable 到背压 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="用单发布者-单订阅者的实测数据量化观察者模式的分水岭：10 万条里推模式和 SubmissionPublisher 快慢如何，慢订阅者下 submit 阻塞多久、256 的缓冲从哪来、丢弃策略丢多少，以及 request(n) 的粒度值多少纳秒。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="设计模式——观察者：从 Observable 到背压">
+<meta property="og:url" content="https://lianglliu.github.io/3864272964.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="用单发布者-单订阅者的实测数据量化观察者模式的分水岭：10 万条里推模式和 SubmissionPublisher 快慢如何，慢订阅者下 submit 阻塞多久、256 的缓冲从哪来、丢弃策略丢多少，以及 request(n) 的粒度值多少纳秒。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png">
+<meta property="article:published_time" content="2026-09-17T05:30:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T05:30:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="响应式流">
+<meta property="article:tag" content="设计模式">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "设计模式——观察者：从 Observable 到背压",
+  "url": "https://lianglliu.github.io/3864272964.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png",
+  "datePublished": "2026-09-17T05:30:00.000Z",
+  "dateModified": "2026-09-17T05:30:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/3864272964.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '设计模式——观察者：从 Observable 到背压',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">设计模式——观察者：从 Observable 到背压</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">设计模式——观察者：从 Observable 到背压</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T05:30:00.000Z" title="发表于 2026-09-17 13:30:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">6.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>26分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>观察者模式在代码层面只有十几行：一个注册表，一次遍历回调。<br>订阅者比发布者快时，这个形态没有可测的代价；慢订阅者占住的是发布者的线程。<br>JDK 1.0 给了 <code>Observable</code>，JDK 9 把它废弃，同一个版本里给出 <code>Flow</code>：四个接口，补上的那一块是 <code>Subscription.request(long)</code>。</p>
+</blockquote>
+<h2 id="一、228-行的废弃类"><a href="#一、228-行的废弃类" class="headerlink" title="一、228 行的废弃类"></a>一、228 行的废弃类</h2><p><code>java.util.Observable</code> 从 JDK 1.0 就在。JDK 25 的 <code>src.zip</code> 里它还在，228 行，第 75 行写着：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Deprecated(since=&quot;9&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Observable</span> &#123;</span><br></pre></td></tr></table></figure>
+
+<p>两个 LTS 过去了，JDK 一直没把它移除。javadoc 给的理由（<code>java.base/java/util/Observable.java:62-74</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">* <span class="meta">@deprecated</span></span><br><span class="line">* This <span class="keyword">class</span> <span class="title class_">and</span> the &#123;<span class="meta">@link</span> Observer&#125; <span class="keyword">interface</span> <span class="title class_">have</span> been deprecated.</span><br><span class="line">* The event model supported by &#123;<span class="meta">@code</span> Observer&#125; and &#123;<span class="meta">@code</span> Observable&#125;</span><br><span class="line">* is quite limited, the order of notifications delivered by</span><br><span class="line">* &#123;<span class="meta">@code</span> Observable&#125; is unspecified, and state changes are not in</span><br><span class="line">* one-<span class="keyword">for</span>-one correspondence with notifications.</span><br><span class="line">* For a richer event model, consider using the</span><br><span class="line">* &#123;<span class="meta">@link</span> java.desktop/java.beans&#125; <span class="keyword">package</span>.  For reliable and ordered</span><br><span class="line">* messaging among threads, consider using one of the concurrent data</span><br><span class="line">* structures in the &#123;<span class="meta">@link</span> java.util.concurrent&#125; <span class="keyword">package</span>.</span><br><span class="line">* For reactive streams style programming, see the</span><br><span class="line">* &#123;<span class="meta">@link</span> java.util.concurrent.Flow&#125; API.</span><br></pre></td></tr></table></figure>
+
+<p>三条理由：事件模型能力有限、通知顺序未指定、状态变化与通知不是一一对应，都与性能无关。最实际的是最后一条：<code>setChanged()</code> 与 <code>notifyObservers()</code> 是两次调用，中间可以插入任意多次状态修改，订阅者收到通知后要自己回到 <code>Observable</code> 上读状态，读到哪个版本取决于时序。多线程下这个窗口没有上界。</p>
+<p>JDK 9 同时做了两件事：JEP 266（More Concurrency Updates）引入 <code>Flow</code>，JDK-8154801 废弃 <code>Observable</code>。JEP 对这套接口的定位：</p>
+<blockquote>
+<p>Communication relies on a simple form of flow control (method <code>Subscription.request</code>, for communicating back pressure) that can be used to avoid resource management problems that may otherwise occur in “push” based systems.</p>
+</blockquote>
+<p>推模式会带来资源管理问题，<code>request</code> 是沟通背压的通道。本文要测的就是这句话。废弃走的是 JDK-8154801，描述里多了一句源码 javadoc 没写的话：</p>
+<blockquote>
+<p>There are also some thread-safety and sequencing issues that cannot be fixed compatibly.</p>
+</blockquote>
+<p>替代品是 <code>java.util.concurrent.Flow</code>，只有四个接口和一个常量：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">interface</span> <span class="title class_">Publisher</span>&lt;T&gt; &#123; <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">subscribe</span><span class="params">(Subscriber&lt;? <span class="built_in">super</span> T&gt; subscriber)</span>; &#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">interface</span> <span class="title class_">Subscriber</span>&lt;T&gt; &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onSubscribe</span><span class="params">(Subscription subscription)</span>;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onNext</span><span class="params">(T item)</span>;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onError</span><span class="params">(Throwable throwable)</span>;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onComplete</span><span class="params">()</span>;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">interface</span> <span class="title class_">Subscription</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">request</span><span class="params">(<span class="type">long</span> n)</span>;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">cancel</span><span class="params">()</span>;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">interface</span> <span class="title class_">Processor</span>&lt;T,R&gt; <span class="keyword">extends</span> <span class="title class_">Subscriber</span>&lt;T&gt;, Publisher&lt;R&gt; &#123; &#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>Flow</code> 是 Reactive Streams 规范在 JDK 里的落地，只规定接口，不带实现。JDK 自己给了一个实现：<code>SubmissionPublisher</code>。先看观察者模式的代码。</p>
+<h3 id="观察者模式在代码层面只有-12-行"><a href="#观察者模式在代码层面只有-12-行" class="headerlink" title="观察者模式在代码层面只有 12 行"></a>观察者模式在代码层面只有 12 行</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> List&lt;Consumer&lt;Long&gt;&gt; observers = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;();</span><br><span class="line"></span><br><span class="line"><span class="keyword">void</span> <span class="title function_">publish</span><span class="params">(<span class="type">long</span> x)</span> &#123;</span><br><span class="line">    <span class="keyword">for</span> (Consumer&lt;Long&gt; o : observers)</span><br><span class="line">        o.accept(x);          <span class="comment">// 在发布者线程上，按列表顺序，一次一个</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>发布者不知道订阅者是谁、有几个、在做什么，模式换来的解耦就是这些。<code>Observable</code> 在 1996 年的实现和这 12 行同构，只多了 <code>Vector</code> 和 <code>synchronized</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// java.base/java/util/Observable.java:79, :96, :129</span></span><br><span class="line"><span class="keyword">private</span> Vector&lt;Observer&gt; obs;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="keyword">void</span> <span class="title function_">addObserver</span><span class="params">(Observer o)</span> &#123; ... &#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">notifyObservers</span><span class="params">()</span> &#123; notifyObservers(<span class="literal">null</span>); &#125;</span><br></pre></td></tr></table></figure>
+
+<p>通知逻辑在 <code>notifyObservers(Object)</code>（<code>:147</code>）里，它做三件事：检查 <code>changed</code> 标志、在锁内把 <code>Vector</code> 快照成数组、在锁外倒序回调。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// java.base/java/util/Observable.java:167-174</span></span><br><span class="line">            <span class="keyword">if</span> (!changed)</span><br><span class="line">                <span class="keyword">return</span>;</span><br><span class="line">            arrLocal = obs.toArray();</span><br><span class="line">            clearChanged();</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> arrLocal.length-<span class="number">1</span>; i&gt;=<span class="number">0</span>; i--)</span><br><span class="line">            ((Observer)arrLocal[i]).update(<span class="built_in">this</span>, arg);</span><br></pre></td></tr></table></figure>
+
+<p>每次通知都分配一个数组。回调顺序是插入顺序的倒序（顺序未指定，源码里就是倒着走）。<code>notifyObservers</code> 调用前没有 <code>setChanged()</code> 就什么都不发。这些细节 javadoc 里都能查到，但它们不构成废弃的理由，理由还是那三条。</p>
+<p><code>Vector</code> 同步的是注册表：多线程同时增删订阅者不会破坏内部数组，但流经这条链的数据它管不到。两件事都叫「线程安全」，但代价和效果不是一回事。</p>
+<h3 id="被推迟的三个问题"><a href="#被推迟的三个问题" class="headerlink" title="被推迟的三个问题"></a>被推迟的三个问题</h3><p>回调列表把三个问题留给了使用者：</p>
+<ul>
+<li><strong>节奏</strong>。什么时候发、发多少，由发布者单方面决定。订阅者只能在 <code>accept</code> 里尽快返回，否则下一次调用立刻就来。</li>
+<li><strong>线程</strong>。<code>accept</code> 在发布者线程上执行。订阅者写文件、发网络请求、更新 UI，就等于把这些操作的耗时记在发布者头上。</li>
+<li><strong>容量与失败</strong>。没有队列就没有容量上限，也就没有「满了怎么办」。一个订阅者抛异常，循环中断，排在它后面的订阅者这一轮什么都收不到。</li>
+</ul>
+<p><code>Flow</code> 把第一条做成了接口（<code>request(long n)</code>），第三条做成了语义（缓冲、超时、丢弃回调），第二条留给 <code>Executor</code>。第二条决定了另外两条值多少钱，是本文实验的重点。</p>
+<h2 id="二、推模式缺的是流量控制"><a href="#二、推模式缺的是流量控制" class="headerlink" title="二、推模式缺的是流量控制"></a>二、推模式缺的是流量控制</h2><div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    sequenceDiagram
+    participant P as 发布者
+    participant S as 订阅者
+    Note over P,S: 回调列表：调用发生在发布者线程上
+    P-&gt;&gt;S: onNext(1)
+    activate S
+    Note over S: 处理 1ms
+    S--&gt;&gt;P: 返回
+    deactivate S
+    P-&gt;&gt;S: onNext(2)
+    activate S
+    Note over S: 处理 1ms
+    S--&gt;&gt;P: 返回
+    deactivate S
+    Note over P: 发布线程的时间&lt;br&#x2F;&gt;被订阅者占满
+  </pre></div>
+
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    sequenceDiagram
+    participant P as 发布者
+    participant B as 有界缓冲
+    participant C as 订阅者
+    C-&gt;&gt;P: request(64)
+    Note over P: 只有需求内的条数会推过来
+    P-&gt;&gt;B: submit(x)
+    Note over B: 缓冲满时 submit 阻塞，&lt;br&#x2F;&gt;offer 丢弃
+    B-&gt;&gt;C: onNext(x) 异步投递
+    C-&gt;&gt;P: request(64) 补需求
+    Note over C: 消费速度决定 request 的节奏
+  </pre></div>
+
+<p>两张图的区别在谁决定节奏。上图里发布者按自己的速度推，订阅者要么跟上要么阻塞发布者；下图里订阅者用 <code>request(n)</code> 声明自己还能吃 n 条，发布者只在这个额度内推。</p>
+<h3 id="慢订阅者把发布线程占住，是个可测的量"><a href="#慢订阅者把发布线程占住，是个可测的量" class="headerlink" title="慢订阅者把发布线程占住，是个可测的量"></a>慢订阅者把发布线程占住，是个可测的量</h3><p>朴素回调里，订阅者每条 <code>sleep(1)</code>，发布 5000 条，发布线程被占用 7620.53ms，每条平均 1.52ms。数字里没有别的成分：发布者的循环时间等于订阅者处理时间之和。对应到真实系统里就是「日志上报的订阅者写磁盘慢，主流程卡在通知里」。</p>
+<h3 id="队列把问题从「卡住」变成「选择」"><a href="#队列把问题从「卡住」变成「选择」" class="headerlink" title="队列把问题从「卡住」变成「选择」"></a>队列把问题从「卡住」变成「选择」</h3><p>给这 12 行加一个有界队列，问题不会消失，只会变成三个选项：</p>
+<table>
+<thead>
+<tr>
+<th>策略</th>
+<th>缓冲满时的行为</th>
+<th>需要回答的问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>阻塞</td>
+<td>发布者等</td>
+<td>等多久，谁来决定</td>
+</tr>
+<tr>
+<td>丢弃</td>
+<td>发布者继续</td>
+<td>丢哪些，丢多少算正常</td>
+</tr>
+<tr>
+<td>无界</td>
+<td>都不阻塞</td>
+<td>内存到哪一步算满</td>
+</tr>
+</tbody></table>
+<p><code>SubmissionPublisher</code> 把前两个做成了两个方法：<code>submit</code> 走阻塞，<code>offer</code> 走丢弃（超时可设 0）。<code>Flow</code> 的常量 <code>defaultBufferSize()</code> 返回 256，就是这三种选择共用的默认容量：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// java.base/java/util/concurrent/Flow.java:304, :315</span></span><br><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="type">int</span> <span class="variable">DEFAULT_BUFFER_SIZE</span> <span class="operator">=</span> <span class="number">256</span>;</span><br><span class="line">...</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="type">int</span> <span class="title function_">defaultBufferSize</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> DEFAULT_BUFFER_SIZE;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>Flow</code> 文档对这个数字的说明只有一句「在缺少其他约束时可用的默认值」，<code>@implNote</code> 补上「当前值是 256」。没有更多解释，也没有公式。第五节用实测说明它的用法。</p>
+<h3 id="request-n-的语义"><a href="#request-n-的语义" class="headerlink" title="request(n) 的语义"></a>request(n) 的语义</h3><p>需求是累加的，并且饱和：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// java.base/java/util/concurrent/SubmissionPublisher.java:1252-1264</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title function_">request</span><span class="params">(<span class="type">long</span> n)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (n &gt; <span class="number">0L</span>) &#123;</span><br><span class="line">        <span class="keyword">for</span> (;;) &#123;</span><br><span class="line">            <span class="type">long</span> <span class="variable">p</span> <span class="operator">=</span> demand, d = p + n;  <span class="comment">// saturate</span></span><br><span class="line">            <span class="keyword">if</span> (casDemand(p, d &lt; p ? Long.MAX_VALUE : d))</span><br><span class="line">                <span class="keyword">break</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        startOnSignal(RUN | ACTIVE | REQS);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">else</span></span><br><span class="line">        onError(<span class="keyword">new</span> <span class="title class_">IllegalArgumentException</span>(</span><br><span class="line">                    <span class="string">&quot;non-positive subscription request&quot;</span>));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>request(Long.MAX_VALUE)</code> 就是「不用管我，能推多少推多少」。<code>request(0)</code> 和负数按规范报错。<code>Processor</code> 上下游可以各自有独立的需求计数。</p>
+<h2 id="三、实验设计与局限"><a href="#三、实验设计与局限" class="headerlink" title="三、实验设计与局限"></a>三、实验设计与局限</h2><ul>
+<li>机器：Apple M1 Pro（<code>hw.ncpu</code> 打印 10），macOS Darwin 25.6.0，arm64</li>
+<li>JDK：<code>21.0.8+12-LTS-250</code> 与 <code>25+37-LTS-3491</code>，各跑一遍</li>
+<li>对象：单发布者、单订阅者。比较朴素回调列表、<code>Observable</code> 形状（<code>synchronized</code> + <code>Vector</code> 枚举）、<code>SubmissionPublisher</code></li>
+<li>每轮新起 JVM，快路径三轮取中位数，慢路径（每条 sleep 1ms）一轮；计时用 <code>System.nanoTime()</code></li>
+<li>所有计时循环在全局锁内执行，避免同一台机器上并行的其他基准抢 CPU</li>
+<li>计时精度先量过：一次「取 <code>nanoTime</code> 再取一次」的空操作对，稳定后平均 16ns，p50 为 0ns，换算下来单个计时器有约 8ns 的读数成本。本文里两位数的纳秒差不要当真，只读数倍以上的差别</li>
+<li>订阅者每条 <code>Thread.sleep(1)</code> 在 macOS 上的实际粒度是 1.51ms（含一次投递与一次取走的开销），不是 1.000ms</li>
+</ul>
+<p>本机没有 JMH，这里也不是那种带 fork、死代码消除防护的正式基准。这套数字只能支撑量级判断和结构解释，不能当作吞吐上限。另外 <code>SubmissionPublisher</code> 默认用 <code>ForkJoinPool</code> 的公共池投递（下一节有出处），订阅者回调跑在池线程上，同一台机器上 20 多个并行实验会给调度带来抖动，快路径跑三轮取中位数就是为了压住这部分抖动。</p>
+<h2 id="四、实测一：快订阅者身上，背压机器没有收益"><a href="#四、实测一：快订阅者身上，背压机器没有收益" class="headerlink" title="四、实测一：快订阅者身上，背压机器没有收益"></a>四、实测一：快订阅者身上，背压机器没有收益</h2><p>第一组：订阅者什么都不做，只累加一个 long（防死代码消除用），发布 10 万条。三种发布方式，两个 JDK，三轮中位数：</p>
+<table>
+<thead>
+<tr>
+<th>发布方式</th>
+<th>吞吐 JDK 21</th>
+<th>吞吐 JDK 25</th>
+<th>每项总耗时 JDK 21 &#x2F; 25</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>回调列表（<code>ArrayList</code>，发布线程直调）</td>
+<td>27.13M 条&#x2F;秒</td>
+<td>71.92M 条&#x2F;秒</td>
+<td>36.9ns &#x2F; 13.9ns</td>
+</tr>
+<tr>
+<td><code>synchronized</code> 方法 + <code>Vector</code> 枚举</td>
+<td>60.94M 条&#x2F;秒</td>
+<td>70.57M 条&#x2F;秒</td>
+<td>16.4ns &#x2F; 14.2ns</td>
+</tr>
+<tr>
+<td><code>SubmissionPublisher.submit</code>（入队到消费完）</td>
+<td>2.88M 条&#x2F;秒</td>
+<td>2.50M 条&#x2F;秒</td>
+<td>347.1ns &#x2F; 399.3ns</td>
+</tr>
+</tbody></table>
+<p>前两行的每项耗时是发布线程一次调用的时间；第三行是「入队加上另一个线程消费完」的端到端时间除以条数。</p>
+<p><img src="/assets/patterns/observer-backpressure.png" alt="快订阅者的吞吐、延迟去向，以及慢订阅者下的缓冲占用"></p>
+<p>图有三块面板：左上对比三种发布方式的吞吐，右上是 JDK 25 上三种延迟的分位数，下方曲线来自下一节的慢订阅者实验，画的是缓冲占用随时间的变化。</p>
+<p>三组数字的口径不同。</p>
+<p><code>submit</code> 每次入队要 167ns（JDK 25 中位），比直接回调的 13.9ns 贵一个量级。它只是往环形缓冲里放一个引用，代价来自原子写、消费者保活位的检查和缓存行争用，不来自订阅者的代码。</p>
+<p>端到端吞吐差一个量级：回调列表 71.92M 条&#x2F;秒，<code>SubmissionPublisher</code> 2.50M 条&#x2F;秒（JDK 25），JDK 21 上是 27.13M 条&#x2F;秒 对 2.88M 条&#x2F;秒。这条链路上每一环都要跨一次线程边界：生产者写槽位、消费者原子取走、池线程被唤醒或自旋，<code>onNext</code> 最后才执行。直接回调只有一次虚调用。</p>
+<p>延迟的分位数：</p>
+<table>
+<thead>
+<tr>
+<th>路径</th>
+<th>p50</th>
+<th>p99</th>
+<th>p99.9</th>
+<th>max</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>回调列表，一次调用</td>
+<td>42ns</td>
+<td>125ns</td>
+<td>1,166ns</td>
+<td>23.8µs</td>
+</tr>
+<tr>
+<td><code>submit</code>，一次入队</td>
+<td>167ns</td>
+<td>2,709ns</td>
+<td>6,917ns</td>
+<td>77.6µs</td>
+</tr>
+<tr>
+<td>端到端，入队到消费完</td>
+<td>2,292ns</td>
+<td>87.8µs</td>
+<td>110.5µs</td>
+<td>177.7µs</td>
+</tr>
+</tbody></table>
+<p>第一行含计时开销（见第三节的校准数字），行内比较可用，跨表跟绝对时间比要减掉那一份。端到端 p50 比入队那一步大一个量级：数据在缓冲里等另一个线程取走，这一段比投递长。异步化把延迟从发布者的关键路径上挪到了另一个线程的队列里。</p>
+<p><code>synchronized</code> + <code>Vector</code> 那一版在 JDK 25 上和裸 <code>ArrayList</code> 没有可分辨的差别（14.2ns 对 13.9ns）。JDK 21 上两者差 2.2 倍，快的反而是 <code>Vector</code> 版，原因见下一段。</p>
+<p>JDK 21 上裸 <code>ArrayList</code> 那一轮是 36.9ns，比同一个循环在 JDK 25 上慢 2.7 倍，也比同样用 <code>Vector</code> 的写法（16.4ns）慢。三轮都是这样，不是抖动；但找不出模式层面的解释：两者做的工作一样，JIT 的 <code>PrintInlining</code> 日志里 lambda 和内联内容也一致。这一格记作本次测量的噪声上限：<strong>表里小于 2.5 倍的差异不作为结论</strong>。</p>
+<h3 id="每次通知分配多少字节"><a href="#每次通知分配多少字节" class="headerlink" title="每次通知分配多少字节"></a>每次通知分配多少字节</h3><p>把分配字节数单独量一遍（<code>ThreadMXBean.getThreadAllocatedBytes</code>，发布线程，每条计数）：</p>
+<table>
+<thead>
+<tr>
+<th>发布方式</th>
+<th>JDK 21</th>
+<th>JDK 25</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>回调列表（<code>Consumer&lt;Long&gt;</code>）</td>
+<td>24.0 B</td>
+<td>24.0 B</td>
+</tr>
+<tr>
+<td><code>synchronized</code> + <code>Vector</code> 枚举</td>
+<td>38.8 B</td>
+<td>8.0 B</td>
+</tr>
+<tr>
+<td><code>SubmissionPublisher.submit</code></td>
+<td>24.0 B</td>
+<td>24.0 B</td>
+</tr>
+</tbody></table>
+<p>一个 <code>Long</code> 装箱正好 24 字节。<code>Consumer&lt;Long&gt;</code> 的调用点上，JDK 21 和 25 都没有消掉这次分配；<code>Vector.elements()</code> 的枚举器在 JDK 21 上每轮通知都会新建（多出 14.8 字节），JDK 25 上被消掉了。<code>submit</code> 的 24 字节逃逸分析救不了：对象要交给另一个线程，必须落在堆上。</p>
+<p>订阅者快的时候，<code>SubmissionPublisher</code> 每一项指标都不如回调列表。256 条缓冲、需求计数、CAS、公共池调度，全是纯支出，下一组数据才用得上它们。</p>
+<h2 id="五、实测二：慢订阅者下的阻塞、缓冲与丢弃"><a href="#五、实测二：慢订阅者下的阻塞、缓冲与丢弃" class="headerlink" title="五、实测二：慢订阅者下的阻塞、缓冲与丢弃"></a>五、实测二：慢订阅者下的阻塞、缓冲与丢弃</h2><p>第二组把订阅者改成每条 <code>Thread.sleep(1)</code>（本机实测一条约 1.51ms），发布 5000 条。三个变体：朴素回调、<code>submit</code>（缓冲满则阻塞）、<code>offer</code>（缓冲满即丢）。</p>
+<table>
+<thead>
+<tr>
+<th>发布方式</th>
+<th>发布 5000 条耗时 JDK 21 &#x2F; 25</th>
+<th>发布线程状态</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>回调列表，<code>accept</code> 内 sleep</td>
+<td>7650.74ms &#x2F; 7620.53ms</td>
+<td>全程被占用（每项 1.52ms）</td>
+<td>5000 条全部送达</td>
+</tr>
+<tr>
+<td><code>submit</code>，默认缓冲</td>
+<td>7445.32ms &#x2F; 7206.17ms</td>
+<td>前 256 条即时返回，之后每项阻塞 1.51ms</td>
+<td>5000 条全部送达，总耗时由订阅者决定</td>
+</tr>
+<tr>
+<td><code>offer(0)</code>，丢弃</td>
+<td>15.14ms &#x2F; 15.59ms</td>
+<td>几乎不占用</td>
+<td>接受 266，丢弃 99734（99.734%）</td>
+</tr>
+<tr>
+<td>不 <code>request</code>，<code>offer(50ms)</code></td>
+<td>—</td>
+<td>每条丢之前等满 50ms</td>
+<td>接受 256，丢弃 44</td>
+</tr>
+</tbody></table>
+<h3 id="阻塞没有消失，只是换了位置"><a href="#阻塞没有消失，只是换了位置" class="headerlink" title="阻塞没有消失，只是换了位置"></a>阻塞没有消失，只是换了位置</h3><p>朴素回调：发布线程 5000 次 <code>sleep</code>，7620.53ms 全花在等待上。</p>
+<p><code>submit</code>：前 256 条即时返回，第 257 条开始阻塞。每项阻塞时长 p50 1.51ms、p99 1.98ms、最大 9.51ms。5000 条总耗时 7206.17ms，和朴素回调基本一致。</p>
+<p><code>submit</code> 没有让慢订阅者变快，它把「发布者被占住」从一段连续时间切成 4,744 次约 1.5ms 的等待。等待期间发布者同样做不了别的事，<code>submit</code> 是同步阻塞的。变的只有发布循环开头那 256 条：它们先进缓冲，发布者可以先走一段。</p>
+<h3 id="256-是从哪来的"><a href="#256-是从哪来的" class="headerlink" title="256 是从哪来的"></a>256 是从哪来的</h3><p><code>SubmissionPublisher</code> 的默认构造函数（<code>java.base/java/util/concurrent/SubmissionPublisher.java:301</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="title function_">SubmissionPublisher</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="built_in">this</span>(ForkJoinPool.asyncCommonPool(), Flow.defaultBufferSize(), <span class="literal">null</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>Flow.defaultBufferSize()</code> 是 256，所以 <code>maxBufferCapacity</code> 是 256。缓冲的初始数组是 32：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// :195</span></span><br><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="type">int</span> <span class="variable">INITIAL_CAPACITY</span> <span class="operator">=</span> <span class="number">32</span>;</span><br><span class="line"><span class="comment">// :329-331</span></span><br><span class="line"><span class="type">int</span> <span class="variable">max</span> <span class="operator">=</span> maxBufferCapacity; <span class="comment">// allocate initial array</span></span><br><span class="line">Object[] array = <span class="keyword">new</span> <span class="title class_">Object</span>[max &lt; INITIAL_CAPACITY ?</span><br><span class="line">                            max : INITIAL_CAPACITY];</span><br></pre></td></tr></table></figure>
+
+<p>增长发生在每次投递时，容量翻倍直到上限（<code>:1128</code>、<code>:1148</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (n &gt;= cap &amp;&amp; cap &lt; maxCapacity) <span class="comment">// resize</span></span><br><span class="line">    added = growAndOffer(item, a, t);</span><br><span class="line">...</span><br><span class="line"><span class="keyword">final</span> <span class="type">boolean</span> <span class="title function_">growAndOffer</span><span class="params">(T item, Object[] a, <span class="type">int</span> t)</span> &#123;</span><br><span class="line">    ...</span><br><span class="line">    <span class="keyword">if</span> (a != <span class="literal">null</span> &amp;&amp; (cap = a.length) &gt; <span class="number">0</span> &amp;&amp; (newCap = cap &lt;&lt; <span class="number">1</span>) &gt; <span class="number">0</span>) &#123;</span><br></pre></td></tr></table></figure>
+
+<p>缓冲从 32 涨到 64、128、256 就停了，稳态容量是 256。前 256 条投得下去，因为数组还在翻倍；第 257 条进来时缓冲已满，<code>submit</code> 走 <code>retryOffer</code> 里的 <code>awaitSpace</code>（<code>:439</code>、<code>:1439</code>），park 到消费者腾出一格才返回。第三块面板里的曲线画的就是这个过程：占用从 32 翻倍到 256，然后一直贴着上限走；发布端的墙钟时间也从每项几十纳秒变成每项 1.51ms。</p>
+<h3 id="丢弃策略下丢了多少"><a href="#丢弃策略下丢了多少" class="headerlink" title="丢弃策略下丢了多少"></a>丢弃策略下丢了多少</h3><p>同一组参数把 <code>submit</code> 换成 <code>offer(item, 0, NANOSECONDS, null)</code>，5000 条在 15.59ms 内全部投递完，其中 266 条进入缓冲，99734 条被丢弃，丢包率 99.734%。<code>offer</code> 的返回值是负的丢弃条数，正数则是投递后的 lag 估计，这个语义写在 javadoc 里。</p>
+<p>丢包率由发布速度和消费速度的比值决定：发布者用 15.59ms 跑完 5000 条，订阅者在同样长度的时间里连 1 条都没处理完（一条 1.51ms）。发布速率降到订阅者处理速率以下时，丢包率自然归零。<code>offer</code> 的超时参数就是在这两个极端之间调。</p>
+<h3 id="没有-request-就没有消费"><a href="#没有-request-就没有消费" class="headerlink" title="没有 request 就没有消费"></a>没有 request 就没有消费</h3><p><code>Flow.Subscriber</code> 不调 <code>request</code>，一条数据都不会到订阅者手里。给一个从不 <code>request</code> 的订阅者用 <code>offer(50ms)</code> 投 300 条：接受 256 条，剩下 44 条各等满 50ms 后被丢弃。接受的条数正好是 256，和 <code>Flow.defaultBufferSize()</code> 的 256 以及上面的推导一致。</p>
+<p>换成 <code>submit</code>，第 257 条会永久阻塞。用一个看门狗线程验证：发布线程跑 <code>submit</code> 循环，2 秒后它完成 256 条，状态 WAITING，<code>submit</code> 停在 <code>LockSupport.park</code> 上没有超时参数：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// java.base/java/util/concurrent/SubmissionPublisher.java:1476-1478</span></span><br><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> (timed)</span><br><span class="line">    LockSupport.parkNanos(<span class="built_in">this</span>, nanos);</span><br><span class="line"><span class="keyword">else</span></span><br><span class="line">    LockSupport.park(<span class="built_in">this</span>);</span><br></pre></td></tr></table></figure>
+
+<p>阻塞路径还有一处设计：<code>awaitSpace</code> 在 park 之前先试一次帮助消费：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// :1439-1448</span></span><br><span class="line"><span class="keyword">final</span> <span class="keyword">void</span> <span class="title function_">awaitSpace</span><span class="params">(<span class="type">long</span> nanos)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (!isReleasable()) &#123;</span><br><span class="line">        ForkJoinPool.helpAsyncBlocker(executor, <span class="built_in">this</span>);</span><br><span class="line">        <span class="keyword">if</span> (!isReleasable()) &#123;</span><br><span class="line">            timeout = nanos;</span><br><span class="line">            <span class="keyword">try</span> &#123;</span><br><span class="line">                ForkJoinPool.managedBlock(<span class="built_in">this</span>);</span><br></pre></td></tr></table></figure>
+
+<p>这是给公共池线程的照顾：发布者跑在池线程上时，park 之前先去帮着跑消费任务，避免「生产者在等消费者、消费者没人跑」的死锁。用主线程当发布者时这段不生效。</p>
+<h2 id="六、实测三：request-n-的粒度"><a href="#六、实测三：request-n-的粒度" class="headerlink" title="六、实测三：request(n) 的粒度"></a>六、实测三：request(n) 的粒度</h2><p>第三组沿用快订阅者，发布 2 万条，只改 <code>request</code> 的粒度：<code>request(1)</code>（收到一条补一条）、<code>request(64)</code>（消费掉一半时补 32）、无界（<code>Long.MAX_VALUE</code>）。</p>
+<table>
+<thead>
+<tr>
+<th>需求粒度</th>
+<th>条数</th>
+<th>吞吐 JDK 21 &#x2F; 25</th>
+<th>每项端到端 p50 &#x2F; p99 JDK 25</th>
+<th>每项 submit JDK 25</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>request(1)</code></td>
+<td>2 万</td>
+<td>1.84M 条&#x2F;秒 &#x2F; 1.64M 条&#x2F;秒</td>
+<td>8,083ns &#x2F; 310.6µs</td>
+<td>375ns</td>
+</tr>
+<tr>
+<td><code>request(64)</code>，半量补货</td>
+<td>2 万</td>
+<td>2.19M 条&#x2F;秒 &#x2F; 1.40M 条&#x2F;秒</td>
+<td>3,041ns &#x2F; 51.3µs</td>
+<td>416ns</td>
+</tr>
+<tr>
+<td>无界</td>
+<td>10 万</td>
+<td>2.88M 条&#x2F;秒 &#x2F; 2.50M 条&#x2F;秒</td>
+<td>2,292ns &#x2F; 87.8µs</td>
+<td>167ns</td>
+</tr>
+</tbody></table>
+<p>无界那一行就是实测一的 <code>SubmissionPublisher</code> 组，条数一致，可以直接跟上面两张表对照。</p>
+<p>无界那一行在 JDK 21 和 25 上都是最快的，也是唯一方向一致的一行。<code>request(1)</code> 和 <code>request(64)</code> 之间没有稳定方向：JDK 21 上 64 更快（2.19M 条&#x2F;秒 对 1.84M 条&#x2F;秒），JDK 25 上反过来（1.64M 条&#x2F;秒 对 1.40M 条&#x2F;秒），四组数字都落在 1.4M 到 2.2M 条&#x2F;秒之间。按第三节定的噪声上限（2.5 倍），1 和 64 的吞吐差测不出来。能测出来的只有延迟：<code>request(1)</code> 每项端到端 p50 8,083ns，<code>request(64)</code> 是 3,041ns；p99 分别是 310.6µs 和 51.3µs。需求只给 1 条时，等待变成一条一条的往返。</p>
+<p><code>Flow</code> 的 javadoc 对粒度的建议是这么写的（<code>java.base/java/util/concurrent/Flow.java:112-115</code>）：</p>
+<blockquote>
+<p>… where a buffer size of 1 single-steps, and larger sizes usually allow for more efficient overlapped processing with less communication; for example with a value of 64, this keeps total outstanding requests between 32 and 64.</p>
+</blockquote>
+<p>例子里的 <code>SampleSubscriber</code> 就是 <code>request(64)</code>、消费一半时再 <code>request(32)</code> 的写法。粒度换来的是「通信次数」：每次 <code>request</code> 都要在订阅端做一次 CAS 并可能启动一个消费任务。</p>
+<h3 id="需求决定消费任务能不能活着"><a href="#需求决定消费任务能不能活着" class="headerlink" title="需求决定消费任务能不能活着"></a>需求决定消费任务能不能活着</h3><p>需求还在时，消费任务不会退出。<code>consume()</code> 是一个循环，只有「缓冲空且需求为 0」才走退出分支（<code>:1296-1299</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> (empty || d == <span class="number">0L</span>) &#123;</span><br><span class="line">    <span class="type">int</span> <span class="variable">bit</span> <span class="operator">=</span> ((c &amp; ACTIVE) != <span class="number">0</span>) ? ACTIVE : RUN;</span><br><span class="line">    <span class="keyword">if</span> (weakCasCtl(c, c &amp; ~bit) &amp;&amp; bit == RUN)</span><br><span class="line">        <span class="keyword">break</span>;               <span class="comment">// un-keep-alive or exit</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>ACTIVE</code> 是保活位（<code>:1057</code>），<code>run</code> 里的注释解释了它的用途（<code>:991-994</code>）：保住一致性要付的原子操作「比每条都起一个任务还是便宜多了」。需求断了之后（<code>request(1)</code> 让在途需求只有 1 条，缓冲一空消费任务就退出循环），下一次 <code>submit</code> 需要重新起一个消费任务（<code>:1204</code>、<code>:1191</code> 的 <code>startOnOffer</code>），任务调度就摊到了每一条数据上。本次测量里 <code>request(1)</code> 每项 608.2ns，无界每项 399.3ns，相差 1.5 倍。</p>
+<h3 id="消费者一侧也按块吃"><a href="#消费者一侧也按块吃" class="headerlink" title="消费者一侧也按块吃"></a>消费者一侧也按块吃</h3><p>请求到达发送端后，消费任务的循环一次也不会只取一条（<code>:1314-1318</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> <span class="type">int</span> <span class="title function_">takeItems</span><span class="params">(Subscriber&lt;? <span class="built_in">super</span> T&gt; s, <span class="type">long</span> d, <span class="type">int</span> h)</span> &#123;</span><br><span class="line">    Object[] a;</span><br><span class="line">    <span class="type">int</span> <span class="variable">k</span> <span class="operator">=</span> <span class="number">0</span>, cap;</span><br><span class="line">    <span class="keyword">if</span> ((a = array) != <span class="literal">null</span> &amp;&amp; (cap = a.length) &gt; <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="type">int</span> <span class="variable">m</span> <span class="operator">=</span> cap - <span class="number">1</span>, b = (m &gt;&gt;&gt; <span class="number">3</span>) + <span class="number">1</span>; <span class="comment">// min(1, cap/8)</span></span><br><span class="line">        <span class="type">int</span> <span class="variable">n</span> <span class="operator">=</span> (d &lt; (<span class="type">long</span>)b) ? (<span class="type">int</span>)d : b;</span><br></pre></td></tr></table></figure>
+
+<p>一次最多取 <code>cap/8+1</code> 条，剩下的留给下一轮。这么切是为了不让一个消费者长时间霸占 CPU。<code>SubmissionPublisher</code> 里还有一句注释直接关系到 <code>request(1)</code> 的代价（<code>:991-994</code>）：</p>
+<blockquote>
+<p>(Maintaining agreement about keep-alives requires most atomic updates to be full SC&#x2F;Volatile strength, which is still much cheaper than using one task per item.)</p>
+</blockquote>
+<p>「比每条都起一个任务还是便宜多了」是 JDK 作者对细粒度需求的评价。本次测量里 <code>request(1)</code> 每项 608.2ns，<code>request(64)</code> 每项 715.0ns，无界每项 399.3ns。</p>
+<h2 id="七、结论"><a href="#七、结论" class="headerlink" title="七、结论"></a>七、结论</h2><h3 id="什么时候用-Flow-SubmissionPublisher"><a href="#什么时候用-Flow-SubmissionPublisher" class="headerlink" title="什么时候用 Flow &#x2F; SubmissionPublisher"></a>什么时候用 Flow &#x2F; SubmissionPublisher</h3><p>三种情况下这笔成本值得花：</p>
+<ul>
+<li>订阅者的速度不受发布者控制。写磁盘、发网络、调用第三方接口，或者订阅者根本不在同一个进程里。</li>
+<li>需要过载语义。<code>offer</code> 的返回值是丢包数，<code>submit</code> 的阻塞有明确的阻塞点，缓冲上限可配置。回调列表对这三种情况一个都没回答。</li>
+<li>发布与消费本来就在两个线程上，或者需要把背压信号继续往上游传（<code>Processor</code> 链）。</li>
+</ul>
+<p>在这三种情况里，<code>Flow</code> 买到的是「发布者的执行时间不再由最慢的订阅者决定」。第五节的数字：慢订阅者每条 1.51ms 时，回调列表让发布线程 5000 项全部卡住；<code>submit</code> 让前 256 项先走，之后每项阻塞一次 1.51ms，发布线程仍然被占，但至少在缓冲长度内可以先行。</p>
+<h3 id="什么时候不用"><a href="#什么时候不用" class="headerlink" title="什么时候不用"></a>什么时候不用</h3><ul>
+<li>订阅者确定快，且和发布者在同一线程。这时回调列表是 71.92M 条&#x2F;秒 对 2.50M 条&#x2F;秒，一个量级。</li>
+<li>需要严格同步的顺序和立即可见的副作用。<code>submit</code> 之后的 <code>onNext</code> 发生在池线程上，调用返回时订阅者还没处理。</li>
+<li>需要异常立刻冒泡到发布者。<code>SubmissionPublisher</code> 把订阅者的异常交给 <code>onNextHandler</code>，默认只是打日志。</li>
+<li>只是想解耦「谁被通知」。这 12 行的模式就够了，<code>Flow</code> 不会让它更快，只会多出一层接口。</li>
+</ul>
+<h3 id="不想用-Flow-时，自己写多少行"><a href="#不想用-Flow-时，自己写多少行" class="headerlink" title="不想用 Flow 时，自己写多少行"></a>不想用 Flow 时，自己写多少行</h3><p>单发布单订阅、不组 <code>Processor</code> 链、不进响应式生态，一个带容量和丢弃策略的推模式实现大概这么大：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">BoundedPush</span>&lt;T&gt; &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> ArrayBlockingQueue&lt;T&gt; q;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> Consumer&lt;T&gt; handler;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">AtomicLong</span> <span class="variable">dropped</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">AtomicLong</span>();</span><br><span class="line"></span><br><span class="line">    BoundedPush(<span class="type">int</span> capacity, Consumer&lt;T&gt; handler) &#123;</span><br><span class="line">        <span class="built_in">this</span>.q = <span class="keyword">new</span> <span class="title class_">ArrayBlockingQueue</span>&lt;&gt;(capacity);          <span class="comment">// 容量语义在这里</span></span><br><span class="line">        <span class="built_in">this</span>.handler = handler;</span><br><span class="line">        Thread.ofPlatform().daemon().start(<span class="built_in">this</span>::loop);       <span class="comment">// 消费线程，也可以换成虚拟线程</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="type">boolean</span> <span class="title function_">offer</span><span class="params">(T item)</span> &#123;                                   <span class="comment">// 满了就丢</span></span><br><span class="line">        <span class="keyword">if</span> (q.offer(item)) <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">        dropped.incrementAndGet();</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">loop</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="keyword">for</span> (;;) handler.accept(q.take());</span><br><span class="line">        &#125; <span class="keyword">catch</span> (InterruptedException e) &#123; Thread.currentThread().interrupt(); &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="type">long</span> <span class="title function_">dropped</span><span class="params">()</span> &#123; <span class="keyword">return</span> dropped.get(); &#125;                  <span class="comment">// 丢弃计数，对应 offer 的负数返回</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>它和 <code>SubmissionPublisher</code> 回答的是同一组问题：容量多大、满了阻塞（<code>q.put</code>）还是丢弃（<code>q.offer</code>）、丢了多少怎么记。它缺的是需求信号。队列长度是事后结果：订阅者快时空转，慢时积压，发布者看不出「消费者现在能接多少」。<code>request(n)</code> 把这件事从「事后观测队列长度」变成「事前声明上限」，多出来的复杂度买的就是这个。</p>
+<h3 id="与相邻模式的边界"><a href="#与相邻模式的边界" class="headerlink" title="与相邻模式的边界"></a>与相邻模式的边界</h3><p>观察者与责任链的差别在「能不能拦下」：观察者向所有订阅者广播，每个订阅者独立处理，没有终止传播的机制；责任链沿一条链传递，某一环可以停止（见<a href="/3520122771.html">责任链</a>）。中介者把 N 对 N 的通信收进中心节点，观察者是 1 对 N 的广播，订阅者之间互不知道（见<a href="/2495256397.html">中介者</a>）。<code>request(n)</code> 这一侧，在同步世界里对应的是 <code>Iterator.hasNext()</code>：都是消费者决定何时取下一项，区别是 <code>request</code> 允许提前批量声明，<code>hasNext</code> 只能一次一问（见<a href="/3041245071.html">迭代器</a>）。</p>
+<h3 id="一条判断顺序"><a href="#一条判断顺序" class="headerlink" title="一条判断顺序"></a>一条判断顺序</h3><div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    flowchart TD
+    A{&quot;发布者和消费&lt;br&#x2F;&gt;在同一线程吗&quot;} --&gt;|是| B{&quot;最慢的订阅者&lt;br&#x2F;&gt;单次耗时&quot;}
+    A --&gt;|否| E[&quot;Flow + 有界缓冲&quot;]
+    B --&gt;|&quot;微秒级及以下&quot;| D[&quot;回调列表直接调用&quot;]
+    B --&gt;|&quot;毫秒级或不可控&quot;| E
+    E --&gt; F{&quot;缓冲满了&lt;br&#x2F;&gt;能丢数据吗&quot;}
+    F --&gt;|不能丢| G[&quot;submit 阻塞&lt;br&#x2F;&gt;需要独立的发布线程&quot;]
+    F --&gt;|能丢| H[&quot;offer 超时 0&lt;br&#x2F;&gt;记录返回的丢包数&quot;]
+    G --&gt; I{&quot;订阅者会&lt;br&#x2F;&gt;request 吗&quot;}
+    H --&gt; I
+    I --&gt;|不会| J[&quot;先修订阅者&lt;br&#x2F;&gt;不 request 就没有消费&quot;]
+    I --&gt;|会| K{&quot;request 粒度&quot;}
+    K --&gt;|&quot;1 每条一次通信&quot;| L[&quot;吞吐降到第&lt;br&#x2F;&gt;六节 request(1) 那一行&quot;]
+    K --&gt;|&quot;几十：半量补货&quot;| M[&quot;Flow 文档示例的 64&#x2F;32&quot;]
+  </pre></div>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li><code>java.util.Observable</code> 在 JDK 25 的 <code>src.zip</code> 里仍然是 228 行，第 75 行 <code>@Deprecated(since=&quot;9&quot;)</code>。废弃理由是事件模型有限、通知顺序未指定、状态变化与通知不是一一对应，三条都与性能无关。</li>
+<li>同一个 JEP（266）引入的 <code>Flow</code> 只有四个接口，多出来的那块是 <code>Subscription.request(long)</code>。它是推模式里唯一能让消费者影响生产者节奏的通道。</li>
+<li>快订阅者（10 万条，纯累加）：回调列表 71.92M 条&#x2F;秒，<code>synchronized</code> 方法 + <code>Vector</code> 枚举70.57M 条&#x2F;秒，<code>SubmissionPublisher.submit</code> 2.50M 条&#x2F;秒，JDK 25。订阅者快的时候，背压机制没有任何收益，还多出跨线程交接的延迟。</li>
+<li>入队也不便宜：<code>submit</code> 每次 167ns，比直接回调的 13.9ns 贵一个量级（JDK 25 中位）。端到端延迟再抬一个量级，p50 2,292ns、p99 87.8µs。</li>
+<li>慢订阅者（每项 1ms）：回调列表把发布线程占满 7620.53ms；<code>submit</code> 前 256 项即时返回，之后每项阻塞 1.51ms（p50），总耗时 7206.17ms。发布线程仍然被占住，只是阻塞点在缓冲满之后。</li>
+<li>默认缓冲 256 &#x3D; <code>Flow.defaultBufferSize()</code>（<code>Flow.java:304</code>、<code>:315</code>），由 <code>SubmissionPublisher</code> 默认构造函数（<code>:301</code>）传给 <code>maxBufferCapacity</code>；数组从 32（<code>:195</code>、<code>:329-331</code>）逐次翻倍到 256（<code>:1128</code>、<code>:1148</code>）。</li>
+<li><code>offer(item, 0, NANOSECONDS, null)</code> 在慢订阅者下接受 266 条、丢弃 99734 条（5000 条，丢 99.734%）；订阅者不 <code>request</code> 时接受的条数正好是 256，第 257 条 <code>submit</code> 会永久 <code>LockSupport.park</code>（看门狗实测：2 秒后完成 256 条，线程状态 WAITING）。</li>
+<li><code>request</code> 的粒度没有带来量级上的吞吐差：无界 2.50M 条&#x2F;秒 最快，<code>request(1)</code> 1.64M 条&#x2F;秒、<code>request(64)</code> 1.40M 条&#x2F;秒 紧挨着，两者方向在两个 JDK 上还相反。能测出来的是延迟：<code>request(1)</code> 的每项端到端 p50 8,083ns 对 <code>request(64)</code> 的 3,041ns。</li>
+<li>别把 <code>request(n)</code> 的 n 取成 1。<code>Flow</code> 文档建议的 64&#x2F;32 半量补货对应 <code>SampleSubscriber</code> 的写法（<code>Flow.java:112-115</code>），JDK 源码里还有一句「比每条都起一个任务还是便宜多了」（<code>:991-994</code>）。</li>
+<li>某个订阅者抛异常，其他订阅者还能照常收到通知，前提是发布者自己处理了异常。回调列表里一个 <code>RuntimeException</code> 会中断整个通知循环；<code>SubmissionPublisher</code> 默认把它交给 <code>onNextHandler</code>。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/Observable.html">Observable (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/Flow.html">Flow (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/SubmissionPublisher.html">SubmissionPublisher (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/266">JEP 266: More Concurrency Updates</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://www.reactive-streams.org/">Reactive Streams</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://bugs.openjdk.org/browse/JDK-8154801">JDK-8154801: deprecate Observer and Observable</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/package-summary.html">java.util.concurrent 包说明（Java SE 25）</a></li>
+</ul>
+<blockquote>
+<p>系列索引：<a href="/pattern/">设计模式系列</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/3864272964.html">https://lianglliu.github.io/3864272964.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a><a class="post-meta__tags" href="/tags/%E5%93%8D%E5%BA%94%E5%BC%8F%E6%B5%81/">响应式流</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/3348503170.html" title="sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法</div></div><div class="info-2"><div class="info-item-1"> 客户端上的 TUN 模式和「代理模式」的差别在于接管范围：代理模式只服务主动配置了代理的应用，TUN 模式把整机流量都交给 sing-box。代价是必须处理路由、DNS 与分流，而且这三个东西经常出问题，所以验证方法比配置本身更重要。这篇在一台一次性 Ubuntu 虚拟机（arm64）上用 sing-box 1.14.1 跑完整套接管：TUN 接口与路由的变化、DNS 劫持、用一条 reject 规则证明分流生效、退出后的自动回收，以及 1.14 会直接拒绝启动的三处旧写法原文报错。  1. 便宜的说法与真实的代价服务端那篇讲的是「在一台服务器上暴露代理」；客户端这边解决的是另一个问题：本机有一堆程序，浏览器、终端、Docker、后台服务，逐个配代理既麻烦又会漏。TUN 的做法是造一个虚拟网卡，把默认路由指过去，让内核把流量交给 sing-box 决定怎么走。 听上去只是「接管」，但要同时成立四件事：  路由要从物理网卡切到 TUN，且不能把 sing-box 自己的出站流量也绕回去（回环） DNS 要一起接管，否则域名解析仍然暴露在明网，分流规则也无从匹配 分流规则要能验证：...</div></div></div></a><a class="pagination-related" href="/1016344466.html" title="设计模式——外观：批量接口的价值"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">设计模式——外观：批量接口的价值</div></div><div class="info-2"><div class="info-item-1"> 外观模式的公开描述是「为子系统提供统一接口」。这句话在评审里没有用，谁也说不清「统一」到什么粒度。换一个可测量的说法：外观把 N 次细粒度调用收成 1 次粗粒度调用，收益上限就是省下的那 N-1 次调用的固定成本。本文写一万条小记录：逐条裸写、套缓冲、内存拼装后单次写，用 write(2) 计数和两种 JDK 的耗时给这三条路的差价结账，再看 JDK 自己怎么做外观。  一、把「统一接口」换成调用次数外观模式的介绍通常画一张图：客户端指向一个 Facade 类，Facade 再指向三个子系统的类。图里没有数字，读完记不住任何可执行的东西。 把接口设计换成计费问题就具体了。每次调用都有一条固定成本：跨边界的开销。这个边界可能在进程之间、网络之间、内核与应用之间，也可能就在模块之间。外观把 N 次调用合并成 1 次，收益就是省下的 N-1 条固定成本；代价是这次合并本身要付参数打包、错误语义合并、内存占用的账。 写文件的例子把这两种成本都摆了出来。同样一万条记录、同样的字节，三种写法：  逐条 FileOutputStream.write(byte[])，每条一次系统调用。 套一层...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/3520122771.html" title="设计模式——责任链：三种形态"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——责任链：三种形态</div></div><div class="info-2"><div class="info-item-1"> 责任链把「谁处理这个请求」从调用点挪到了运行时。调用方发出一次，节点自己决定接不接。JDK 里这条链有三种落地形态，表达「拦住了」的方式各不相同：处理链返回 boolean，过滤链返回替换对象或 null，Stream 的 stage 链用反向询问的取消标记。本文用 1 亿个元素量三种形态的每元素成本随链长的变化，用 8 节点链量命中位置的影响，再从 JDK 源码指出差别出自哪一行。  一、三种形态，三种收场一个请求要穿过若干检查点，每个检查点各自判断：这个我能处理，或者这不归我管，交给下一个。责任链（Chain of Responsibility）把这条传递路径做成对象结构，但「传递」本身在 JDK 里有三条不同的实现路线。 处理链的节点返回 boolean。命中返回 true，调用方知道事情办完了；全部返回 false 就是没人管。停下来的信号沿返回值传回调用方。 过滤链的节点不报告「办没办成」，返回一个替换对象或者 null。返回新对象表示这一层改写了请求、需要重发；返回 null 表示这一层放行，继续看下一个节点。java.net.http 用这个形状：请求过滤器正序遍...</div></div></div></a><a class="pagination-related" href="/4240986029.html" title="设计模式——抽象工厂：产品族的一致性"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——抽象工厂：产品族的一致性</div></div><div class="info-2"><div class="info-item-1"> 抽象工厂常被描述成「创建一族对象」的接口，可是创建不值钱：new、Supplier、Map 查表、switch 都能做。值钱的那部分在编译期：一个族少实现一个产品，javac 直接拒绝编译；族与产品的对应关系写进接口，不用靠人记。本文用 Button&#x2F;Checkbox 两套主题、三种写法，量 100 万次创建的耗时与类加载数量，并贴出 javac 与运行期的输出。  一、产品族的一致性是谁的责任两套主题，两个产品。每个主题要同时提供 Button 和 Checkbox，同一个界面里的两个控件必须来自同一套主题。      classDiagram     direction TB     class GuiFactory {         &lt;&lt;interface&gt;&gt;         +button() Button         +checkbox() Checkbox     }     class MacFactory     class WinFactory     class Button {         &lt;&lt;int...</div></div></div></a><a class="pagination-related" href="/2151391806.html" title="设计模式——访问者：类型与操作的矩阵"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——访问者：类型与操作的矩阵</div></div><div class="info-2"><div class="info-item-1"> 访问者模式的经典卖点是「加操作容易、加类型难」：操作轴加一个类，类型轴改遍所有操作。sealed interface 与模式匹配之后，这笔账要重算：switch 也有穷尽性检查，加类型时编译器同样点名。4 类型 × 4 操作的矩阵两种写法都写一遍，量耗时、量两个扩展方向的真实 diff，再看 JDK 24+ 的 ClassFile API 为什么选了访问者这一侧。  一、问题出在哪访问者的机制是双分派。第一次分派给节点，第二次分派给操作： 12345678910111213141516// 节点侧public record Add(Expr left, Expr right) implements Expr &#123;    @Override    public &lt;R&gt; R accept(ExprVisitor&lt;R&gt; visitor) &#123;        return visitor.visitAdd(this);    &#125;&#125;// 操作侧public final class EvalVisitor implements E...</div></div></div></a><a class="pagination-related" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——装饰器：缓冲链的代价</div></div><div class="info-2"><div class="info-item-1"> 装饰器把「给一个对象加能力」变成了廉价操作：new BufferedInputStream(new FileInputStream(f)) 只是多写一层。但每一层都会改写下层被调用的形态——调用次数、每次的块大小、flush 与 close 的语义。这些改动在源码里看不到，只能测。本文用一个 48 MiB 文件、libc 层的真实 read(2) 计数，和两个 JDK（21.0.8 与 25）回答一个问题：这条链上多包一层，到底买到了什么，代价在哪。  一、装饰器换到的东西继承式的算术给一个数据源加「缓冲」和「校验」两种能力。如果用继承，每多一种能力就要多一层子类，而两种能力的叠加顺序又各自是一个类：      classDiagram     direction TB     class FileDataSource     class BufferedFile     class ChecksumFile     class BufferedChecksumFile     class ChecksumBufferedFile     FileDataSource &lt;...</div></div></div></a><a class="pagination-related" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——不可变与防御性拷贝</div></div><div class="info-2"><div class="info-item-1"> 不可变有两个动作：造的时候不让别人改，交出去的时候把边界封住。共享和拷贝是两笔账：共享把成本压在构造那一刻，拷贝把成本摊到每一次读取上。1 亿次读取、1024 元素的列表、一组布尔验证，把这两笔账分开算，跑在两个 LTS 上：JDK 21.0.8 与 JDK 25。  一、两笔账记在谁头上对象内部持有 1024 字节的数组，上层有很多只读的调用方，写法有两种。 123456789static final class SharedRepo &#123;    private final int[] data = new int[256];    int[] data() &#123; return data; &#125;                       // 交出引用&#125;static final class CopyRepo &#123;    private final int[] data = new int[256];    int[] data() &#123; return Arrays.copyOf(data, data.length); &#1...</div></div></div></a><a class="pagination-related" href="/4222041279.html" title="设计模式——备忘录：快照的代价"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-5.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——备忘录：快照的代价</div></div><div class="info-2"><div class="info-item-1"> 备忘录把「回到过去」变成两个方法调用：save() 存下一版，restore() 回到某一版。存一版花多少时间、占多少内存，模式定义里没有答案。全量深拷贝、增量日志、写时拷贝三条路都能实现回滚，代价相差两个数量级。本文用 1 万条记录（含标签集合）的状态、1000 个事务、每事务改 10 条，量三条路的每事务耗时与分配字节，再量历史上限 10&#x2F;100&#x2F;1000 版时的保留内存和回滚耗时。  一、回滚能力买的是什么发起人（Originator）把状态装进一个备忘录对象，管理者（Caretaker）把备忘录收进版本链，需要时再把某一版交回发起人恢复。快照粒度、版本存放位置、版本何时失效，这些都不在模式定义里。 三个问题决定价格：  存的是全部状态，还是这一版改动的增量。 版本链保留多少版。 代价在存的那一刻付，还是在每次改动时付。  第一个问题把实现分成三条路，后两个问题决定账单什么时候来。 三条路全量深拷贝：save() 把当前状态整份复制一份挂到链上，回滚时把复制出来的那份换回来。 增量日志：save() 只记一个位置，每次改动之前把旧值写进日志，回滚时按逆...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81228-%E8%A1%8C%E7%9A%84%E5%BA%9F%E5%BC%83%E7%B1%BB"><span class="toc-number">1.</span> <span class="toc-text">一、228 行的废弃类</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%A7%82%E5%AF%9F%E8%80%85%E6%A8%A1%E5%BC%8F%E5%9C%A8%E4%BB%A3%E7%A0%81%E5%B1%82%E9%9D%A2%E5%8F%AA%E6%9C%89-12-%E8%A1%8C"><span class="toc-number">1.1.</span> <span class="toc-text">观察者模式在代码层面只有 12 行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%A2%AB%E6%8E%A8%E8%BF%9F%E7%9A%84%E4%B8%89%E4%B8%AA%E9%97%AE%E9%A2%98"><span class="toc-number">1.2.</span> <span class="toc-text">被推迟的三个问题</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E6%8E%A8%E6%A8%A1%E5%BC%8F%E7%BC%BA%E7%9A%84%E6%98%AF%E6%B5%81%E9%87%8F%E6%8E%A7%E5%88%B6"><span class="toc-number">2.</span> <span class="toc-text">二、推模式缺的是流量控制</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%85%A2%E8%AE%A2%E9%98%85%E8%80%85%E6%8A%8A%E5%8F%91%E5%B8%83%E7%BA%BF%E7%A8%8B%E5%8D%A0%E4%BD%8F%EF%BC%8C%E6%98%AF%E4%B8%AA%E5%8F%AF%E6%B5%8B%E7%9A%84%E9%87%8F"><span class="toc-number">2.1.</span> <span class="toc-text">慢订阅者把发布线程占住，是个可测的量</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%98%9F%E5%88%97%E6%8A%8A%E9%97%AE%E9%A2%98%E4%BB%8E%E3%80%8C%E5%8D%A1%E4%BD%8F%E3%80%8D%E5%8F%98%E6%88%90%E3%80%8C%E9%80%89%E6%8B%A9%E3%80%8D"><span class="toc-number">2.2.</span> <span class="toc-text">队列把问题从「卡住」变成「选择」</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#request-n-%E7%9A%84%E8%AF%AD%E4%B9%89"><span class="toc-number">2.3.</span> <span class="toc-text">request(n) 的语义</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%B1%80%E9%99%90"><span class="toc-number">3.</span> <span class="toc-text">三、实验设计与局限</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%AE%9E%E6%B5%8B%E4%B8%80%EF%BC%9A%E5%BF%AB%E8%AE%A2%E9%98%85%E8%80%85%E8%BA%AB%E4%B8%8A%EF%BC%8C%E8%83%8C%E5%8E%8B%E6%9C%BA%E5%99%A8%E6%B2%A1%E6%9C%89%E6%94%B6%E7%9B%8A"><span class="toc-number">4.</span> <span class="toc-text">四、实测一：快订阅者身上，背压机器没有收益</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%AF%8F%E6%AC%A1%E9%80%9A%E7%9F%A5%E5%88%86%E9%85%8D%E5%A4%9A%E5%B0%91%E5%AD%97%E8%8A%82"><span class="toc-number">4.1.</span> <span class="toc-text">每次通知分配多少字节</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%AE%9E%E6%B5%8B%E4%BA%8C%EF%BC%9A%E6%85%A2%E8%AE%A2%E9%98%85%E8%80%85%E4%B8%8B%E7%9A%84%E9%98%BB%E5%A1%9E%E3%80%81%E7%BC%93%E5%86%B2%E4%B8%8E%E4%B8%A2%E5%BC%83"><span class="toc-number">5.</span> <span class="toc-text">五、实测二：慢订阅者下的阻塞、缓冲与丢弃</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%98%BB%E5%A1%9E%E6%B2%A1%E6%9C%89%E6%B6%88%E5%A4%B1%EF%BC%8C%E5%8F%AA%E6%98%AF%E6%8D%A2%E4%BA%86%E4%BD%8D%E7%BD%AE"><span class="toc-number">5.1.</span> <span class="toc-text">阻塞没有消失，只是换了位置</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#256-%E6%98%AF%E4%BB%8E%E5%93%AA%E6%9D%A5%E7%9A%84"><span class="toc-number">5.2.</span> <span class="toc-text">256 是从哪来的</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%A2%E5%BC%83%E7%AD%96%E7%95%A5%E4%B8%8B%E4%B8%A2%E4%BA%86%E5%A4%9A%E5%B0%91"><span class="toc-number">5.3.</span> <span class="toc-text">丢弃策略下丢了多少</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%B2%A1%E6%9C%89-request-%E5%B0%B1%E6%B2%A1%E6%9C%89%E6%B6%88%E8%B4%B9"><span class="toc-number">5.4.</span> <span class="toc-text">没有 request 就没有消费</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E5%AE%9E%E6%B5%8B%E4%B8%89%EF%BC%9Arequest-n-%E7%9A%84%E7%B2%92%E5%BA%A6"><span class="toc-number">6.</span> <span class="toc-text">六、实测三：request(n) 的粒度</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%9C%80%E6%B1%82%E5%86%B3%E5%AE%9A%E6%B6%88%E8%B4%B9%E4%BB%BB%E5%8A%A1%E8%83%BD%E4%B8%8D%E8%83%BD%E6%B4%BB%E7%9D%80"><span class="toc-number">6.1.</span> <span class="toc-text">需求决定消费任务能不能活着</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%B6%88%E8%B4%B9%E8%80%85%E4%B8%80%E4%BE%A7%E4%B9%9F%E6%8C%89%E5%9D%97%E5%90%83"><span class="toc-number">6.2.</span> <span class="toc-text">消费者一侧也按块吃</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E7%BB%93%E8%AE%BA"><span class="toc-number">7.</span> <span class="toc-text">七、结论</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%94%A8-Flow-SubmissionPublisher"><span class="toc-number">7.1.</span> <span class="toc-text">什么时候用 Flow &#x2F; SubmissionPublisher</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%B8%8D%E7%94%A8"><span class="toc-number">7.2.</span> <span class="toc-text">什么时候不用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%8D%E6%83%B3%E7%94%A8-Flow-%E6%97%B6%EF%BC%8C%E8%87%AA%E5%B7%B1%E5%86%99%E5%A4%9A%E5%B0%91%E8%A1%8C"><span class="toc-number">7.3.</span> <span class="toc-text">不想用 Flow 时，自己写多少行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%8E%E7%9B%B8%E9%82%BB%E6%A8%A1%E5%BC%8F%E7%9A%84%E8%BE%B9%E7%95%8C"><span class="toc-number">7.4.</span> <span class="toc-text">与相邻模式的边界</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E6%9D%A1%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">7.5.</span> <span class="toc-text">一条判断顺序</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">8.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">9.</span> <span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  const parseViewBox = viewBox => {
+    if (!viewBox) return null
+    const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return null
+    return parts
+  }
+
+  const getSvgViewBox = svg => {
+    const attr = parseViewBox(svg.getAttribute('viewBox'))
+    if (attr) return attr
+
+    // Fallback: use bbox to build a viewBox
+    try {
+      const bbox = svg.getBBox()
+      if (bbox && bbox.width && bbox.height) return [bbox.x, bbox.y, bbox.width, bbox.height]
+    } catch (e) {
+      // getBBox may fail on some edge cases; ignore
+    }
+
+    const w = Number(svg.getAttribute('width')) || 0
+    const h = Number(svg.getAttribute('height')) || 0
+    if (w > 0 && h > 0) return [0, 0, w, h]
+    return [0, 0, 100, 100]
+  }
+
+  const setSvgViewBox = (svg, vb) => {
+    svg.setAttribute('viewBox', `${vb[0]} ${vb[1]} ${vb[2]} ${vb[3]}`)
+  }
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
+  const openSvgInNewTab = ({ source, initViewBox }) => {
+    const getClonedSvg = () => {
+      if (typeof source === 'string') {
+        const template = document.createElement('template')
+        template.innerHTML = source.trim()
+        const svg = template.content.querySelector('svg')
+        return svg ? svg.cloneNode(true) : null
+      }
+      if (source && typeof source.cloneNode === 'function') {
+        return source.cloneNode(true)
+      }
+      return null
+    }
+
+    const clone = getClonedSvg()
+    if (!clone) return
+    if (initViewBox && initViewBox.length === 4) {
+      clone.setAttribute('viewBox', initViewBox.join(' '))
+    }
+    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    if (!clone.getAttribute('xmlns:xlink') && clone.innerHTML.includes('xlink:')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    }
+    // inject background to match current theme
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const bg = getComputedStyle(document.body).backgroundColor || (isDark ? '#1e1e1e' : '#ffffff')
+    if (!clone.style.background) clone.style.background = bg
+
+    const serializer = new XMLSerializer()
+    const svgSource = serializer.serializeToString(clone)
+    const htmlSource = `<!doctype html><html><head><meta charset="utf-8" />
+      <style>
+        html, body { width: 100%; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; background: ${bg}; }
+        svg { max-width: 100%; max-height: 100%; height: auto; width: auto; }
+      </style>
+      </head><body>${svgSource}</body></html>`
+    const blob = new Blob([htmlSource], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener')
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  const attachMermaidViewerButton = wrap => {
+    let btn = wrap.querySelector('.mermaid-open-btn')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mermaid-open-btn'
+      wrap.appendChild(btn)
+    }
+
+    btn.innerHTML = '<i class="fa fa-search fa-fw" aria-hidden="true"></i>'
+
+    if (!btn.__mermaidViewerBound) {
+      btn.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        const svg = wrap.__mermaidOriginalSvg || wrap.querySelector('svg')
+        if (!svg) return
+        const initViewBox = wrap.__mermaidInitViewBox
+        openSvgInNewTab({ source: svg, initViewBox })
+      })
+      btn.__mermaidViewerBound = true
+    }
+  }
+
+  // Zoom around a point (px, py) in the SVG viewport (in viewBox coordinates)
+  const zoomAtPoint = (vb, factor, px, py) => {
+    const w = vb[2] * factor
+    const h = vb[3] * factor
+    const nx = px - (px - vb[0]) * factor
+    const ny = py - (py - vb[1]) * factor
+    return [nx, ny, w, h]
+  }
+
+  const initMermaidGestures = wrap => {
+    // Clean up previous event listeners and pending frames
+    if (wrap.__mermaidAbortController) {
+      wrap.__mermaidAbortController.abort()
+      if (wrap.__mermaidRafId) cancelAnimationFrame(wrap.__mermaidRafId)
+    }
+    const ac = new AbortController()
+    wrap.__mermaidAbortController = ac
+    const svg = wrap.querySelector('svg')
+    if (!svg) return
+
+    // Ensure viewBox exists so gestures always work
+    const initVb = getSvgViewBox(svg)
+    wrap.__mermaidInitViewBox = initVb
+    wrap.__mermaidCurViewBox = initVb.slice()
+    setSvgViewBox(svg, initVb)
+    // Disable default gestures to prevent scroll chaining and pinch-zoom penetration in Chrome
+    svg.style.touchAction = 'none'
+
+    // Cache BoundingClientRect, throttled on scroll to reduce reflow
+    let cachedRect = svg.getBoundingClientRect()
+    let rectDirty = false
+    const markRectDirty = () => { rectDirty = true }
+    window.addEventListener('resize', markRectDirty, { signal: ac.signal })
+    window.addEventListener('scroll', markRectDirty, { signal: ac.signal, capture: true })
+    const getRect = () => {
+      if (rectDirty) {
+        cachedRect = svg.getBoundingClientRect()
+        rectDirty = false
+      }
+      return cachedRect
+    }
+
+    // Precompute clamp bounds from initial viewBox
+    const minW = initVb[2] * 0.1
+    const maxW = initVb[2] * 10
+    const minH = initVb[3] * 0.1
+    const maxH = initVb[3] * 10
+    const clampVb = vb => {
+      const out = vb.slice()
+      out[2] = clamp(out[2], minW, maxW)
+      out[3] = clamp(out[3], minH, maxH)
+      return out
+    }
+
+    // Throttle DOM updates using requestAnimationFrame
+    let pendingVb = null
+    let rafId = null
+    const applyVb = () => {
+      if (pendingVb) {
+        wrap.__mermaidCurViewBox = pendingVb
+        setSvgViewBox(svg, pendingVb)
+        pendingVb = null
+      }
+      rafId = null
+      wrap.__mermaidRafId = null
+    }
+    const setCurVb = vb => {
+      pendingVb = clampVb(vb)
+      if (!rafId) {
+        rafId = requestAnimationFrame(applyVb)
+        wrap.__mermaidRafId = rafId
+      }
+    }
+
+    const state = {
+      pointers: new Map(),
+      startVb: null,
+      startDist: 0,
+      lastPointerX: 0,
+      lastPointerY: 0
+    }
+
+    const onPointerDown = e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      svg.setPointerCapture(e.pointerId)
+      const curVb = wrap.__mermaidCurViewBox
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 1) {
+        state.startVb = curVb.slice()
+        state.lastPointerX = e.clientX
+        state.lastPointerY = e.clientY
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        state.startDist = Math.hypot(dx, dy)
+        state.startVb = curVb.slice()
+      }
+    }
+
+    const onPointerMove = e => {
+      if (!state.pointers.has(e.pointerId)) return
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      if (state.pointers.size === 1 && state.startVb) {
+        const p = state.pointers.values().next().value
+        const dxClient = p.x - state.lastPointerX
+        const dyClient = p.y - state.lastPointerY
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+        const dx = dxClient * (curVb[2] / rect.width)
+        const dy = dyClient * (curVb[3] / rect.height)
+        setCurVb([curVb[0] - dx, curVb[1] - dy, curVb[2], curVb[3]])
+        return
+      }
+      if (state.pointers.size === 2 && state.startVb && state.startDist > 0) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        const dist = Math.hypot(dx, dy)
+        if (!dist) return
+        const factor = state.startDist / dist
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const px = curVb[0] + (cx - rect.left) * (curVb[2] / rect.width)
+        const py = curVb[1] + (cy - rect.top) * (curVb[3] / rect.height)
+        setCurVb(zoomAtPoint(state.startVb, factor, px, py))
+      }
+    }
+
+    const onPointerUpOrCancel = e => {
+      // Release PointerCapture to avoid event capture anomalies
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) {
+        svg.releasePointerCapture(e.pointerId)
+      }
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size === 0) {
+        state.startVb = null
+        state.startDist = 0
+      } else if (state.pointers.size === 1) {
+        const p = state.pointers.values().next().value
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+      }
+    }
+
+    const onWheel = e => {
+      // Prevent event bubbling from triggering external scroll
+      e.preventDefault()
+      e.stopPropagation()
+      // Normalize deltaY across deltaMode (Chrome uses pixels, Safari uses lines)
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= 400
+
+      // Continuous zoom factor: smoother than fixed 1.1/0.9 steps
+      const zoomFactor = Math.pow(1.001, delta)
+
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      const px = curVb[0] + (e.clientX - rect.left) * (curVb[2] / rect.width)
+      const py = curVb[1] + (e.clientY - rect.top) * (curVb[3] / rect.height)
+      setCurVb(zoomAtPoint(curVb, zoomFactor, px, py))
+    }
+
+    const onDblClick = () => {
+      const init = wrap.__mermaidInitViewBox
+      if (init) setCurVb(init)
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown, { signal: ac.signal })
+    svg.addEventListener('pointermove', onPointerMove, { signal: ac.signal })
+    svg.addEventListener('pointerup', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('pointercancel', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('wheel', onWheel, { passive: false, signal: ac.signal })
+    svg.addEventListener('dblclick', onDblClick, { signal: ac.signal })
+  }
+
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      // Clean up event listeners before removing old SVG
+      if (item.__mermaidAbortController) {
+        item.__mermaidAbortController.abort()
+      }
+      const oldSvg = item.querySelector('svg')
+      if (oldSvg) oldSvg.remove()
+      let config = {}
+      try {
+        config = mermaidSrc.dataset.config ? JSON.parse(mermaidSrc.dataset.config) : {}
+      } catch (e) {
+        console.warn('[mermaid] failed to parse dataset.config:', e)
+      }
+      if (!config.theme) {
+        config.theme = theme
+      }
+      const mermaidThemeConfig = `%%{init: ${JSON.stringify(config)}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+        if (true) initMermaidGestures(item)
+        item.__mermaidOriginalSvg = svg
+        if (true) attachMermaidViewerButton(item)
+      }
+
+      const handleError = err => {
+        console.error(`[mermaid] render failed for block #${index}:`, err)
+        const errorEl = document.createElement('div')
+        errorEl.className = 'mermaid-error'
+        errorEl.textContent = `Mermaid render error: ${err.message || err}`
+        mermaidSrc.insertAdjacentElement('afterend', errorEl)
+      }
+
+      try {
+        const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+        // mermaid v9 and v10 compatibility
+        if (typeof renderFn === 'string') {
+          renderMermaid(renderFn)
+        } else {
+          renderFn.then(({ svg }) => renderMermaid(svg)).catch(handleError)
+        }
+      } catch (err) {
+        handleError(err)
+      }
+    })
+  }
+
+  const codeToMermaid = $article => {
+    const codeMermaidEle = $article.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    const $article = document.getElementById('article-container')
+    if (!$article) return
+
+    if (false) codeToMermaid($article)
+    const $mermaid = $article.querySelectorAll('.mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

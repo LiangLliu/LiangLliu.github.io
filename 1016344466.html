@@ -1,0 +1,1003 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>设计模式——外观：批量接口的价值 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="把一万条小记录写进文件：逐条 write 是一万次系统调用，缓冲 64 次，内存拼装后 1 次，耗时从 0.20 ms 到 883 ms。用 libc 层计数和 JDK 25 源码说明外观把 N 次调用收成 1 次时，钱花在哪。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="设计模式——外观：批量接口的价值">
+<meta property="og:url" content="https://lianglliu.github.io/1016344466.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="把一万条小记录写进文件：逐条 write 是一万次系统调用，缓冲 64 次，内存拼装后 1 次，耗时从 0.20 ms 到 883 ms。用 libc 层计数和 JDK 25 源码说明外观把 N 次调用收成 1 次时，钱花在哪。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png">
+<meta property="article:published_time" content="2026-09-17T05:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T05:00:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="外观模式">
+<meta property="article:tag" content="设计模式">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "设计模式——外观：批量接口的价值",
+  "url": "https://lianglliu.github.io/1016344466.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png",
+  "datePublished": "2026-09-17T05:00:00.000Z",
+  "dateModified": "2026-09-17T05:00:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/1016344466.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '设计模式——外观：批量接口的价值',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">设计模式——外观：批量接口的价值</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/pattern/"><i class="fa-fw fas fa-cubes"></i><span> 设计模式</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">设计模式——外观：批量接口的价值</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T05:00:00.000Z" title="发表于 2026-09-17 13:00:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">7.6k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>28分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>外观模式的公开描述是「为子系统提供统一接口」。这句话在评审里没有用，谁也说不清「统一」到什么粒度。<br>换一个可测量的说法：外观把 N 次细粒度调用收成 1 次粗粒度调用，收益上限就是省下的那 N-1 次调用的固定成本。<br>本文写一万条小记录：逐条裸写、套缓冲、内存拼装后单次写，用 write(2) 计数和两种 JDK 的耗时给这三条路的差价结账，再看 JDK 自己怎么做外观。</p>
+</blockquote>
+<h2 id="一、把「统一接口」换成调用次数"><a href="#一、把「统一接口」换成调用次数" class="headerlink" title="一、把「统一接口」换成调用次数"></a>一、把「统一接口」换成调用次数</h2><p>外观模式的介绍通常画一张图：客户端指向一个 <code>Facade</code> 类，<code>Facade</code> 再指向三个子系统的类。图里没有数字，读完记不住任何可执行的东西。</p>
+<p>把接口设计换成计费问题就具体了。每次调用都有一条固定成本：跨边界的开销。这个边界可能在进程之间、网络之间、内核与应用之间，也可能就在模块之间。外观把 N 次调用合并成 1 次，收益就是省下的 N-1 条固定成本；代价是这次合并本身要付参数打包、错误语义合并、内存占用的账。</p>
+<p>写文件的例子把这两种成本都摆了出来。同样一万条记录、同样的字节，三种写法：</p>
+<ul>
+<li>逐条 <code>FileOutputStream.write(byte[])</code>，每条一次系统调用。</li>
+<li>套一层 <code>BufferedOutputStream</code>，调用次数不变，系统调用按缓冲大小摊销。</li>
+<li>先在内存里拼成一个数组，最后 <code>write</code> 一次。</li>
+</ul>
+<p>调用次数和耗时这两把尺子量出来的差距不一样大。</p>
+<p>外观与相邻模式的边界：<a href="/1805545517.html">装饰器</a>不改接口，只在接口上叠行为；<a href="/205079771.html">适配器</a>改接口形状，把不兼容的调用变成兼容的调用；<a href="/3162181737.html">桥接</a>拆的是两个独立变化的维度。外观不改变单个调用的形状，它减少调用的次数，把一串调用换成一个入口。</p>
+<p>把 JDK 里的外观拆开看，有三种做法，本实验三条路各占一种：</p>
+<table>
+<thead>
+<tr>
+<th>做法</th>
+<th>例子</th>
+<th>调用次数怎么变</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>摊销</td>
+<td><code>BufferedOutputStream</code></td>
+<td>应用层不变，系统调用按缓冲大小摊薄</td>
+<td>用户态缓冲、延迟、崩溃时丢最后一段</td>
+</tr>
+<tr>
+<td>合并</td>
+<td><code>Files.write(path, lines)</code></td>
+<td>一万次调用收成一次</td>
+<td>需要一次性拿到全部参数</td>
+</tr>
+<tr>
+<td>编排</td>
+<td><code>Files.copy</code>、<code>FileChannel.transferTo</code></td>
+<td>多个子系统调用收成一次</td>
+<td>具体走哪条实现由 JDK 决定，调用方看不见</td>
+</tr>
+</tbody></table>
+<p>三种做法在调用次数上的收益量级依次变大，代价也依次变重。<a href="/2097900514.html">总纲</a>那篇量过 Visitor、Strategy、Command、Template Method 的代码行数与耗时，这里换成调用次数与系统调用次数：外观的收益上限，取决于它能把 N 收到多小。</p>
+<p>调用次数有两层：应用层的调用和跨越边界的调用。<code>BufferedOutputStream</code> 把第二层从 10,000 收到 64，第一层不动；<code>Files.write(lines)</code> 把第一层也收掉了，调用方只发一个请求。两层收益的量级不同，本实验把它们分开量。</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph TD
+    subgraph P1[&quot;逐条裸写：N 次系统调用&quot;]
+        A1[&quot;应用循环 10,000 次&quot;] --&gt; S1[&quot;FileOutputStream.write(byte[52])&quot;]
+        S1 --&gt;|&quot;每条一次&quot;| K1[&quot;内核 write(2) ×10,000&quot;]
+    end
+    subgraph P2[&quot;套缓冲：系统调用降两个数量级&quot;]
+        A2[&quot;应用循环 10,000 次&quot;] --&gt; S2[&quot;BufferedOutputStream 8192 字节缓冲&quot;]
+        S2 --&gt;|&quot;缓冲区满才刷&quot;| K2[&quot;内核 write(2) ×64&quot;]
+    end
+    subgraph P3[&quot;内存拼装：一次调用&quot;]
+        A3[&quot;应用在内存拼 520,000 字节&quot;] --&gt; S3[&quot;一次 write(byte[520000])&quot;]
+        S3 --&gt;|&quot;一次&quot;| K3[&quot;内核 write(2) ×1&quot;]
+    end
+  </pre></div>
+
+<h2 id="二、实验设计"><a href="#二、实验设计" class="headerlink" title="二、实验设计"></a>二、实验设计</h2><h3 id="数据与四个变体"><a href="#数据与四个变体" class="headerlink" title="数据与四个变体"></a>数据与四个变体</h3><p>一万条记录，每条 52 字节的定长文本行，形如 <code>id=000042,sku=SKU-0155,qty=42,price=13.94,note=n046</code>。总量 520,000 字节。记录从一个 64 条的池子里循环取，字符串转字节只做一次，计时循环里没有 <code>String.format</code>、没有字符集编码、没有分配。三个写法写出的字节必须逐字节相同，否则比较无意义。</p>
+<ul>
+<li><code>raw</code>：<code>FileOutputStream.write(byte[])</code>，逐条。</li>
+<li><code>buffered</code>：<code>BufferedOutputStream(FileOutputStream, 8192)</code>，逐条写同样的数组。</li>
+<li><code>assembled</code>：先在内存里拼好 520,000 字节的数组，一次 <code>write(byte[])</code>。</li>
+<li><code>bytewise</code>：同一个文件、同一批字节，但每次只写一个字节（<code>write(int)</code>），把调用粒度再降一格，用来看成本模型在 N 放大 52 倍时是否还成立。</li>
+</ul>
+<p>校验方式是把所有输出文件（含下面提到的两个 JDK 自带 API）都算 SHA-256，前 8 字节全部相同：<code>7147638db3034d31</code>。一万条记录的文件大小都是 520,000 字节。</p>
+<p>再加两个对照，用的是 JDK 自己的外观：<code>Files.write(path, lines)</code> 与 <code>Files.write(path, bytes)</code>。前者接收 <code>List&lt;String&gt;</code> 加平台换行，后者接收一个字节数组。它们不是本篇要比较的写法，是用来观察 JDK 把「一行调用」翻译成多少次底层操作。</p>
+<h3 id="系统调用计数怎么拿"><a href="#系统调用计数怎么拿" class="headerlink" title="系统调用计数怎么拿"></a>系统调用计数怎么拿</h3><p>macOS 上 <code>dtruss</code> 被系统完整性保护挡住，<code>dtrace: failed to execute .../bin/java: Operation not permitted</code>。<code>fs_usage</code> 的输出是系统级事件流，过滤短命的 JVM 进程不现实。这一段在<a href="/1805545517.html">装饰器篇</a>已试过一遍，本篇沿用同一条路。</p>
+<p>写一个 dylib，在 <code>__DATA,__interpose</code> 段里替换 <code>write</code>、<code>open</code>、<code>close</code> 三个 libc 符号，用 <code>DYLD_INSERT_LIBRARIES</code> 注入 JVM。每次进入 <code>my_write</code> 就是一次真实的 <code>write(2)</code>，按 fd 归因到打开时的路径，进程退出时打印：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">ssize_t</span> <span class="title function_">my_write</span><span class="params">(<span class="type">int</span> fd, <span class="type">const</span> <span class="type">void</span> *buf, <span class="type">size_t</span> n)</span> &#123;</span><br><span class="line">    <span class="type">ssize_t</span> r = write(fd, buf, n);</span><br><span class="line">    atomic_fetch_add(&amp;total_writes, <span class="number">1</span>);</span><br><span class="line">    <span class="keyword">if</span> (r &gt; <span class="number">0</span>) atomic_fetch_add(&amp;total_wbytes, (<span class="type">long</span>)r);</span><br><span class="line">    note_w(fd, r &gt; <span class="number">0</span> ? (<span class="type">long</span>)r : <span class="number">0</span>);</span><br><span class="line">    <span class="keyword">return</span> r;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>计数口径能互相验证：写入字节数按路径求和后必须等于文件大小，测得 520,000 与 5,200,000 两个总量都与 <code>ls -l</code> 一致；JVM 自己的类文件、字体文件也有写操作，按路径过滤掉。这两个事实让计数可信。</p>
+<h3 id="计时怎么拿"><a href="#计时怎么拿" class="headerlink" title="计时怎么拿"></a>计时怎么拿</h3><p>计时循环放在全局文件锁内，一次只跑一个基准，避免并行任务抢 CPU。每个变体先跑 2 轮预热丢弃，再跑 5 轮取中位数。JDK 21.0.8 与 JDK 25 各跑一遍。取值区间用最小值和最大值一起报，不报标准差。</p>
+<p>另有两个探针，都不需要计时，用来量外观的两种代价：</p>
+<ul>
+<li><strong>故障探针</strong>：每条路各写 7,437 条记录，然后 <code>Runtime.halt()</code> 结束进程，不 flush、不 close，再从进程外看文件里剩下多少字节。进程崩掉时，有意义的问题是：有多少数据根本没有离开过用户态。</li>
+<li><strong>内存探针</strong>：把记录数放大到 100 万条（52 MB 负载），用 <code>-Xmx32m</code> 跑 <code>buffered</code> 与 <code>assembled</code>，看谁先撞墙，并记录堆峰值。</li>
+</ul>
+<p>这是一台 Apple M1 Pro 上的单机微基准，不是 JMH，没有 fork 隔离，只用来判断量级。JVM 启动、类加载、文件系统页缓存的冷热都会进来。绝对耗时不能当硬件上限读，比值要看两个 JDK 是否给出相同方向。</p>
+<div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    sequenceDiagram
+    participant App as 应用代码
+    participant Buf as BufferedOutputStream
+    participant OS as 内核
+    Note over App,OS: 逐条裸写
+    App-&gt;&gt;OS: write(52B) ×10000
+    Note over App,OS: 套缓冲（8192 字节）
+    App-&gt;&gt;Buf: write(52B) ×10000
+    Buf-&gt;&gt;OS: write(8164B) ×63
+    Buf-&gt;&gt;OS: write(5668B) ×1（close 时收尾）
+    Note over App,OS: 内存拼装
+    App-&gt;&gt;App: System.arraycopy 拼接 520,000 字节
+    App-&gt;&gt;OS: write(520000B) ×1
+  </pre></div>
+
+<h2 id="三、实测"><a href="#三、实测" class="headerlink" title="三、实测"></a>三、实测</h2><h3 id="两张尺子量同一件事"><a href="#两张尺子量同一件事" class="headerlink" title="两张尺子量同一件事"></a>两张尺子量同一件事</h3><p>先看系统调用次数。一万条记录在两种 JDK 下的计数一致：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>应用层 write 调用</th>
+<th><code>write(2)</code> 次数</th>
+<th>每次系统调用平均字节</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>raw</code> 逐条裸写</td>
+<td>10,000</td>
+<td>10,000</td>
+<td>52</td>
+</tr>
+<tr>
+<td><code>buffered</code> 8192 缓冲</td>
+<td>10,000</td>
+<td>64</td>
+<td>8,125</td>
+</tr>
+<tr>
+<td><code>assembled</code> 拼装单写</td>
+<td>1</td>
+<td>1</td>
+<td>520,000</td>
+</tr>
+<tr>
+<td><code>Files.write(lines)</code></td>
+<td>1</td>
+<td>64</td>
+<td>8,125</td>
+</tr>
+<tr>
+<td><code>Files.write(byte[])</code></td>
+<td>1</td>
+<td>64</td>
+<td>8,125</td>
+</tr>
+<tr>
+<td><code>bytewise</code> 单字节写</td>
+<td>520,000</td>
+<td>520,000</td>
+<td>1</td>
+</tr>
+</tbody></table>
+<p>再看待机耗时，取 5 轮中位数：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>JDK 21.0.8</th>
+<th>JDK 25</th>
+<th>单条记录成本（JDK 25）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>raw</code> 逐条裸写</td>
+<td>19.59 ms</td>
+<td>23.62 ms</td>
+<td>2,362 ns</td>
+</tr>
+<tr>
+<td><code>buffered</code> 8192 缓冲</td>
+<td>0.74 ms</td>
+<td>0.78 ms</td>
+<td>78 ns</td>
+</tr>
+<tr>
+<td><code>assembled</code> 拼装单写</td>
+<td>0.29 ms</td>
+<td>0.20 ms</td>
+<td>20 ns</td>
+</tr>
+<tr>
+<td><code>bytewise</code> 单字节写</td>
+<td>891 ms</td>
+<td>883 ms</td>
+<td>88,310 ns</td>
+</tr>
+<tr>
+<td><code>Files.write(lines)</code></td>
+<td>4.92 ms</td>
+<td>1.96 ms</td>
+<td>196 ns</td>
+</tr>
+<tr>
+<td><code>Files.write(byte[])</code></td>
+<td>0.79 ms</td>
+<td>0.56 ms</td>
+<td>56 ns</td>
+</tr>
+</tbody></table>
+<p><img src="/assets/patterns/facade-call-batching.png" alt="调用次数与耗时的对照"></p>
+<p>裸写比拼装慢 117 倍（JDK 25）和 68 倍（JDK 21），系统调用次数差 10,000 倍。两者的关系可以算成一个斜率：裸写与缓冲写法相差 9,936 次系统调用，中位耗时相差 22.84 ms，摊下来每次 <code>write(2)</code> 约 2.3 微秒。这个数字只对本机、本文件系统、这个记录形态成立，换台机器要重测。</p>
+<p><strong>重复性。</strong> 同一批测量在两个锁窗口里各跑了一遍。差异最大的是 <code>raw</code>：第一次 25.99 ms 与 24.34 ms，第二次 19.59 ms 与 23.62 ms，波动约 25%。<code>Files.write(lines)</code> 的波动更大（第二次的 JDK 21 落在 2.61 ms 到 9.04 ms 之间）。表格用的是第二次的完整数据。下面的结论只建立在量级上，例如「裸写与拼装相差两个数量级」，这类结论在两次测量里都成立。</p>
+<p>一行 <code>Files.write(path, lines)</code> 顶掉了一万次 <code>write</code> 调用，代价是 1.96 ms（JDK 25），比手动编码加缓冲的 0.78 ms 慢 2.5 倍。这一份差价来自一次性的字符串编码：写同一批字节的 <code>Files.write(path, bytes)</code> 只要 0.56 ms，与手写缓冲同档，写入路径本身没有多花时间。</p>
+<h3 id="把量放大十倍再看"><a href="#把量放大十倍再看" class="headerlink" title="把量放大十倍再看"></a>把量放大十倍再看</h3><p>记录数从 1 万涨到 10 万，字节从 520,000 涨到 5,200,000：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>1 万条的 <code>write(2)</code></th>
+<th>10 万条的 <code>write(2)</code></th>
+<th>增长倍率</th>
+<th>10 万条耗时 JDK 21 &#x2F; JDK 25</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>raw</code></td>
+<td>10,000</td>
+<td>100,000</td>
+<td>10.0</td>
+<td>195.2 ms &#x2F; 191.4 ms</td>
+</tr>
+<tr>
+<td><code>buffered</code></td>
+<td>64</td>
+<td>637</td>
+<td>10.0</td>
+<td>8.85 ms &#x2F; 7.72 ms</td>
+</tr>
+<tr>
+<td><code>assembled</code></td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+<td>2.13 ms &#x2F; 2.42 ms</td>
+</tr>
+<tr>
+<td><code>Files.write(lines)</code></td>
+<td>64</td>
+<td>635</td>
+<td>9.9</td>
+<td>10.27 ms &#x2F; 9.56 ms</td>
+</tr>
+<tr>
+<td><code>Files.write(byte[])</code></td>
+<td>64</td>
+<td>635</td>
+<td>9.9</td>
+<td>4.00 ms &#x2F; 4.45 ms</td>
+</tr>
+</tbody></table>
+<p>除拼装写法外，调用次数随 N 线性增长，耗时也按同一倍率放大：裸写从 23.62 ms 涨到 191.4 ms（8.1 倍），缓冲从 0.78 ms 涨到 7.72 ms（9.9 倍）。拼装写法的耗时从 0.20 ms 涨到 2.42 ms，涨幅来自那一次 5,200,000 字节的 <code>write</code>，系统调用次数始终是 1。</p>
+<p>线性关系决定了这个模式的适用面：细粒度调用的成本正比于 N，粗粒度调用的成本正比于数据量本身。N 越大，两条线的差距越大。</p>
+<h3 id="把粒度再降一格"><a href="#把粒度再降一格" class="headerlink" title="把粒度再降一格"></a>把粒度再降一格</h3><p>同一个文件、同一批 520,000 字节，改成每次写一个字节：系统调用计数是 520,000 次，与应用层调用次数相等，写出的字节与前几种写法逐字节相同。</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>应用层 write 调用</th>
+<th><code>write(2)</code> 次数</th>
+<th>每次系统调用平均字节</th>
+<th>耗时中位数 JDK 21 &#x2F; JDK 25</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>bytewise</code> 单字节写</td>
+<td>520,000</td>
+<td>520,000</td>
+<td>1</td>
+<td>891 ms &#x2F; 883 ms</td>
+</tr>
+</tbody></table>
+<p>按前面的斜率 2.3 微秒算，520,000 次系统调用预期约 1.2 秒，实测 0.88 秒，单字节写的每次系统调用比 52 字节写便宜三成，因为要搬的数据少。这条例子把模型的两端连起来：调用次数从 1 涨到 520,000，耗时从 0.20 ms 涨到 883 ms，比值约 4,400 倍。中间几条写法（10,000 次的裸写、64 次的缓冲）都落在这条直线上，斜率由系统调用次数决定。</p>
+<h3 id="缓冲层的两次记账"><a href="#缓冲层的两次记账" class="headerlink" title="缓冲层的两次记账"></a>缓冲层的两次记账</h3><p><code>buffered</code> 在 1 万条时是 64 次，10 万条时是 637 次，都不是 8192 除下来的整数：刷写以 52 字节的整条记录为单位，除不尽。</p>
+<ul>
+<li>缓冲区 8192 字节，能放 157 条完整记录，占 8,164 字节，第 158 条放不下。</li>
+<li>第 158 条触发刷写，下一次又从零开始攒。</li>
+<li>10,000 条 → 63 次满刷，剩下 109 条在 <code>close()</code> 时刷出，合计 64 次。</li>
+<li>100,000 条 → 636 次满刷，剩下 148 条在收尾时刷出，合计 637 次。</li>
+</ul>
+<p>637 &#x3D; ⌈100000 ÷ 157⌉，账对得上。这也解释了为什么缓冲的价值要看记录大小与缓冲大小的比值：8192 字节的缓冲区摊在 52 字节的记录上有 157 倍放大，摊在 8,000 字节的记录上只有 1 倍，套缓冲就没意义了。</p>
+<h3 id="缓冲省掉了什么，没省掉什么"><a href="#缓冲省掉了什么，没省掉什么" class="headerlink" title="缓冲省掉了什么，没省掉什么"></a>缓冲省掉了什么，没省掉什么</h3><p><code>buffered</code> 与 <code>assembled</code> 的系统调用只差 63 次，耗时差 3.9 倍（0.78 ms 对 0.20 ms）。这 0.58 ms 花在那 10,000 次 Java 层调用上：每次进入 <code>BufferedOutputStream.write</code> 要拿一次锁、做一次边界检查、一次 <code>System.arraycopy</code>，合计 520,000 字节的搬运。78 ns 一条的成本主要出在这些操作上，不在系统调用。</p>
+<p>外观的三层收益，量级依次是：</p>
+<ul>
+<li>系统调用次数，从 10,000 到 64，量级差。这是主要收益。</li>
+<li>Java 层调用次数，从 10,000 到 1，但剩下的成本是纳秒级。</li>
+<li>调用方代码行数，从一行循环变成一行调用。</li>
+</ul>
+<p>第一层决定要不要做，第二层决定能省到什么程度，第三层是前两层的结果。</p>
+<h3 id="故障时落盘多少"><a href="#故障时落盘多少" class="headerlink" title="故障时落盘多少"></a>故障时落盘多少</h3><p>合并调用次数会把失败的单位一起合并。每条路写 7,437 条记录（386,724 字节）后立刻 <code>halt()</code>，不 flush 不 close，文件里剩下的字节是：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>文件里剩下的字节</th>
+<th>记录数</th>
+<th>丢失的数据在哪</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>raw</code> 逐条裸写</td>
+<td>386,724</td>
+<td>7,437</td>
+<td>没有丢失，全部已交给内核</td>
+</tr>
+<tr>
+<td><code>buffered</code> 8192 缓冲</td>
+<td>383,708</td>
+<td>7,379</td>
+<td>58 条（3,016 字节）在用户态缓冲区</td>
+</tr>
+<tr>
+<td><code>assembled</code> 拼装单写</td>
+<td>0（文件不存在）</td>
+<td>0</td>
+<td>全部 7,437 条还在内存里，没开始写</td>
+</tr>
+</tbody></table>
+<p>这些数字都对得上账：3,016 &#x3D; 58 × 52，7,379 &#x3D; 47 × 157。缓冲写法每 157 条刷一次，崩溃时缓冲区里正好是下一批没攒满的零头。拼装写法更极端，进程死之前一次 <code>write</code> 都没发出，文件还是空的。</p>
+<p>失败可见性是外观容易被忽略的一项代价：<code>Files.write(lines)</code> 这类接口把「一万次写」变成一个动作，出错时调用方只看到一个异常，看不出写到了第几条。数据在磁盘上的可见性也跟着变了：缓冲写法的可见性以 8,164 字节为粒度，拼装写法以整批为粒度。</p>
+<h3 id="内存的天花板"><a href="#内存的天花板" class="headerlink" title="内存的天花板"></a>内存的天花板</h3><p>把记录数放大到 100 万条，负载 52 MB，堆限制 32 MB，两个 JDK 上的结果一样：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>堆峰值</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>buffered</code> 8192 缓冲</td>
+<td>2.4 MB（JDK 21）&#x2F; 2.1 MB（JDK 25）</td>
+<td>正常写完 52,000,000 字节</td>
+</tr>
+<tr>
+<td><code>assembled</code> 拼装单写</td>
+<td>撞到堆上限</td>
+<td><code>OutOfMemoryError</code></td>
+</tr>
+</tbody></table>
+<p>缓冲写法的内存占用是常数：一个 8,192 字节的数组，与批量大小无关。拼装写法要求一次拿到 52 MB 的连续数组，堆给不出来就失败。批量的规模上限由内存决定，这是外观设计时要写进文档的参数。JDK 自己清楚这一点，所以 <code>Files.write(byte[])</code> 的 8192 分块（下面源码一节）不要求调用方一次性交出全部数据。</p>
+<p>两个探针的结果合起来：外观减少调用次数靠的是「攒」，攒在用户态缓冲里，代价是失败可见性与内存占用。这两项在调用次数那张表里看不到。</p>
+<h2 id="四、JDK-源码里的外观"><a href="#四、JDK-源码里的外观" class="headerlink" title="四、JDK 源码里的外观"></a>四、JDK 源码里的外观</h2><p>JDK 里这类外观到处都是。我按 JDK 25 <code>src.zip</code> 逐条对了一遍上面用到的和没用到的方法，看它们把 N 收敛到什么程度。</p>
+<h3 id="BufferedOutputStream：批量刷写的账本"><a href="#BufferedOutputStream：批量刷写的账本" class="headerlink" title="BufferedOutputStream：批量刷写的账本"></a>BufferedOutputStream：批量刷写的账本</h3><p>JDK 25 的 <code>BufferedOutputStream</code> 有两个常量，一个初始值一个上限（<code>java.base/java/io/BufferedOutputStream.java:46-47</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">int</span> <span class="variable">DEFAULT_INITIAL_BUFFER_SIZE</span> <span class="operator">=</span> <span class="number">512</span>;</span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">int</span> <span class="variable">DEFAULT_MAX_BUFFER_SIZE</span> <span class="operator">=</span> <span class="number">8192</span>;</span><br></pre></td></tr></table></figure>
+
+<p>显式传缓冲大小时两个值取同一个数（<code>:116-118</code>），<code>write(byte[], int, int)</code> 的逻辑是这里的关键（<code>:177-192</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="keyword">void</span> <span class="title function_">write</span><span class="params">(<span class="type">byte</span>[] b, <span class="type">int</span> off, <span class="type">int</span> len)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">    <span class="keyword">if</span> (len &gt;= maxBufSize) &#123;</span><br><span class="line">        <span class="comment">/* If the request length exceeds the max size of the output buffer,</span></span><br><span class="line"><span class="comment">           flush the output buffer and then write the data directly.</span></span><br><span class="line"><span class="comment">           In this way buffered streams will cascade harmlessly. */</span></span><br><span class="line">        flushBuffer();</span><br><span class="line">        out.write(b, off, len);</span><br><span class="line">        <span class="keyword">return</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    growIfNeeded(len);</span><br><span class="line">    <span class="keyword">if</span> (len &gt; buf.length - count) &#123;</span><br><span class="line">        flushBuffer();</span><br><span class="line">    &#125;</span><br><span class="line">    System.arraycopy(b, off, buf, count, len);</span><br><span class="line">    count += len;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>实测的数字来自这段逻辑。写入请求不小于缓冲上限时直接透传，不做二次拷贝。装不下的记录触发一次刷写再落到位，缓冲区攒到 8,164 字节就刷，离 8,192 差 28 字节，放不下第 158 条 52 字节的记录。<code>flushBuffer</code> 只有 4 行（<code>:121-126</code>），它把 <code>out.write(buf, 0, count)</code> 交给下层，这是几种写法里唯一一处把多次调用合并成一次的地方。</p>
+<p><code>write(int)</code> 和 <code>write(byte[], int, int)</code> 都带 <code>synchronized</code>。这一层锁是为了单流多线程安全，代价出现在每条记录 78 ns 的成本里。</p>
+<h3 id="Files-write-byte-：分块是自己写的"><a href="#Files-write-byte-：分块是自己写的" class="headerlink" title="Files.write(byte[])：分块是自己写的"></a>Files.write(byte[])：分块是自己写的</h3><p>调用方写一行 <code>Files.write(path, bigArray)</code>，进到 <code>java.base/java/nio/file/Files.java:3168-3184</code> 是这样：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> Path <span class="title function_">write</span><span class="params">(Path path, <span class="type">byte</span>[] bytes, OpenOption... options)</span></span><br><span class="line">    <span class="keyword">throws</span> IOException</span><br><span class="line">&#123;</span><br><span class="line">    <span class="comment">// ensure bytes is not null before opening file</span></span><br><span class="line">    Objects.requireNonNull(bytes);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">try</span> (<span class="type">OutputStream</span> <span class="variable">out</span> <span class="operator">=</span> Files.newOutputStream(path, options)) &#123;</span><br><span class="line">        <span class="type">int</span> <span class="variable">len</span> <span class="operator">=</span> bytes.length;</span><br><span class="line">        <span class="type">int</span> <span class="variable">rem</span> <span class="operator">=</span> len;</span><br><span class="line">        <span class="keyword">while</span> (rem &gt; <span class="number">0</span>) &#123;</span><br><span class="line">            <span class="type">int</span> <span class="variable">n</span> <span class="operator">=</span> Math.min(rem, BUFFER_SIZE);</span><br><span class="line">            out.write(bytes, (len-rem), n);</span><br><span class="line">            rem -= n;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> path;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>BUFFER_SIZE</code> 在同文件 <code>:95</code> 声明，值是 8192。「一次性写入」在 JDK 这里同样是 8192 字节一块，5,200,000 字节分 635 块，与实测的 635 次系统调用对应。名字叫一次 write，底下是 635 次。</p>
+<h3 id="Files-write-lines-：一行调用，两万次内部调用"><a href="#Files-write-lines-：一行调用，两万次内部调用" class="headerlink" title="Files.write(lines)：一行调用，两万次内部调用"></a>Files.write(lines)：一行调用，两万次内部调用</h3><p>另一个重载更接近本文的场景，接收行列表（<code>Files.java:3229-3244</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> Path <span class="title function_">write</span><span class="params">(Path path, Iterable&lt;? extends CharSequence&gt; lines,</span></span><br><span class="line"><span class="params">                         Charset cs, OpenOption... options)</span></span><br><span class="line">    <span class="keyword">throws</span> IOException</span><br><span class="line">&#123;</span><br><span class="line">    <span class="comment">// ensure lines is not null before opening file</span></span><br><span class="line">    Objects.requireNonNull(lines);</span><br><span class="line">    <span class="type">CharsetEncoder</span> <span class="variable">encoder</span> <span class="operator">=</span> cs.newEncoder();</span><br><span class="line">    <span class="keyword">try</span> (<span class="type">OutputStream</span> <span class="variable">out</span> <span class="operator">=</span> newOutputStream(path, options);</span><br><span class="line">         <span class="type">BufferedWriter</span> <span class="variable">writer</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BufferedWriter</span>(<span class="keyword">new</span> <span class="title class_">OutputStreamWriter</span>(out, encoder))) &#123;</span><br><span class="line">        <span class="keyword">for</span> (CharSequence line: lines) &#123;</span><br><span class="line">            writer.append(line);</span><br><span class="line">            writer.newLine();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> path;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>调用方写一行，JDK 内部做了 10,000 次 <code>append</code>、10,000 次 <code>newLine</code>，再经过 <code>BufferedWriter</code> 的 8192 字符缓冲与 <code>OutputStreamWriter</code> 的 8192 字节编码缓冲，落到 64 次系统调用。这三段容量都能在源码里查到：字符缓冲 512 起步、上限 8192（<code>java.base/java/io/BufferedWriter.java:75-76</code>），编码器字节缓冲的上限同样是 8192（<code>java.base/sun/nio/cs/StreamEncoder.java:44</code> 的 <code>MAX_BYTE_BUFFER_CAPACITY</code>），最里面的 <code>Files.write</code> 分块还是 8192。</p>
+<p>成本也在源码里。每写一行要两次加锁的调用：<code>write(String, int, int)</code>（<code>BufferedWriter.java:271-285</code>）持锁把字符拷进缓冲，<code>newLine()</code>（<code>:294-296</code>）再走一遍：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">newLine</span><span class="params">()</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">    write(System.lineSeparator());</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>一万行记录，两万次加锁与字符拷贝，加上一次性的 UTF-8 编码，就是 <code>Files.write(lines)</code> 相对手写缓冲多付的约 1.2 ms。外观把这些内部调用接了过去：谁做合并、合并到多大、编码放在哪一层，调用方不再关心，也改不了。</p>
+<p>实测里 <code>Files.write(lines)</code> 比手写 <code>buffered</code> 慢 2.5 倍（JDK 25 的 1.96 ms 对 0.78 ms），差的就是这一次性编码。省调用次数的收益是量级差，编码成本约 1.2 ms，这个代价可以接受。</p>
+<h3 id="同名方法在父类里是展开"><a href="#同名方法在父类里是展开" class="headerlink" title="同名方法在父类里是展开"></a>同名方法在父类里是展开</h3><p><code>BufferedOutputStream</code> 的父类把同一个方法写成相反的方向（<code>java.base/java/io/FilterOutputStream.java:135-141</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">write</span><span class="params">(<span class="type">byte</span>[] b, <span class="type">int</span> off, <span class="type">int</span> len)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">    Objects.checkFromIndexSize(off, len, b.length);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span> ; i &lt; len ; i++) &#123;</span><br><span class="line">        write(b[off + i]);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>父类的批量方法把一次调用拆成 len 次单字节调用，子类覆写之后改成攒进缓冲。<code>BufferedOutputStream</code> 在类图上只是一层包装，行为上把父类的展开反了过来。判断一个类是不是外观，看它的 <code>write(byte[], int, int)</code> 往下一层发了几次调用，与它在类图上的位置无关。</p>
+<p><code>FilterOutputStream</code> 里也有纯转发的方法，<code>write(int)</code> 就一行 <code>out.write(b)</code>（<code>FilterOutputStream.java:88-90</code>），<code>flush()</code> 同理（<code>:154-156</code>）。一次调用换一次调用，这类方法只是转发；把 N 次调用收成一次，才是外观。</p>
+<h3 id="Files-copy：外观按-provider-分派"><a href="#Files-copy：外观按-provider-分派" class="headerlink" title="Files.copy：外观按 provider 分派"></a>Files.copy：外观按 provider 分派</h3><p>同一份拷贝操作，<code>Files.copy</code> 分两条路（<code>Files.java:1186-1198</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> Path <span class="title function_">copy</span><span class="params">(Path source, Path target, CopyOption... options)</span></span><br><span class="line">    <span class="keyword">throws</span> IOException</span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">FileSystemProvider</span> <span class="variable">provider</span> <span class="operator">=</span> provider(source);</span><br><span class="line">    <span class="keyword">if</span> (provider(target) == provider) &#123;</span><br><span class="line">        <span class="comment">// same provider</span></span><br><span class="line">        provider.copy(source, target, options);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="comment">// different providers</span></span><br><span class="line">        CopyMoveHelper.copyToForeignTarget(source, target, options);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> target;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>两个路径同文件系统时走 provider 自己的实现，本机上是 <code>sun.nio.fs.UnixFileSystem.copyFile</code>，里面先尝试平台直接拷贝（<code>UnixFileSystem.java:642-655</code>，macOS 上是 <code>copyfile(3)</code> 一类），失败才退回到 <code>ByteBuffer</code> 缓冲循环。跨文件系统时走 <code>CopyMoveHelper.copyToForeignTarget</code>，它最后落到（<code>CopyMoveHelper.java:146-148</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">InputStream</span> <span class="variable">in</span> <span class="operator">=</span> Files.newInputStream(source)) &#123;</span><br><span class="line">    Files.copy(in, target);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>而 <code>Files.copy(InputStream, Path, ...)</code> 的收尾是 <code>Files.java:2864</code> 的一行 <code>return in.transferTo(out);</code>。一次 <code>Files.copy</code> 表面是一个调用，底下可能是一次 <code>copyfile</code> 系统调用、一个 8192 字节的循环，或者 <code>transferTo</code> 的三层机制。外观替调用方做了选择，调用方看不到自己拿到了哪一种。</p>
+<h3 id="transferTo：三层机制藏在一个名字后面"><a href="#transferTo：三层机制藏在一个名字后面" class="headerlink" title="transferTo：三层机制藏在一个名字后面"></a>transferTo：三层机制藏在一个名字后面</h3><p><code>InputStream.transferTo</code> 是 JDK 9 引入的粗粒度 API，默认实现（<code>java.base/java/io/InputStream.java:790-806</code>）是一个 16,384 字节缓冲的循环：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="type">long</span> <span class="title function_">transferTo</span><span class="params">(OutputStream out)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">    Objects.requireNonNull(out, <span class="string">&quot;out&quot;</span>);</span><br><span class="line">    <span class="type">long</span> <span class="variable">transferred</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="type">byte</span>[] buffer = <span class="keyword">new</span> <span class="title class_">byte</span>[DEFAULT_BUFFER_SIZE];</span><br><span class="line">    <span class="type">int</span> read;</span><br><span class="line">    <span class="keyword">while</span> ((read = <span class="built_in">this</span>.read(buffer, <span class="number">0</span>, DEFAULT_BUFFER_SIZE)) &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">        out.write(buffer, <span class="number">0</span>, read);</span><br></pre></td></tr></table></figure>
+
+<p>它的默认缓冲是 16,384 字节（同文件 <code>:58</code> 的 <code>DEFAULT_BUFFER_SIZE</code>），与 <code>BufferedOutputStream</code> 的 8192 不同。16 KiB 这个数在 JDK 里反复出现：<code>FileChannelImpl</code> 里 mmap 路径的门槛 <code>MAPPED_TRANSFER_THRESHOLD</code> 也是 16 KiB（<code>java.base/sun/nio/ch/FileChannelImpl.java:840</code>）。</p>
+<p><code>FileChannel.transferTo</code> 走的层数最多。它的 javadoc 承诺（<code>java.base/java/nio/channels/FileChannel.java:627-630</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* &lt;p&gt; This method is potentially much more efficient than a simple loop</span><br><span class="line">* that reads from <span class="built_in">this</span> channel and writes to the target channel.  Many</span><br><span class="line">* operating systems can transfer bytes directly from the filesystem cache</span><br><span class="line">* to the target channel without actually copying them.  &lt;/p&gt;</span><br></pre></td></tr></table></figure>
+
+<p>实现是三级瀑布（<code>FileChannelImpl.java:962-975</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Attempt a direct transfer, if the kernel supports it,</span></span><br><span class="line"><span class="comment">// limiting the number of bytes according to which platform</span></span><br><span class="line"><span class="type">int</span> <span class="variable">icount</span> <span class="operator">=</span> (<span class="type">int</span>) Math.min(count, nd.maxDirectTransferSize());</span><br><span class="line"><span class="type">long</span> n;</span><br><span class="line"><span class="keyword">if</span> ((n = transferToDirect(position, icount, target)) &gt;= <span class="number">0</span>)</span><br><span class="line">    <span class="keyword">return</span> n;</span><br><span class="line"></span><br><span class="line"><span class="comment">// Attempt a mapped transfer, but only to trusted channel types</span></span><br><span class="line"><span class="keyword">if</span> ((n = transferToTrustedChannel(position, count, target)) &gt;= <span class="number">0</span>)</span><br><span class="line">    <span class="keyword">return</span> n;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// fallback to read/write loop</span></span><br><span class="line"><span class="keyword">return</span> transferToArbitraryChannel(position, count, target);</span><br></pre></td></tr></table></figure>
+
+<p>第一层是 <code>sendfile</code> 或 <code>copy_file_range</code> 一类的零拷贝（<code>FileChannelImpl.java:785-788</code> 的注释写着 <code>This implementation uses sendfile, copy_file_range or equivalent.</code>），只支持文件到文件、文件到 socket 两种目标。第二层是 mmap，门槛 16 KiB，上限 8 MiB（<code>:840-843</code>）。第三层退回 8192 字节的读写循环（<code>:1078</code> 的 <code>TRANSFER_SIZE = 8192</code>）。</p>
+<p>一个方法名下面是三种搬运机制，调用方一句 <code>transferTo(0, size, target)</code> 就要接受其中任意一种。外观在这里收敛了两样东西：调用次数和实现差异，代价是性能特征从调用方视野里消失。</p>
+<h2 id="五、什么时候做外观，什么时候不做"><a href="#五、什么时候做外观，什么时候不做" class="headerlink" title="五、什么时候做外观，什么时候不做"></a>五、什么时候做外观，什么时候不做</h2><h3 id="判据流程"><a href="#判据流程" class="headerlink" title="判据流程"></a>判据流程</h3><div class="mermaid-wrap"><pre class="mermaid-src" data-config="{}" hidden>
+    graph TD
+    Q0[&quot;这段逻辑在一轮业务里重复调用多少次&quot;] --&gt; Q1{&quot;N 是否超过约 100&quot;}
+    Q1 --&gt;|&quot;否&quot;| A1[&quot;保持细粒度调用，外观只会增加一层需要维护的转发&quot;]
+    Q1 --&gt;|&quot;是&quot;| Q2{&quot;多次调用的参数能否一次性拿到&quot;}
+    Q2 --&gt;|&quot;不能&quot;| A2[&quot;做不了批量接口，改从减少调用次数之外的方向做优化&quot;]
+    Q2 --&gt;|&quot;能&quot;| Q3{&quot;结果可以攒在内存里吗&quot;}
+    Q3 --&gt;|&quot;可以&quot;| A3[&quot;拼装成一次粗调用，系统调用次数与 N 脱钩&quot;]
+    Q3 --&gt;|&quot;不可以&quot;| Q4{&quot;失败时是否需要定位到具体某一条&quot;}
+    Q4 --&gt;|&quot;需要&quot;| A4[&quot;用缓冲或流水线，保留逐条的调用位置与错误上下文&quot;]
+    Q4 --&gt;|&quot;不需要&quot;| A5[&quot;用批量 API，同时把整批的失败语义定义清楚&quot;]
+  </pre></div>
+
+<p>N 的门槛不是拍出来的。本机上一次 <code>write(2)</code> 约 2.3 微秒，一次 Java 层的加锁加拷贝约 78 纳秒，相差 30 倍。N 小于 100 时，细粒度调用的总成本不超过 0.25 ms，抵不过多一层抽象带来的维护成本。</p>
+<h3 id="批量接口改掉的东西"><a href="#批量接口改掉的东西" class="headerlink" title="批量接口改掉的东西"></a>批量接口改掉的东西</h3><p>批量接口换掉的还有语义。下面四条都有本实验的数字。</p>
+<p><strong>内存峰值与批量规模绑定。</strong> 缓冲写法的堆峰值是 2.1 MB（JDK 25，100 万条记录），拼装写法在同样的 <code>-Xmx32m</code> 下直接 <code>OutOfMemoryError</code>。批量的上限由堆决定，接口文档里要写清楚这个上限，或者像 <code>Files.write(byte[])</code> 一样内部分块，把单次分配的规模压回 8 KiB。</p>
+<p><strong>失败可见性以批为单位。</strong> 同样是写到 7,437 条时进程崩溃，逐条写留下 386,724 字节，缓冲写法留下 383,708 字节，拼装写法留下 0 字节。异常信息能定位到失败的批，定位不到第几条。</p>
+<p><strong>延迟攒在批里。</strong> 攒批意味着最后一个字节要等到批满或显式关闭才可见。<code>BufferedOutputStream</code> 的 <code>flush()</code> 要手动调，忘了它，最后一次没刷满的部分就留在缓冲区里（一万条时是 5,668 字节）。批量接口的写入时机要写进文档，不能留给调用方猜。</p>
+<p><strong>错误定位精度下降。</strong> 一万条一次写入，第 7,437 条出错时异常只带一个偏移量，调用方需要自己换算回记录序号。逐条写能在出错处停下并保留上下文。需要定位问题时，缓冲写法是折中：调用位置仍在循环里，系统调用按批摊薄，出错可以立刻停止并丢掉未刷出的部分。</p>
+<h3 id="一条判断顺序"><a href="#一条判断顺序" class="headerlink" title="一条判断顺序"></a>一条判断顺序</h3><p>按这个顺序问，四个问题都能答「是」再做批量外观：</p>
+<ol>
+<li>这个边界上的单次调用成本是否远高于数据搬运成本。本机上是 2.3 微秒对 78 纳秒，差 30 倍。</li>
+<li>一轮业务里的调用次数是否到百次量级。低于这个数，合并省下的时间小于接口带来的复杂度。</li>
+<li>多条调用的参数能否提前拿到。拿不到就没有批量接口，只能做流水线。</li>
+<li>失败时能否接受按批定位。不能接受就保留逐条调用，把成本花在别处。</li>
+</ol>
+<p>第 2 条的阈值来自本机实测，换机器要重测。前两条决定值不值得做，后两条决定能不能做。</p>
+<h3 id="与相邻模式的边界"><a href="#与相邻模式的边界" class="headerlink" title="与相邻模式的边界"></a>与相邻模式的边界</h3><p><a href="/2630879553.html">享元</a>共享不可变对象，省的是内存；<a href="/550034456.html">对象池</a>复用可变对象，省的是构造与销毁。外观省的是调用次数，与内存关系不大，三个模式经常同时出现但解决的问题不同。</p>
+<p><a href="/1805545517.html">装饰器</a>在不改接口的前提下叠行为，每次调用仍然只是一次转发，只是往下多走了几层，本实验里的 <code>BufferedOutputStream</code> 就是装饰器。同一个类既可以当装饰器用（保持 <code>OutputStream</code> 接口），也可以当外观用（把 N 次调用合并成 64 次）。模式的名字描述意图，不描述这个类在链上的位置。</p>
+<p><a href="/205079771.html">适配器</a>改变单个调用的形状，<code>read()</code> 变成 <code>readLine()</code>；外观不改变形状，改变次数。一个方法同时做到两件事时，先想清楚调用方需要的是哪一个。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>一万条 52 字节的记录，520,000 字节，三种写法的 <code>write(2)</code> 次数是 10,000、64、1，耗时中位数是 23.62 ms、0.78 ms、0.20 ms（JDK 25）。裸写与拼装差 117 倍。</li>
+<li>每次 <code>write(2)</code> 的边际成本约 2.3 微秒（两个 JDK 的差值方向一致）。这个数字决定了批量接口的盈亏平衡点：调用次数低于百次量级时，合并的意义不大。</li>
+<li>调用次数随记录数线性增长：10 万条时分别是 100,000、637、1 次，倍率分别是 10.0、10.0、1.0；耗时按同样倍率放大（裸写 191.4 ms，缓冲 7.72 ms）。</li>
+<li>单字节写同一批数据要 520,000 次系统调用，耗时 883 ms，是拼装写法的 4,400 倍。本实验的全部写法都落在调用次数与耗时的那条直线上。</li>
+<li><code>BufferedOutputStream</code> 每次攒满 8,164 字节就刷（157 条记录），剩下的零头在 <code>close()</code> 时刷出，所以 10 万条对应 637 次而不是 635 次。缓冲大小的收益取决于记录大小与缓冲大小的比值。</li>
+<li>缓冲写下每条记录的成本约 78 纳秒，主要来自 <code>synchronized</code> 与 <code>System.arraycopy</code>，不是系统调用。系统调用从 10,000 降到 64 的收益是量级差，Java 层调用从 10,000 降到 1 的收益是纳秒级。</li>
+<li>合并调用次数会把失败也合并：写到 7,437 条时进程崩溃，逐条写留下 386,724 字节，缓冲写留下 383,708 字节，拼装写留下 0 字节。内存上限同样绑在批量规模上：100 万条记录在 <code>-Xmx32m</code> 下，缓冲写法的堆峰值是 2.1 MB，拼装写法直接 <code>OutOfMemoryError</code>。</li>
+<li>JDK 自己的外观也是这么分层的：<code>Files.write(byte[])</code> 内部按 8192 字节分块（<code>Files.java:95</code>、<code>:3177-3181</code>），<code>Files.write(lines)</code> 内部做 20,000 次 append 与 newLine 后落到 64 次系统调用（<code>:3229-3244</code>）。实测后者慢 2.5 倍，差额来自字符编码；写同一批字节的 <code>Files.write(byte[])</code> 只要 0.56 ms，与手写缓冲同档。</li>
+<li><code>FileChannel.transferTo</code> 一个方法名下面有三级实现：<code>sendfile</code> 一类的零拷贝、16 KiB 门槛的 mmap、8192 字节的读写回退（<code>FileChannelImpl.java:962-975</code>）。外观同时隐藏了调用次数与调用方拿不到的性能特征。</li>
+<li>做外观的判据是调用次数、参数可批量、结果可缓冲、错误定位要求四条。无法一次性拿到参数、或必须逐条定位失败时，缓冲比合并更合适。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/io/BufferedOutputStream.html">BufferedOutputStream (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/Files.html">Files (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/io/InputStream.html">InputStream (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/channels/FileChannel.html">FileChannel (Java SE 25)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://refactoring.guru/design-patterns/facade">Facade — Refactoring.Guru</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://en.wikipedia.org/wiki/Facade_pattern">Facade pattern — Wikipedia</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://man7.org/linux/man-pages/man2/sendfile.2.html">sendfile(2) — Linux man page</a></li>
+</ul>
+<blockquote>
+<p>系列索引：<a href="/pattern/">设计模式系列</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/1016344466.html">https://lianglliu.github.io/1016344466.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/">设计模式</a><a class="post-meta__tags" href="/tags/%E5%A4%96%E8%A7%82%E6%A8%A1%E5%BC%8F/">外观模式</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/3864272964.html" title="设计模式——观察者：从 Observable 到背压"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">设计模式——观察者：从 Observable 到背压</div></div><div class="info-2"><div class="info-item-1"> 观察者模式在代码层面只有十几行：一个注册表，一次遍历回调。订阅者比发布者快时，这个形态没有可测的代价；慢订阅者占住的是发布者的线程。JDK 1.0 给了 Observable，JDK 9 把它废弃，同一个版本里给出 Flow：四个接口，补上的那一块是 Subscription.request(long)。  一、228 行的废弃类java.util.Observable 从 JDK 1.0 就在。JDK 25 的 src.zip 里它还在，228 行，第 75 行写着： 12@Deprecated(since=&quot;9&quot;)public class Observable &#123;  两个 LTS 过去了，JDK 一直没把它移除。javadoc 给的理由（java.base/java/util/Observable.java:62-74）： 123456789101112* @deprecated* This class and the &#123;@link Observer&#125; interface have been deprecated.* The...</div></div></div></a><a class="pagination-related" href="/1079149701.html" title="Java——Stream Gatherers 自定义管道"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Java——Stream Gatherers 自定义管道</div></div><div class="info-2"><div class="info-item-1"> 《Stream API 常见误用》讲的是内建操作怎么用错；这篇讲内建操作不够用时怎么办。过去要在流中间做”滑动窗口””按状态切分””限流并发”这类事，答案通常是”收集成 List 再用 for 循环”，或者硬塞一个 Collector——后者只能在终结处用，中间管道依然插不进去。JDK 24 转正的 JEP 485 补上了这块：Stream.gather(Gatherer) 是中间操作，和 map、filter 处在同一个位置上。全部代码在 JDK 25 上编译运行，不需要预览开关。  实验环境1234$ java -versionjava 25 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)  一、Gatherer 在管道里的位置JEP 485 的定位说得很清楚：  Stream::gather(Gatherer) is to inte...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/3864272964.html" title="设计模式——观察者：从 Observable 到背压"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——观察者：从 Observable 到背压</div></div><div class="info-2"><div class="info-item-1"> 观察者模式在代码层面只有十几行：一个注册表，一次遍历回调。订阅者比发布者快时，这个形态没有可测的代价；慢订阅者占住的是发布者的线程。JDK 1.0 给了 Observable，JDK 9 把它废弃，同一个版本里给出 Flow：四个接口，补上的那一块是 Subscription.request(long)。  一、228 行的废弃类java.util.Observable 从 JDK 1.0 就在。JDK 25 的 src.zip 里它还在，228 行，第 75 行写着： 12@Deprecated(since=&quot;9&quot;)public class Observable &#123;  两个 LTS 过去了，JDK 一直没把它移除。javadoc 给的理由（java.base/java/util/Observable.java:62-74）： 123456789101112* @deprecated* This class and the &#123;@link Observer&#125; interface have been deprecated.* The...</div></div></div></a><a class="pagination-related" href="/3162181737.html" title="设计模式——桥接：两个维度独立变化"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-8.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——桥接：两个维度独立变化</div></div><div class="info-2"><div class="info-item-1"> 两个维度各自独立变化时，继承把它们乘起来：4 种报表 × 4 种格式 &#x3D; 16 个叶子类，加第 5 种报表要再写 4 个。桥接把乘积拆成和：两个层次各管一个维度，运行时用一个引用把交叉点接上。代价是热路径上每次调用多一跳。JIT 内联掉这一跳，它是零成本；内联不掉，就是每次 0.6 纳秒。  一、桥接换的是算术一个报表导出模块。报表有 4 种，导出格式有 4 种，两者的交叉决定行为：销售报表按 CSV 输出，和库存报表按 CSV 输出，是两个不同的实现，共享的只有「把逗号换成竖线」这类细节。 用继承写，交叉点就是类：      classDiagram     direction TB     class Report {         &lt;&lt;abstract&gt;&gt;         +export(data)     }     class SalesCsv     class SalesJson     class SalesXml     class SalesMarkdown     class InventoryCsv     class...</div></div></div></a><a class="pagination-related" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——不可变与防御性拷贝</div></div><div class="info-2"><div class="info-item-1"> 不可变有两个动作：造的时候不让别人改，交出去的时候把边界封住。共享和拷贝是两笔账：共享把成本压在构造那一刻，拷贝把成本摊到每一次读取上。1 亿次读取、1024 元素的列表、一组布尔验证，把这两笔账分开算，跑在两个 LTS 上：JDK 21.0.8 与 JDK 25。  一、两笔账记在谁头上对象内部持有 1024 字节的数组，上层有很多只读的调用方，写法有两种。 123456789static final class SharedRepo &#123;    private final int[] data = new int[256];    int[] data() &#123; return data; &#125;                       // 交出引用&#125;static final class CopyRepo &#123;    private final int[] data = new int[256];    int[] data() &#123; return Arrays.copyOf(data, data.length); &#1...</div></div></div></a><a class="pagination-related" href="/712561657.html" title="设计模式——解释器：解释还是编译"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——解释器：解释还是编译</div></div><div class="info-2"><div class="info-item-1"> 解释器模式把一门语言的求值写成对象树上的递归。同一棵树可以在构建期换成闭包树，每个节点变成一个捕获了子闭包的函数。两种形态的求值都是每个节点一次调用，差别落在调用点能不能被 JIT 静态化。用 27 节点和 7 节点两个表达式、各 100 万次求值，可以把这句话量出来。  一、两个求值器四则运算的最小文法：数字、变量、加减乘除。节点是一组 record，求值是节点自己的方法： 12345678sealed interface Node &#123; double eval(double[] v); &#125;record Num(double k) implements Node &#123; public double eval(double[] v) &#123; return k; &#125; &#125;record Var(int i) implements Node &#123; public double eval(double[] v) &#123; return v[i]; &#125; &#125;record Add(Node l, Node r) i...</div></div></div></a><a class="pagination-related" href="/550034456.html" title="设计模式——对象池：什么时候是负优化"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——对象池：什么时候是负优化</div></div><div class="info-2"><div class="info-item-1"> 对象池把「分配」换成了「借还」。分配走线程私有的 TLAB，借还抢所有线程共用的队列。收益只能来自免掉构造与初始化，代价是同步。构造越贵，这笔交换越划算；构造越便宜，省下的越少，而同步开销照付。三种构造成本（1 KiB 数组、DirectByteBuffer(1 KiB)、SecureRandom 初始化）乘三种取法（每次 new、ThreadLocal 池、ReentrantLock 池），在 1、8、16 线程下各计时 1 秒，JDK 21 与 JDK 25 都跑，找出池化从赚到亏的那条线。  一、池化把什么换成了什么new 是一条线程私有路径。HotSpot 给每个线程一块 TLAB，分配对象就是把指针往前挪一段，再零初始化。 池化把这条路径改成：从共享队列取一个对象、重置它的状态、用完还回去。取和还都要同步。      graph TD     subgraph A[&quot;每次 new：线程私有&quot;]       A1[&quot;线程本地 TLAB&quot;] --&gt;|&quot;指针加法 + 清零&quot;| A2[&quot;可用的新对象&...</div></div></div></a><a class="pagination-related" href="/2495256397.html" title="设计模式——中介者：谁负责协调"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">设计模式——中介者：谁负责协调</div></div><div class="info-2"><div class="info-item-1"> 中介者把参与者之间的 N(N−1) 条引用换成 N 条，代价是所有人的调用都要经过它。这笔代价有一半是虚构的：JIT 把只做转发的分发路径内联之后，它和直连编译成同一段代码，测不出差别。另一半是真的，来自中介者自己持有的共享状态：一个轮转游标、一个全局序号、一把锁。  一、换掉的是引用，也是决定权8 个参与者互相发事件。直连的写法是每个参与者持有其余 7 个的引用；中介者的写法是每个参与者只认识中介者。      graph TB     subgraph d[&quot;直连：参与者两两持有引用，8 个节点 56 条边&quot;]         direction LR         D1((A)) --- D2((B))         D1 --- D3((C))         D1 --- D4((D))         D2 --- D3         D2 --- D4         D3 --- D4     end     subgraph m[&quot;中介者：每个参与者一条引用，加上中介者的 8 条反向引用共 16 条&quot;]      ...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">50</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">35</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E6%8A%8A%E3%80%8C%E7%BB%9F%E4%B8%80%E6%8E%A5%E5%8F%A3%E3%80%8D%E6%8D%A2%E6%88%90%E8%B0%83%E7%94%A8%E6%AC%A1%E6%95%B0"><span class="toc-number">1.</span> <span class="toc-text">一、把「统一接口」换成调用次数</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1"><span class="toc-number">2.</span> <span class="toc-text">二、实验设计</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%95%B0%E6%8D%AE%E4%B8%8E%E5%9B%9B%E4%B8%AA%E5%8F%98%E4%BD%93"><span class="toc-number">2.1.</span> <span class="toc-text">数据与四个变体</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8%E8%AE%A1%E6%95%B0%E6%80%8E%E4%B9%88%E6%8B%BF"><span class="toc-number">2.2.</span> <span class="toc-text">系统调用计数怎么拿</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%AE%A1%E6%97%B6%E6%80%8E%E4%B9%88%E6%8B%BF"><span class="toc-number">2.3.</span> <span class="toc-text">计时怎么拿</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E6%B5%8B"><span class="toc-number">3.</span> <span class="toc-text">三、实测</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%A4%E5%BC%A0%E5%B0%BA%E5%AD%90%E9%87%8F%E5%90%8C%E4%B8%80%E4%BB%B6%E4%BA%8B"><span class="toc-number">3.1.</span> <span class="toc-text">两张尺子量同一件事</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8A%8A%E9%87%8F%E6%94%BE%E5%A4%A7%E5%8D%81%E5%80%8D%E5%86%8D%E7%9C%8B"><span class="toc-number">3.2.</span> <span class="toc-text">把量放大十倍再看</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8A%8A%E7%B2%92%E5%BA%A6%E5%86%8D%E9%99%8D%E4%B8%80%E6%A0%BC"><span class="toc-number">3.3.</span> <span class="toc-text">把粒度再降一格</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%BC%93%E5%86%B2%E5%B1%82%E7%9A%84%E4%B8%A4%E6%AC%A1%E8%AE%B0%E8%B4%A6"><span class="toc-number">3.4.</span> <span class="toc-text">缓冲层的两次记账</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%BC%93%E5%86%B2%E7%9C%81%E6%8E%89%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%8C%E6%B2%A1%E7%9C%81%E6%8E%89%E4%BB%80%E4%B9%88"><span class="toc-number">3.5.</span> <span class="toc-text">缓冲省掉了什么，没省掉什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%95%85%E9%9A%9C%E6%97%B6%E8%90%BD%E7%9B%98%E5%A4%9A%E5%B0%91"><span class="toc-number">3.6.</span> <span class="toc-text">故障时落盘多少</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%86%85%E5%AD%98%E7%9A%84%E5%A4%A9%E8%8A%B1%E6%9D%BF"><span class="toc-number">3.7.</span> <span class="toc-text">内存的天花板</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81JDK-%E6%BA%90%E7%A0%81%E9%87%8C%E7%9A%84%E5%A4%96%E8%A7%82"><span class="toc-number">4.</span> <span class="toc-text">四、JDK 源码里的外观</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#BufferedOutputStream%EF%BC%9A%E6%89%B9%E9%87%8F%E5%88%B7%E5%86%99%E7%9A%84%E8%B4%A6%E6%9C%AC"><span class="toc-number">4.1.</span> <span class="toc-text">BufferedOutputStream：批量刷写的账本</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Files-write-byte-%EF%BC%9A%E5%88%86%E5%9D%97%E6%98%AF%E8%87%AA%E5%B7%B1%E5%86%99%E7%9A%84"><span class="toc-number">4.2.</span> <span class="toc-text">Files.write(byte[])：分块是自己写的</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Files-write-lines-%EF%BC%9A%E4%B8%80%E8%A1%8C%E8%B0%83%E7%94%A8%EF%BC%8C%E4%B8%A4%E4%B8%87%E6%AC%A1%E5%86%85%E9%83%A8%E8%B0%83%E7%94%A8"><span class="toc-number">4.3.</span> <span class="toc-text">Files.write(lines)：一行调用，两万次内部调用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%90%8C%E5%90%8D%E6%96%B9%E6%B3%95%E5%9C%A8%E7%88%B6%E7%B1%BB%E9%87%8C%E6%98%AF%E5%B1%95%E5%BC%80"><span class="toc-number">4.4.</span> <span class="toc-text">同名方法在父类里是展开</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Files-copy%EF%BC%9A%E5%A4%96%E8%A7%82%E6%8C%89-provider-%E5%88%86%E6%B4%BE"><span class="toc-number">4.5.</span> <span class="toc-text">Files.copy：外观按 provider 分派</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#transferTo%EF%BC%9A%E4%B8%89%E5%B1%82%E6%9C%BA%E5%88%B6%E8%97%8F%E5%9C%A8%E4%B8%80%E4%B8%AA%E5%90%8D%E5%AD%97%E5%90%8E%E9%9D%A2"><span class="toc-number">4.6.</span> <span class="toc-text">transferTo：三层机制藏在一个名字后面</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E5%81%9A%E5%A4%96%E8%A7%82%EF%BC%8C%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%B8%8D%E5%81%9A"><span class="toc-number">5.</span> <span class="toc-text">五、什么时候做外观，什么时候不做</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%88%A4%E6%8D%AE%E6%B5%81%E7%A8%8B"><span class="toc-number">5.1.</span> <span class="toc-text">判据流程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%89%B9%E9%87%8F%E6%8E%A5%E5%8F%A3%E6%94%B9%E6%8E%89%E7%9A%84%E4%B8%9C%E8%A5%BF"><span class="toc-number">5.2.</span> <span class="toc-text">批量接口改掉的东西</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E6%9D%A1%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F"><span class="toc-number">5.3.</span> <span class="toc-text">一条判断顺序</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%8E%E7%9B%B8%E9%82%BB%E6%A8%A1%E5%BC%8F%E7%9A%84%E8%BE%B9%E7%95%8C"><span class="toc-number">5.4.</span> <span class="toc-text">与相邻模式的边界</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">6.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">7.</span> <span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——装饰器：缓冲链的代价"/></a><div class="content"><a class="title" href="/1805545517.html" title="设计模式——装饰器：缓冲链的代价">设计模式——装饰器：缓冲链的代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——被语言吃掉的那些模式"/></a><div class="content"><a class="title" href="/2097900514.html" title="设计模式——被语言吃掉的那些模式">设计模式——被语言吃掉的那些模式</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2222335298.html" title="设计模式——单例的五种写法与代价"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——单例的五种写法与代价"/></a><div class="content"><a class="title" href="/2222335298.html" title="设计模式——单例的五种写法与代价">设计模式——单例的五种写法与代价</a><time datetime="2026-09-17T13:00:00.000Z" title="发表于 2026-09-17 21:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1455898602.html" title="设计模式——不可变与防御性拷贝"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="设计模式——不可变与防御性拷贝"/></a><div class="content"><a class="title" href="/1455898602.html" title="设计模式——不可变与防御性拷贝">设计模式——不可变与防御性拷贝</a><time datetime="2026-09-17T11:30:00.000Z" title="发表于 2026-09-17 19:30:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>(() => {
+  const parseViewBox = viewBox => {
+    if (!viewBox) return null
+    const parts = viewBox.trim().split(/[\s,]+/).map(n => Number(n))
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return null
+    return parts
+  }
+
+  const getSvgViewBox = svg => {
+    const attr = parseViewBox(svg.getAttribute('viewBox'))
+    if (attr) return attr
+
+    // Fallback: use bbox to build a viewBox
+    try {
+      const bbox = svg.getBBox()
+      if (bbox && bbox.width && bbox.height) return [bbox.x, bbox.y, bbox.width, bbox.height]
+    } catch (e) {
+      // getBBox may fail on some edge cases; ignore
+    }
+
+    const w = Number(svg.getAttribute('width')) || 0
+    const h = Number(svg.getAttribute('height')) || 0
+    if (w > 0 && h > 0) return [0, 0, w, h]
+    return [0, 0, 100, 100]
+  }
+
+  const setSvgViewBox = (svg, vb) => {
+    svg.setAttribute('viewBox', `${vb[0]} ${vb[1]} ${vb[2]} ${vb[3]}`)
+  }
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
+  const openSvgInNewTab = ({ source, initViewBox }) => {
+    const getClonedSvg = () => {
+      if (typeof source === 'string') {
+        const template = document.createElement('template')
+        template.innerHTML = source.trim()
+        const svg = template.content.querySelector('svg')
+        return svg ? svg.cloneNode(true) : null
+      }
+      if (source && typeof source.cloneNode === 'function') {
+        return source.cloneNode(true)
+      }
+      return null
+    }
+
+    const clone = getClonedSvg()
+    if (!clone) return
+    if (initViewBox && initViewBox.length === 4) {
+      clone.setAttribute('viewBox', initViewBox.join(' '))
+    }
+    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    if (!clone.getAttribute('xmlns:xlink') && clone.innerHTML.includes('xlink:')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    }
+    // inject background to match current theme
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const bg = getComputedStyle(document.body).backgroundColor || (isDark ? '#1e1e1e' : '#ffffff')
+    if (!clone.style.background) clone.style.background = bg
+
+    const serializer = new XMLSerializer()
+    const svgSource = serializer.serializeToString(clone)
+    const htmlSource = `<!doctype html><html><head><meta charset="utf-8" />
+      <style>
+        html, body { width: 100%; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; background: ${bg}; }
+        svg { max-width: 100%; max-height: 100%; height: auto; width: auto; }
+      </style>
+      </head><body>${svgSource}</body></html>`
+    const blob = new Blob([htmlSource], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener')
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  const attachMermaidViewerButton = wrap => {
+    let btn = wrap.querySelector('.mermaid-open-btn')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mermaid-open-btn'
+      wrap.appendChild(btn)
+    }
+
+    btn.innerHTML = '<i class="fa fa-search fa-fw" aria-hidden="true"></i>'
+
+    if (!btn.__mermaidViewerBound) {
+      btn.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        const svg = wrap.__mermaidOriginalSvg || wrap.querySelector('svg')
+        if (!svg) return
+        const initViewBox = wrap.__mermaidInitViewBox
+        openSvgInNewTab({ source: svg, initViewBox })
+      })
+      btn.__mermaidViewerBound = true
+    }
+  }
+
+  // Zoom around a point (px, py) in the SVG viewport (in viewBox coordinates)
+  const zoomAtPoint = (vb, factor, px, py) => {
+    const w = vb[2] * factor
+    const h = vb[3] * factor
+    const nx = px - (px - vb[0]) * factor
+    const ny = py - (py - vb[1]) * factor
+    return [nx, ny, w, h]
+  }
+
+  const initMermaidGestures = wrap => {
+    // Clean up previous event listeners and pending frames
+    if (wrap.__mermaidAbortController) {
+      wrap.__mermaidAbortController.abort()
+      if (wrap.__mermaidRafId) cancelAnimationFrame(wrap.__mermaidRafId)
+    }
+    const ac = new AbortController()
+    wrap.__mermaidAbortController = ac
+    const svg = wrap.querySelector('svg')
+    if (!svg) return
+
+    // Ensure viewBox exists so gestures always work
+    const initVb = getSvgViewBox(svg)
+    wrap.__mermaidInitViewBox = initVb
+    wrap.__mermaidCurViewBox = initVb.slice()
+    setSvgViewBox(svg, initVb)
+    // Disable default gestures to prevent scroll chaining and pinch-zoom penetration in Chrome
+    svg.style.touchAction = 'none'
+
+    // Cache BoundingClientRect, throttled on scroll to reduce reflow
+    let cachedRect = svg.getBoundingClientRect()
+    let rectDirty = false
+    const markRectDirty = () => { rectDirty = true }
+    window.addEventListener('resize', markRectDirty, { signal: ac.signal })
+    window.addEventListener('scroll', markRectDirty, { signal: ac.signal, capture: true })
+    const getRect = () => {
+      if (rectDirty) {
+        cachedRect = svg.getBoundingClientRect()
+        rectDirty = false
+      }
+      return cachedRect
+    }
+
+    // Precompute clamp bounds from initial viewBox
+    const minW = initVb[2] * 0.1
+    const maxW = initVb[2] * 10
+    const minH = initVb[3] * 0.1
+    const maxH = initVb[3] * 10
+    const clampVb = vb => {
+      const out = vb.slice()
+      out[2] = clamp(out[2], minW, maxW)
+      out[3] = clamp(out[3], minH, maxH)
+      return out
+    }
+
+    // Throttle DOM updates using requestAnimationFrame
+    let pendingVb = null
+    let rafId = null
+    const applyVb = () => {
+      if (pendingVb) {
+        wrap.__mermaidCurViewBox = pendingVb
+        setSvgViewBox(svg, pendingVb)
+        pendingVb = null
+      }
+      rafId = null
+      wrap.__mermaidRafId = null
+    }
+    const setCurVb = vb => {
+      pendingVb = clampVb(vb)
+      if (!rafId) {
+        rafId = requestAnimationFrame(applyVb)
+        wrap.__mermaidRafId = rafId
+      }
+    }
+
+    const state = {
+      pointers: new Map(),
+      startVb: null,
+      startDist: 0,
+      lastPointerX: 0,
+      lastPointerY: 0
+    }
+
+    const onPointerDown = e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      svg.setPointerCapture(e.pointerId)
+      const curVb = wrap.__mermaidCurViewBox
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 1) {
+        state.startVb = curVb.slice()
+        state.lastPointerX = e.clientX
+        state.lastPointerY = e.clientY
+      } else if (state.pointers.size === 2) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        state.startDist = Math.hypot(dx, dy)
+        state.startVb = curVb.slice()
+      }
+    }
+
+    const onPointerMove = e => {
+      if (!state.pointers.has(e.pointerId)) return
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      if (state.pointers.size === 1 && state.startVb) {
+        const p = state.pointers.values().next().value
+        const dxClient = p.x - state.lastPointerX
+        const dyClient = p.y - state.lastPointerY
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+        const dx = dxClient * (curVb[2] / rect.width)
+        const dy = dyClient * (curVb[3] / rect.height)
+        setCurVb([curVb[0] - dx, curVb[1] - dy, curVb[2], curVb[3]])
+        return
+      }
+      if (state.pointers.size === 2 && state.startVb && state.startDist > 0) {
+        const pts = [...state.pointers.values()]
+        const dx = pts[0].x - pts[1].x
+        const dy = pts[0].y - pts[1].y
+        const dist = Math.hypot(dx, dy)
+        if (!dist) return
+        const factor = state.startDist / dist
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const px = curVb[0] + (cx - rect.left) * (curVb[2] / rect.width)
+        const py = curVb[1] + (cy - rect.top) * (curVb[3] / rect.height)
+        setCurVb(zoomAtPoint(state.startVb, factor, px, py))
+      }
+    }
+
+    const onPointerUpOrCancel = e => {
+      // Release PointerCapture to avoid event capture anomalies
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) {
+        svg.releasePointerCapture(e.pointerId)
+      }
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size === 0) {
+        state.startVb = null
+        state.startDist = 0
+      } else if (state.pointers.size === 1) {
+        const p = state.pointers.values().next().value
+        state.lastPointerX = p.x
+        state.lastPointerY = p.y
+      }
+    }
+
+    const onWheel = e => {
+      // Prevent event bubbling from triggering external scroll
+      e.preventDefault()
+      e.stopPropagation()
+      // Normalize deltaY across deltaMode (Chrome uses pixels, Safari uses lines)
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= 400
+
+      // Continuous zoom factor: smoother than fixed 1.1/0.9 steps
+      const zoomFactor = Math.pow(1.001, delta)
+
+      const curVb = wrap.__mermaidCurViewBox
+      const rect = getRect()
+      const px = curVb[0] + (e.clientX - rect.left) * (curVb[2] / rect.width)
+      const py = curVb[1] + (e.clientY - rect.top) * (curVb[3] / rect.height)
+      setCurVb(zoomAtPoint(curVb, zoomFactor, px, py))
+    }
+
+    const onDblClick = () => {
+      const init = wrap.__mermaidInitViewBox
+      if (init) setCurVb(init)
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown, { signal: ac.signal })
+    svg.addEventListener('pointermove', onPointerMove, { signal: ac.signal })
+    svg.addEventListener('pointerup', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('pointercancel', onPointerUpOrCancel, { signal: ac.signal })
+    svg.addEventListener('wheel', onWheel, { passive: false, signal: ac.signal })
+    svg.addEventListener('dblclick', onDblClick, { signal: ac.signal })
+  }
+
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      // Clean up event listeners before removing old SVG
+      if (item.__mermaidAbortController) {
+        item.__mermaidAbortController.abort()
+      }
+      const oldSvg = item.querySelector('svg')
+      if (oldSvg) oldSvg.remove()
+      let config = {}
+      try {
+        config = mermaidSrc.dataset.config ? JSON.parse(mermaidSrc.dataset.config) : {}
+      } catch (e) {
+        console.warn('[mermaid] failed to parse dataset.config:', e)
+      }
+      if (!config.theme) {
+        config.theme = theme
+      }
+      const mermaidThemeConfig = `%%{init: ${JSON.stringify(config)}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+        if (true) initMermaidGestures(item)
+        item.__mermaidOriginalSvg = svg
+        if (true) attachMermaidViewerButton(item)
+      }
+
+      const handleError = err => {
+        console.error(`[mermaid] render failed for block #${index}:`, err)
+        const errorEl = document.createElement('div')
+        errorEl.className = 'mermaid-error'
+        errorEl.textContent = `Mermaid render error: ${err.message || err}`
+        mermaidSrc.insertAdjacentElement('afterend', errorEl)
+      }
+
+      try {
+        const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+        // mermaid v9 and v10 compatibility
+        if (typeof renderFn === 'string') {
+          renderMermaid(renderFn)
+        } else {
+          renderFn.then(({ svg }) => renderMermaid(svg)).catch(handleError)
+        }
+      } catch (err) {
+        handleError(err)
+      }
+    })
+  }
+
+  const codeToMermaid = $article => {
+    const codeMermaidEle = $article.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    const $article = document.getElementById('article-container')
+    if (!$article) return
+
+    if (false) codeToMermaid($article)
+    const $mermaid = $article.querySelectorAll('.mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>
