@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>打砖块 · 摸鱼小游戏</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="card">
+  <header class="topbar">
+    <h1 class="title">打砖块</h1>
+    <a class="back" href="/games/">← 返回游戏列表</a>
+  </header>
+
+  <div class="hud">
+    <div class="hud-item">
+      <span class="hud-label">分数</span>
+      <span class="hud-value" id="score">0</span>
+    </div>
+    <div class="hud-item">
+      <span class="hud-label">最高分</span>
+      <span class="hud-value" id="best">0</span>
+    </div>
+    <div class="hud-item">
+      <span class="hud-label">生命</span>
+      <span class="hud-value" id="lives">3</span>
+    </div>
+    <div class="hud-item">
+      <span class="hud-label">关卡</span>
+      <span class="hud-value" id="level">1</span>
+    </div>
+  </div>
+
+  <div class="stage">
+    <canvas id="board" width="440" height="600" tabindex="0" aria-label="打砖块游戏画布"></canvas>
+    <div class="overlay" id="overlay" hidden>
+      <div class="overlay-box">
+        <p class="overlay-title" id="overlay-title"></p>
+        <p class="overlay-sub" id="overlay-sub"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button type="button" id="restart">重新开始</button>
+  </div>
+
+  <p class="hint">← → 移动球拍 · 空格发球/暂停 · R 重新开始 · 也可拖动鼠标或手指</p>
+</main>
+<script src="game.js"></script>
+</body>
+</html>

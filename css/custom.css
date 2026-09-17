@@ -1,0 +1,5 @@
+/* 相册卡片与游戏卡片的缩略图上有亮色内容时，白字标题看不清；
+   给 figcaption（卡片整块叠层）压一层从上到下的暗角，不影响点击区域。 */
+.gallery-group figcaption {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0) 60%);
+}

@@ -1,0 +1,117 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { overflow-x: hidden; }
+
+body {
+  margin: 0;
+  padding: 16px 14px 28px;
+  background: #16181d;
+  color: #e6e8eb;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+.app {
+  max-width: 460px;
+  margin: 0 auto;
+  outline: none;
+}
+.app:focus-visible {
+  outline: 2px solid #49b1f5;
+  outline-offset: 6px;
+  border-radius: 12px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.head h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.head a {
+  color: #49b1f5;
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.head a:hover { text-decoration: underline; }
+
+.hud {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0 2px 6px;
+  font-size: 13px;
+  color: #9aa4b2;
+  font-variant-numeric: tabular-nums;
+}
+.hud b {
+  margin-left: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #e6e8eb;
+}
+
+.status {
+  margin: 0 2px 8px;
+  font-size: 13px;
+  color: #9aa4b2;
+}
+.status.over {
+  color: #49b1f5;
+  font-weight: 600;
+}
+
+.stage {
+  padding: 10px;
+  background: #1f2329;
+  border-radius: 12px;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  background: #20242c;
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.bar {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+button {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 12px;
+  background: #1f2329;
+  color: #e6e8eb;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+  appearance: none;
+}
+button:hover:not(:disabled) { border-color: #49b1f5; color: #49b1f5; }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: .45; cursor: default; }
+
+.hint {
+  margin: 14px 2px 0;
+  color: #9aa4b2;
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+}

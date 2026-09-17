@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>2048 · 摸鱼小游戏</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="app" tabindex="0" aria-label="2048 游戏">
+  <header class="top">
+    <h1>2048</h1>
+    <a class="back" href="/games/">← 返回游戏列表</a>
+  </header>
+
+  <div class="hud">
+    <div class="stat"><span>得分</span><strong id="score">0</strong></div>
+    <div class="stat"><span>最高分</span><strong id="best">0</strong></div>
+    <button id="restart" class="btn btn-ghost" type="button">重新开始</button>
+  </div>
+
+  <div class="board" id="board">
+    <canvas id="cv" aria-label="2048 棋盘"></canvas>
+    <div class="overlay" id="overlay" hidden>
+      <p id="overlayMsg"></p>
+      <button id="overlayBtn" class="btn btn-primary" type="button">继续</button>
+    </div>
+  </div>
+
+  <p class="hint">方向键 / WASD 移动 · 触屏滑动 · R 重新开始</p>
+</main>
+<script src="game.js"></script>
+</body>
+</html>

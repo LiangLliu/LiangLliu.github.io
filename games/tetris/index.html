@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>俄罗斯方块 · 摸鱼小游戏</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="game" id="stage" tabindex="0" aria-label="俄罗斯方块">
+  <header class="bar">
+    <h1>俄罗斯方块</h1>
+    <a href="/games/">← 返回游戏列表</a>
+  </header>
+
+  <div class="hud">
+    <div class="stat"><span>分数</span><b id="score">0</b></div>
+    <div class="stat"><span>最高分</span><b id="best">0</b></div>
+    <div class="stat"><span>消行</span><b id="lines">0</b></div>
+    <div class="stat"><span>等级</span><b id="level">1</b></div>
+  </div>
+
+  <div class="play">
+    <div class="board-wrap">
+      <canvas id="board" class="board"></canvas>
+    </div>
+    <aside class="side">
+      <p class="side-label">下一个</p>
+      <canvas id="next" class="next"></canvas>
+      <button type="button" class="btn" id="btn-restart">重新开始</button>
+      <button type="button" class="btn" id="btn-pause">暂停</button>
+    </aside>
+  </div>
+
+  <div class="pad">
+    <button type="button" class="pad-btn" data-key="ArrowLeft">←</button>
+    <button type="button" class="pad-btn" data-key="ArrowUp">旋转</button>
+    <button type="button" class="pad-btn" data-key="ArrowRight">→</button>
+    <button type="button" class="pad-btn" data-key="ArrowDown">↓ 软降</button>
+    <button type="button" class="pad-btn" data-key="Space">硬降</button>
+  </div>
+
+  <p class="hint">方向键移动 · ↑/X 顺时针旋转 · Z 逆时针 · 空格硬降 · P 暂停 · R 重新开始</p>
+</main>
+<script src="game.js"></script>
+</body>
+</html>
