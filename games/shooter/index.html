@@ -15,38 +15,48 @@
     <a class="back" href="/games/">← 返回游戏列表</a>
   </header>
 
-  <section class="directions"><p><strong>怎么玩：</strong>拖拽或方向键 / WASD 移动飞机，自动开火。击毁敌机得 10 分，分数与时间双轴提升难度，别让敌机撞到或溜过去！</p></section>
+  <section class="directions"><p><strong>怎么玩：</strong>拖动或方向键移动，自动开火。敌机按编队波次来袭，吃 <strong>P</strong> 升级火力、<strong>B</strong> 加炸弹、<strong>H</strong> 加命；空格放炸弹清屏消弹并短暂无敌，贴近弹幕「擦弹」和连击都能加分。三条命，每 5 波一位三阶段 Boss。</p></section>
 
   <section class="hud">
-    <span class="hud-item hud-best">历史最佳<b id="best">0</b></span>
+    <span class="hud-item hud-best">最高<b id="best">0</b></span>
     <span class="hud-item">分数<b id="score">0</b><span class="float" id="float"></span></span>
     <span class="hud-item">生命<b class="hearts" id="lives" data-lives="3"><i>♥</i><i>♥</i><i>♥</i></b></span>
-    <span class="hud-item">等级<b id="level">1</b><span class="float" id="levelFloat"></span></span>
+    <span class="hud-item">炸弹<b id="bombs">2</b><span class="float" id="bombFloat"></span></span>
+    <span class="hud-item">火力<b id="weapon">1</b><span class="float" id="weaponFloat"></span></span>
+    <span class="hud-item">波次<b id="wave">1</b><span class="float" id="waveFloat"></span></span>
   </section>
+
+  <div class="bossbar" id="bossbar">
+    <div class="bossbar-head"><span>BOSS</span><span class="bossbar-parts"><i id="part0"></i><i id="part1"></i></span></div>
+    <div class="bossbar-track"><div class="bossbar-fill" id="bossfill"></div><span></span><span></span></div>
+  </div>
 
   <div class="frame">
     <div class="stage" id="stage">
       <canvas id="game" tabindex="0"></canvas>
+      <div class="combo" id="combo">×1</div>
       <div class="overlay" id="overlay">
-        <span class="overlay-emoji" id="ovEmoji">🙈</span>
+        <span class="overlay-emoji" id="ovEmoji">💥</span>
         <span class="overlay-title" id="ovTitle">游戏结束</span>
-        <span class="overlay-sub" id="ovSub">得分 0</span>
+        <div class="ov-stats">
+          <span class="overlay-sub">最终得分 <b id="ovScore">0</b></span>
+          <span class="overlay-sub">到达波次 <b id="ovWave">1</b></span>
+          <span class="overlay-sub">最高分 <b id="ovBest">0</b></span>
+          <span class="overlay-sub">剩余炸弹奖励 <b id="ovBomb">+0</b></span>
+        </div>
         <button class="btn" id="again">再试一次</button>
       </div>
     </div>
   </div>
 
   <div class="pad">
-    <button type="button" data-dir="left">←</button>
-    <button type="button" data-dir="up">↑</button>
-    <button type="button" data-dir="down">↓</button>
-    <button type="button" data-dir="right">→</button>
-    <button type="button" id="pauseBtn">⏸</button>
+    <button type="button" id="bombBtn">💣 炸弹</button>
+    <button type="button" id="pauseBtn">⏸ 暂停</button>
   </div>
 
   <div class="actions"><button class="btn" id="restart">重新开始</button></div>
 
-  <p class="hint">方向键 / WASD 移动 · 鼠标或手指拖动跟随 · 空格暂停 · R 重新开始</p>
+  <p class="hint">拖动或方向键移动 · 空格放炸弹 · P 暂停 · R 重开</p>
 </main>
 <script src="game.js"></script>
 </body>

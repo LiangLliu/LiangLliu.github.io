@@ -1,16 +1,18 @@
-/* 飞机大战 · 浅色天空场（骨架 / HUD / 按钮 / 遮罩 / 动画全部来自 base.css） */
+/* 飞机大战 · 浅色蓝天（页面骨架 / HUD / 按钮 / 遮罩 / 动画全部来自 base.css） */
 
-/* 响应式画布：外框居中、宽度自适应 */
+/* ---------- 场地：宽度自适应、高度按画布比例 ---------- */
+
 .frame {
-  display: block;
+  display: inline-block;
   max-width: 390px;
   margin: 0 auto;
 }
-.stage { width: 100%; }
+.stage { width: auto; }
 .stage canvas {
   display: block;
-  width: 100%;
-  height: auto;
+  width: auto;
+  height: min(70vh, 720px);
+  max-width: 100%;
   border-radius: 2px;
   cursor: crosshair;
   outline: none;
@@ -19,22 +21,108 @@
   -webkit-user-select: none;
 }
 
-/* 生命 ♥：用玫红，掉血后变暗 */
-.hearts { color: var(--c2); letter-spacing: 2px; }
+/* ---------- HUD：六格（分数 / 最高 / 生命 / 炸弹 / 火力 / 波次） ---------- */
+
+.hud {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px 12px;
+  margin: 14px 0 12px;
+}
+.hud b { margin-left: 5px; font-size: 1.05rem; }
+
+/* 生命 ♥：玫红，掉血后变暗 */
+.hearts { color: var(--c2); letter-spacing: 1px; }
 .hearts i { font-style: normal; transition: opacity 0.2s; }
 .hearts[data-lives="0"] i:nth-child(n + 1),
 .hearts[data-lives="1"] i:nth-child(n + 2),
-.hearts[data-lives="2"] i:nth-child(n + 3) { opacity: 0.25; }
+.hearts[data-lives="2"] i:nth-child(n + 3) { opacity: 0.22; }
 
-/* 四格 HUD：窄屏换行；列间距留宽一点，给 +10 飘字让位 */
-.hud { flex-wrap: wrap; gap: 16px 34px; }
+/* ---------- Boss 血条（含两段炮台） ---------- */
 
-/* 中弹晃动（复用 base 的 shake 关键帧） */
+.bossbar { display: none; max-width: 390px; margin: 0 auto 12px; }
+.bossbar.on { display: block; }
+.bossbar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.68rem;
+  letter-spacing: 2px;
+  color: var(--muted);
+}
+.bossbar-parts { display: flex; gap: 4px; }
+.bossbar-parts i {
+  display: block;
+  width: 22px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--c7);
+  transition: background 0.2s;
+}
+.bossbar-parts i.dead { background: #dcdcd4; }
+.bossbar-track {
+  position: relative;
+  height: 10px;
+  margin-top: 4px;
+  background: #e4e6df;
+  border: 1px solid var(--muted);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bossbar-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, var(--c2), #a01b45);
+  transition: width 0.12s linear;
+}
+.bossbar[data-phase="2"] .bossbar-fill { background: linear-gradient(90deg, var(--c7), var(--c2)); }
+.bossbar[data-phase="3"] .bossbar-fill { background: linear-gradient(90deg, var(--c1), var(--c2)); }
+.bossbar-track span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(85, 85, 85, 0.5);
+}
+.bossbar-track span:nth-child(2) { left: 33.4%; }
+.bossbar-track span:nth-child(3) { left: 66.7%; }
+
+/* ---------- 连击倍率徽标（场内置顶，不占布局） ---------- */
+
+.combo {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  background: rgba(255, 253, 242, 0.78);
+  color: var(--c2);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.combo.on { opacity: 1; }
+
+/* ---------- 结算浮层补充 ---------- */
+
+.ov-stats { display: flex; flex-direction: column; gap: 1px; }
+.ov-stats b { font-variant-numeric: tabular-nums; }
+
+/* ---------- 中弹晃动（复用 base 的 shake 关键帧） ---------- */
+
 .shake { animation: shake 0.4s ease; }
 
-/* 触屏：把场地压到一屏内，让拖动之外的 .pad 也能直接点到 */
+/* ---------- 触屏：场地压到一屏内，炸弹 / 暂停也在拇指范围 ---------- */
+
 @media (hover: none) and (pointer: coarse) {
   .frame { display: inline-block; }
   .stage { width: auto; }
   .stage canvas { width: auto; height: 50vh; }
+  .directions { font-size: 0.84rem; padding: 8px 0; margin-top: 12px; }
+  .pad { margin-top: 10px; }
+  .actions { margin-top: 10px; }
 }
