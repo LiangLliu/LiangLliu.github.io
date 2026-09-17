@@ -1,0 +1,481 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Java——结构化并发实战（StructuredTaskScope） | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="同一个&quot;并发调用三个下游&quot;的需求，用 CompletableFuture、ExecutorCompletionService 与结构化并发各写一遍，用耗时和线程残留数量对比三者的取消语义，附 JDK 21 到 27 的 API 漂移表。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Java——结构化并发实战（StructuredTaskScope）">
+<meta property="og:url" content="https://lianglliu.github.io/3381769289.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="同一个&quot;并发调用三个下游&quot;的需求，用 CompletableFuture、ExecutorCompletionService 与结构化并发各写一遍，用耗时和线程残留数量对比三者的取消语义，附 JDK 21 到 27 的 API 漂移表。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png">
+<meta property="article:published_time" content="2026-09-17T03:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T03:00:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Java——结构化并发实战（StructuredTaskScope）",
+  "url": "https://lianglliu.github.io/3381769289.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png",
+  "datePublished": "2026-09-17T03:00:00.000Z",
+  "dateModified": "2026-09-17T03:00:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/3381769289.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Java——结构化并发实战（StructuredTaskScope）',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">21</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">13</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">6</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">Java——结构化并发实战（StructuredTaskScope）</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Java——结构化并发实战（StructuredTaskScope）</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T03:00:00.000Z" title="发表于 2026-09-17 11:00:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/Java/">Java</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.8k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>15分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>《<a href="/2315906029.html">虚拟线程实战</a>》解决的是”线程不再贵”，但没解决”谁来管这些线程”。<br>一个请求扇出到三个下游，其中一个失败了怎么办？超时了剩下的两个还在跑吗？调用方抛出异常时，那些已经没人等待的任务去哪了？<br>这些问题的答案，在 <code>CompletableFuture</code>、<code>ExecutorService</code> 里是”你自己记住”，在结构化并发里是”作用域负责”。这篇用同一份需求把三种写法跑一遍，用实测的耗时和线程残留数说话。<br>全部代码在 JDK 25 上编译运行，<code>StructuredTaskScope</code> 目前仍是<strong>预览 API</strong>，编译需要 <code>--enable-preview</code>。</p>
+</blockquote>
+<h2 id="实验环境"><a href="#实验环境" class="headerlink" title="实验环境"></a>实验环境</h2><figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ java -version</span><br><span class="line">java 25 2025-09-16 LTS</span><br><span class="line">Java(TM) SE Runtime Environment (build 25+37-LTS-3491)</span><br><span class="line">Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)</span><br></pre></td></tr></table></figure>
+
+<p>编译与运行都要带预览开关：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">javac --enable-preview --release 25 Demo.java</span><br><span class="line">java --enable-preview Demo</span><br></pre></td></tr></table></figure>
+
+<p>下面所有示例的公共部分是一个”下游调用”：它会记录自己是否还在运行，并如实报告自己被中断的时刻。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="type">AtomicInteger</span> <span class="variable">running</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">AtomicInteger</span>();</span><br><span class="line"></span><br><span class="line"><span class="keyword">static</span> String <span class="title function_">fetch</span><span class="params">(String name, <span class="type">long</span> ms)</span> <span class="keyword">throws</span> Exception &#123;</span><br><span class="line">    running.incrementAndGet();</span><br><span class="line">    <span class="type">long</span> <span class="variable">t0</span> <span class="operator">=</span> System.nanoTime();</span><br><span class="line">    <span class="keyword">try</span> &#123; Thread.sleep(ms); <span class="keyword">return</span> name + <span class="string">&quot; 结果&quot;</span>; &#125;</span><br><span class="line">    <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">        System.out.printf(<span class="string">&quot;    &lt;- %s 在 %dms 被中断%n&quot;</span>, name, (System.nanoTime()-t0)/<span class="number">1_000_000</span>);</span><br><span class="line">        <span class="keyword">throw</span> e;</span><br><span class="line">    &#125; <span class="keyword">finally</span> &#123; running.decrementAndGet(); &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>running</code> 这个计数器是关键道具：<strong>任务结束</strong>和<strong>任务被取消</strong>在日志里长得一样，但”还剩几个在跑”骗不了人。</p>
+<h2 id="一、同一个需求，三种写法"><a href="#一、同一个需求，三种写法" class="headerlink" title="一、同一个需求，三种写法"></a>一、同一个需求，三种写法</h2><p>需求固定：并发调用三个下游（各 3000ms），其中一个在 100ms 后失败，要求<strong>尽快发现失败并停止其它任务</strong>，超时时间 200ms。三份代码我都跑了。</p>
+<h3 id="1-1-写法一：CompletableFuture-allOf"><a href="#1-1-写法一：CompletableFuture-allOf" class="headerlink" title="1.1 写法一：CompletableFuture.allOf"></a>1.1 写法一：CompletableFuture.allOf</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">var</span> <span class="variable">pool</span> <span class="operator">=</span> Executors.newFixedThreadPool(<span class="number">3</span>);</span><br><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    <span class="type">var</span> <span class="variable">f</span> <span class="operator">=</span> List.of(cf(pool, () -&gt; fetch(<span class="string">&quot;下游A&quot;</span>, <span class="number">3000</span>)),</span><br><span class="line">                    cf(pool, () -&gt; fetch(<span class="string">&quot;下游B&quot;</span>, <span class="number">3000</span>)),</span><br><span class="line">                    cf(pool, () -&gt; fetch(<span class="string">&quot;下游C&quot;</span>, <span class="number">3000</span>)));</span><br><span class="line">    <span class="keyword">try</span> &#123; CompletableFuture.allOf(f.toArray(CompletableFuture[]::<span class="keyword">new</span>)).get(<span class="number">200</span>, TimeUnit.MILLISECONDS); &#125;</span><br><span class="line">    <span class="keyword">catch</span> (TimeoutException e) &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;  200ms 超时抛出 TimeoutException（耗时 &quot;</span> + elapsed() + <span class="string">&quot;ms）&quot;</span>);</span><br><span class="line">        <span class="comment">// 到这里你必须自己想起来取消这些 future，否则它们继续占用线程</span></span><br><span class="line">    &#125;</span><br><span class="line">    probe(<span class="number">500</span>);   <span class="comment">// 打印 500ms 后的 running 计数</span></span><br><span class="line">&#125; <span class="keyword">finally</span> &#123; Thread.sleep(<span class="number">2700</span>); pool.shutdown(); &#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">=== A. CompletableFuture.allOf + 手动超时 ===</span><br><span class="line">  200ms 超时抛出 TimeoutException（耗时 209ms）</span><br><span class="line">    500ms 后仍在运行的下游任务数 = 3</span><br><span class="line">  （3 秒后线程池才自然结束）</span><br></pre></td></tr></table></figure>
+
+<p>超时确实在 209ms 抛出了，但<strong>三个任务一个都没停</strong>：<code>allOf</code> 只负责”等”和”抛”，取消要靠调用方自己写 <code>future.cancel(true)</code>，而且必须挨个 cancel、并且对方得响应中断。</p>
+<p>顺带一个容易被忽略的事实：如果不设超时直接 <code>allOf(...).join()</code>，它的语义是<strong>等全部结束</strong>。我另外测过一次”一路 100ms 就失败”的场景，<code>join()</code> 是在 <strong>3015ms</strong> 才抛出异常的——失败发生在第 100ms，但异常要等到所有任务结束才交给你。</p>
+<h3 id="1-2-写法二：ExecutorCompletionService-手写快速失败"><a href="#1-2-写法二：ExecutorCompletionService-手写快速失败" class="headerlink" title="1.2 写法二：ExecutorCompletionService 手写快速失败"></a>1.2 写法二：ExecutorCompletionService 手写快速失败</h3><p>想快速失败就得自己写循环，完成一个处理一个：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">var</span> <span class="variable">ecs</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ExecutorCompletionService</span>&lt;String&gt;(pool2);</span><br><span class="line"><span class="type">var</span> <span class="variable">futures</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;Future&lt;String&gt;&gt;();</span><br><span class="line"><span class="keyword">for</span> (<span class="keyword">var</span> t : tasks) futures.add(ecs.submit(t));</span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; tasks.size(); i++) &#123;</span><br><span class="line">    <span class="keyword">try</span> &#123; ecs.take().get(); &#125;</span><br><span class="line">    <span class="keyword">catch</span> (ExecutionException e) &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;  第 &quot;</span> + (i+<span class="number">1</span>) + <span class="string">&quot; 个完成的任务失败: &quot;</span> + e.getCause().getMessage() + <span class="string">&quot;，耗时 &quot;</span> + elapsed() + <span class="string">&quot;ms&quot;</span>);</span><br><span class="line">        <span class="keyword">for</span> (<span class="keyword">var</span> f : futures) f.cancel(<span class="literal">true</span>);   <span class="comment">// 取消要自己写，且是「协作式」的</span></span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">=== B. ExecutorCompletionService 手写快速失败 ===</span><br><span class="line">  第 1 个完成的任务失败: 下游B 返回 500，耗时 109ms</span><br><span class="line">    &lt;- 下游A 在 109ms 被中断</span><br><span class="line">    &lt;- 下游C 在 109ms 被中断</span><br><span class="line">    300ms 后仍在运行的下游任务数 = 0</span><br></pre></td></tr></table></figure>
+
+<p>这段是”能跑对”的：109ms 就发现了失败，取消也生效了。代价是这份样板代码每个项目都要重写一遍，而且只要有一处漏了 <code>cancel(true)</code>，或者某个任务不响应中断，残留就悄悄留下了。</p>
+<h3 id="1-3-写法三：结构化并发"><a href="#1-3-写法三：结构化并发" class="headerlink" title="1.3 写法三：结构化并发"></a>1.3 写法三：结构化并发</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">scope</span> <span class="operator">=</span> StructuredTaskScope.open()) &#123;</span><br><span class="line">    scope.fork(() -&gt; fetch(<span class="string">&quot;下游A&quot;</span>, <span class="number">3000</span>));</span><br><span class="line">    scope.fork(() -&gt; fetch(<span class="string">&quot;下游B&quot;</span>, <span class="number">3000</span>));</span><br><span class="line">    scope.fork(() -&gt; fetch(<span class="string">&quot;下游C&quot;</span>, <span class="number">3000</span>));</span><br><span class="line">    <span class="keyword">try</span> &#123; scope.join(); &#125; <span class="keyword">catch</span> (TimeoutException e) &#123; ... &#125;</span><br><span class="line">    probe(<span class="number">300</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">=== C. 结构化并发 + withTimeout ===</span><br><span class="line">    &lt;- 下游C 在 199ms 被中断</span><br><span class="line">    &lt;- 下游A 在 200ms 被中断</span><br><span class="line">    &lt;- 下游B 在 199ms 被中断</span><br><span class="line">  200ms 超时抛出 TimeoutException（耗时 209ms）</span><br><span class="line">    300ms 后仍在运行的下游任务数 = 0</span><br><span class="line">  出作用域，running = 0</span><br></pre></td></tr></table></figure>
+
+<p>三个下游<strong>同时</strong>在 200ms 被中断，<code>try-with-resources</code> 块结束时 <code>running</code> 归零。没有一行取消代码——这是 <code>close()</code> 的职责。</p>
+<h3 id="1-4-三者对照"><a href="#1-4-三者对照" class="headerlink" title="1.4 三者对照"></a>1.4 三者对照</h3><table>
+<thead>
+<tr>
+<th></th>
+<th>CompletableFuture.allOf</th>
+<th>ExecutorCompletionService</th>
+<th>结构化并发</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>超时后残留任务</td>
+<td>3（需自己 cancel）</td>
+<td>0（手写 cancel）</td>
+<td>0（框架负责）</td>
+</tr>
+<tr>
+<td>快速失败耗时</td>
+<td>3015ms（等全部）</td>
+<td>109ms</td>
+<td>112ms</td>
+</tr>
+<tr>
+<td>取消代码</td>
+<td>调用方写</td>
+<td>调用方写</td>
+<td>无</td>
+</tr>
+<tr>
+<td>作用域外还有孤儿任务</td>
+<td>可能</td>
+<td>可能</td>
+<td>不可能（<code>close()</code> 保证）</td>
+</tr>
+</tbody></table>
+<h2 id="二、JDK-25-里的-API-形态"><a href="#二、JDK-25-里的-API-形态" class="headerlink" title="二、JDK 25 里的 API 形态"></a>二、JDK 25 里的 API 形态</h2><p>JDK 25 的 <code>StructuredTaskScope</code> 是<strong>第五次预览（JEP 505）引入的新形态</strong>：类变成了 <code>sealed interface</code>，策略类被 <code>Joiner</code> 取代。下面是我用反射打出来的实际签名（<code>javap</code> 也能看到）：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">### StructuredTaskScope  (java.util.concurrent.StructuredTaskScope)</span><br><span class="line">    Object join[]</span><br><span class="line">    void close[]</span><br><span class="line">    StructuredTaskScope open[Joiner, Function]</span><br><span class="line">    StructuredTaskScope open[Joiner]</span><br><span class="line">    StructuredTaskScope open[]</span><br><span class="line">    Subtask fork[Callable]</span><br><span class="line">    Subtask fork[Runnable]</span><br><span class="line">    boolean isCancelled[]</span><br><span class="line"></span><br><span class="line">### Joiner&lt;T,R&gt; 静态工厂</span><br><span class="line">    awaitAllSuccessfulOrThrow[]</span><br><span class="line">    allSuccessfulOrThrow[]</span><br><span class="line">    anySuccessfulResultOrThrow[]</span><br><span class="line">    awaitAll[]</span><br><span class="line">    allUntil[Predicate]</span><br><span class="line"></span><br><span class="line">### Configuration</span><br><span class="line">    withThreadFactory[ThreadFactory]</span><br><span class="line">    withName[String]</span><br><span class="line">    withTimeout[Duration]</span><br></pre></td></tr></table></figure>
+
+<p>几个要点：</p>
+<ul>
+<li><strong><code>open()</code> 是唯一入口</strong>，没有公开构造器。不传参数时默认策略是”全部成功，否则抛异常”（等价于老的 <code>ShutdownOnFailure</code>）。</li>
+<li><strong><code>fork()</code> 返回 <code>Subtask&lt;T&gt;</code></strong>，不是 <code>Future</code>。<code>Subtask</code> 只有三个方法：<code>get()</code>、<code>exception()</code>、<code>state()</code>。</li>
+<li><strong>超时不再是”策略”的一部分</strong>，而是作用域配置：<code>open(joiner, cfg -&gt; cfg.withTimeout(...))</code>。</li>
+<li>虚拟线程默认无名（实测日志里线程名是空的），排查问题时建议给作用域起名：<code>cfg -&gt; cfg.withName(&quot;下游调用&quot;)</code>。</li>
+</ul>
+<h3 id="2-1-这里有个编译坑"><a href="#2-1-这里有个编译坑" class="headerlink" title="2.1 这里有个编译坑"></a>2.1 这里有个编译坑</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> <span class="keyword">static</span> java.util.concurrent.StructuredTaskScope.*;</span><br><span class="line">...</span><br><span class="line"><span class="keyword">catch</span> (TimeoutException e) &#123; &#125;   <span class="comment">// 编译错误：对 TimeoutException 的引用不明确</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">错误: 对TimeoutException的引用不明确</span><br><span class="line">  StructuredTaskScope 中的类 java.util.concurrent.StructuredTaskScope.TimeoutException</span><br><span class="line">  和 java.util.concurrent 中的类 java.util.concurrent.TimeoutException 都匹配</span><br></pre></td></tr></table></figure>
+
+<p><code>StructuredTaskScope</code> 自带 <code>TimeoutException</code> 和 <code>FailedException</code> 两个异常类型，静态导入会和 <code>java.util.concurrent</code> 的同名类撞车，而且<strong>继承链不一样</strong>，抓错了就漏掉：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">TimeoutException 继承链: class java.util.concurrent.StructuredTaskScope$TimeoutException -&gt; class java.util.concurrent.TimeoutException</span><br><span class="line">FailedException  继承链: class java.util.concurrent.StructuredTaskScope$FailedException -&gt; class java.util.concurrent.ExecutionException</span><br></pre></td></tr></table></figure>
+
+<p><code>StructuredTaskScope.TimeoutException</code> 是 <code>java.util.concurrent.TimeoutException</code> 的子类，所以捕父类也能接到；但写代码时显式一点更省事：<code>catch (StructuredTaskScope.TimeoutException e)</code>。</p>
+<h2 id="三、预置-Joiner-的四种语义"><a href="#三、预置-Joiner-的四种语义" class="headerlink" title="三、预置 Joiner 的四种语义"></a>三、预置 Joiner 的四种语义</h2><p>JDK 25 内置了五个静态工厂，对应四类常见需求：</p>
+<table>
+<thead>
+<tr>
+<th>工厂方法</th>
+<th>语义</th>
+<th><code>join()</code> 的返回值</th>
+<th>近似的老写法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>awaitAllSuccessfulOrThrow()</code></td>
+<td>全部成功才算成功，否则抛</td>
+<td><code>void</code></td>
+<td><code>ShutdownOnFailure</code></td>
+</tr>
+<tr>
+<td><code>allSuccessfulOrThrow()</code></td>
+<td>同上，非阻塞获取结果</td>
+<td><code>List&lt;T&gt;</code></td>
+<td>无</td>
+</tr>
+<tr>
+<td><code>anySuccessfulResultOrThrow()</code></td>
+<td>任一成功即可，取最快的</td>
+<td><code>T</code></td>
+<td><code>ShutdownOnSuccess</code></td>
+</tr>
+<tr>
+<td><code>awaitAll()</code></td>
+<td>等全部结束，逐个子任务判读</td>
+<td><code>void</code></td>
+<td>无</td>
+</tr>
+<tr>
+<td><code>allUntil(Predicate)</code></td>
+<td>自定义终止条件</td>
+<td><code>void</code></td>
+<td>无</td>
+</tr>
+</tbody></table>
+<h3 id="3-1-取最快成功（fan-out-到多个镜像站）"><a href="#3-1-取最快成功（fan-out-到多个镜像站）" class="headerlink" title="3.1 取最快成功（fan-out 到多个镜像站）"></a>3.1 取最快成功（fan-out 到多个镜像站）</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">scope</span> <span class="operator">=</span> StructuredTaskScope.open(Joiner.&lt;String&gt;anySuccessfulResultOrThrow())) &#123;</span><br><span class="line">    scope.fork(() -&gt; fetch(<span class="string">&quot;镜像站-北京&quot;</span>, <span class="number">800</span>));</span><br><span class="line">    scope.fork(() -&gt; fetch(<span class="string">&quot;镜像站-上海&quot;</span>, <span class="number">250</span>));</span><br><span class="line">    scope.fork(() -&gt; fetch(<span class="string">&quot;镜像站-广州&quot;</span>, <span class="number">600</span>));</span><br><span class="line">    <span class="type">String</span> <span class="variable">r</span> <span class="operator">=</span> scope.join();          <span class="comment">// 直接拿到判优结果</span></span><br><span class="line">    System.out.printf(<span class="string">&quot;最快成功: %s（总耗时 %dms）%n&quot;</span>, r, elapsed());</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">最快成功: 镜像站-上海 的结果（总耗时 272ms）</span><br></pre></td></tr></table></figure>
+
+<p>250ms 的任务赢了，总耗时 272ms（含判优开销），另外两个在 <code>close()</code> 时被取消——不需要写 <code>invokeAny</code> 那种”提交一批、等第一个”的模板代码。</p>
+<h3 id="3-2-部分成功也要全部收齐（聚合报表）"><a href="#3-2-部分成功也要全部收齐（聚合报表）" class="headerlink" title="3.2 部分成功也要全部收齐（聚合报表）"></a>3.2 部分成功也要全部收齐（聚合报表）</h3><p>如果业务语义是”三路数据源各自独立，能拿到几路算几路”，用 <code>awaitAll()</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">scope</span> <span class="operator">=</span> StructuredTaskScope.open(Joiner.&lt;String&gt;awaitAll(),</span><br><span class="line">                                          cfg -&gt; cfg.withName(<span class="string">&quot;数据源&quot;</span>))) &#123;</span><br><span class="line">    <span class="type">var</span> <span class="variable">db</span>   <span class="operator">=</span> scope.fork(() -&gt; <span class="string">&quot;DB: &quot;</span> + <span class="number">42</span>);</span><br><span class="line">    <span class="type">var</span> <span class="variable">api</span>  <span class="operator">=</span> scope.fork(() -&gt; &#123; <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">IllegalStateException</span>(<span class="string">&quot;HTTP 503&quot;</span>); &#125;);</span><br><span class="line">    <span class="type">var</span> <span class="variable">hdfs</span> <span class="operator">=</span> scope.fork(() -&gt; <span class="string">&quot;HDFS: 7&quot;</span>);</span><br><span class="line">    scope.join();</span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">var</span> e : Map.of(<span class="string">&quot;DB&quot;</span>, db, <span class="string">&quot;API&quot;</span>, api, <span class="string">&quot;HDFS&quot;</span>, hdfs).entrySet()) &#123;</span><br><span class="line">        <span class="type">var</span> <span class="variable">st</span> <span class="operator">=</span> e.getValue();</span><br><span class="line">        <span class="keyword">switch</span> (st.state()) &#123;</span><br><span class="line">            <span class="keyword">case</span> SUCCESS    -&gt; System.out.printf(<span class="string">&quot;  %-5s 成功: %s%n&quot;</span>, e.getKey(), st.get());</span><br><span class="line">            <span class="keyword">case</span> FAILED     -&gt; System.out.printf(<span class="string">&quot;  %-5s 失败: %s%n&quot;</span>, e.getKey(), st.exception().getMessage());</span><br><span class="line">            <span class="keyword">case</span> UNAVAILABLE -&gt; System.out.printf(<span class="string">&quot;  %-5s 被取消%n&quot;</span>, e.getKey());</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">HDFS  成功: HDFS: 7</span><br><span class="line">  API   失败: HTTP 503</span><br><span class="line">  DB    成功: DB: 42</span><br><span class="line">聚合完成：一路失败不影响其余两路的结果</span><br></pre></td></tr></table></figure>
+
+<p><code>Subtask.State</code> 的三种取值（<code>SUCCESS</code> &#x2F; <code>FAILED</code> &#x2F; <code>UNAVAILABLE</code>）就是这套 API 的表达力所在：<strong>失败和”被取消”是两种状态</strong>，<code>UNAVAILABLE</code> 明确告诉你”这个任务的结果不存在，因为它被取消了”。</p>
+<h2 id="四、失败与取消是怎么传播的"><a href="#四、失败与取消是怎么传播的" class="headerlink" title="四、失败与取消是怎么传播的"></a>四、失败与取消是怎么传播的</h2><p>把 1.1 节里”谁都活下来”的场景换成结构化并发：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">scope</span> <span class="operator">=</span> StructuredTaskScope.open()) &#123;          <span class="comment">// 默认 awaitAllSuccessfulOrThrow</span></span><br><span class="line">    <span class="type">var</span> <span class="variable">ok1</span> <span class="operator">=</span> scope.fork(() -&gt; slow(<span class="string">&quot;下游A&quot;</span>, <span class="number">3000</span>));</span><br><span class="line">    <span class="type">var</span> <span class="variable">bad</span> <span class="operator">=</span> scope.fork(() -&gt; &#123; Thread.sleep(<span class="number">100</span>); <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">IllegalStateException</span>(<span class="string">&quot;下游B 返回 500&quot;</span>); &#125;);</span><br><span class="line">    <span class="type">var</span> <span class="variable">ok2</span> <span class="operator">=</span> scope.fork(() -&gt; slow(<span class="string">&quot;下游C&quot;</span>, <span class="number">3000</span>));</span><br><span class="line">    <span class="keyword">try</span> &#123; scope.join(); &#125; <span class="keyword">catch</span> (StructuredTaskScope.FailedException e) &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;join() 抛出 FailedException，原因: &quot;</span> + e.getCause().getMessage());</span><br><span class="line">    &#125;</span><br><span class="line">    System.out.println(<span class="string">&quot;  下游A 状态=&quot;</span> + ok1.state());</span><br><span class="line">    System.out.println(<span class="string">&quot;  下游B 状态=&quot;</span> + bad.state());</span><br><span class="line">    System.out.println(<span class="string">&quot;  下游C 状态=&quot;</span> + ok2.state());</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">  [下游A] 在 108ms 处被中断，提前退出</span><br><span class="line">  [下游C] 在 108ms 处被中断，提前退出</span><br><span class="line">join() 抛出 FailedException，原因: 下游B 返回 500</span><br><span class="line">总耗时 137ms</span><br><span class="line">  下游A 状态=UNAVAILABLE</span><br><span class="line">  下游B 状态=FAILED</span><br><span class="line">  下游C 状态=UNAVAILABLE</span><br><span class="line">作用域外再等 500ms：没有残留线程在跑</span><br></pre></td></tr></table></figure>
+
+<p>两个 3000ms 的任务，在 108ms 就被中断了，总耗时 137ms。同一场景下 <code>allOf</code> 的耗时是 <strong>3015ms</strong>——20 倍的差距，全部来自”谁负责取消”这个设计选择。</p>
+<p>另外注意 <code>UNAVAILABLE</code> 的语义：它不只表示”被取消”，也包含”因为用了 <code>anySuccessfulResultOrThrow</code>，其余任务的结果无人认领”。想让结果一定存活，就不要用这类丢弃语义的 joiner。</p>
+<h2 id="五、与-ScopedValue-的配合"><a href="#五、与-ScopedValue-的配合" class="headerlink" title="五、与 ScopedValue 的配合"></a>五、与 ScopedValue 的配合</h2><p>结构化并发真正的甜点是它和 <code>ScopedValue</code> 的关系：<strong>父线程绑定的 ScopedValue 会被 <code>fork()</code> 出的子任务自动继承</strong>，而且不涉及拷贝。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> ScopedValue&lt;String&gt; USER = ScopedValue.newInstance();</span><br><span class="line"></span><br><span class="line">ScopedValue.where(USER, <span class="string">&quot;alice&quot;</span>).run(() -&gt; &#123;</span><br><span class="line">    <span class="keyword">try</span> (<span class="type">var</span> <span class="variable">scope</span> <span class="operator">=</span> StructuredTaskScope.open()) &#123;</span><br><span class="line">        <span class="type">var</span> <span class="variable">a</span> <span class="operator">=</span> scope.fork(() -&gt; <span class="string">&quot;子任务读到 &quot;</span> + USER.get());</span><br><span class="line">        <span class="type">var</span> <span class="variable">b</span> <span class="operator">=</span> scope.fork(() -&gt; <span class="string">&quot;子任务读到 &quot;</span> + USER.get());</span><br><span class="line">        scope.join();</span><br><span class="line">        System.out.println(a.get());</span><br><span class="line">        System.out.println(b.get());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">子任务1(虚拟线程) 读到 alice</span><br><span class="line">子任务2(虚拟线程) 读到 alice</span><br></pre></td></tr></table></figure>
+
+<p>但这条继承规则<strong>只对结构化并发的子任务成立</strong>。我用七种方式在同一个作用域里试过读取绑定：</p>
+<table>
+<thead>
+<tr>
+<th>新建线程的方式</th>
+<th>能否读到父作用域的绑定</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>StructuredTaskScope.fork(...)</code></td>
+<td><strong>能</strong></td>
+</tr>
+<tr>
+<td><code>Thread.ofVirtual().start(...)</code></td>
+<td>不能</td>
+</tr>
+<tr>
+<td><code>Thread.ofPlatform().start(...)</code></td>
+<td>不能</td>
+</tr>
+<tr>
+<td><code>Thread.startVirtualThread(...)</code></td>
+<td>不能</td>
+</tr>
+<tr>
+<td><code>Executors.newVirtualThreadPerTaskExecutor()</code></td>
+<td>不能</td>
+</tr>
+<tr>
+<td><code>Executors.newFixedThreadPool(1)</code></td>
+<td>不能</td>
+</tr>
+<tr>
+<td><code>ForkJoinPool.commonPool()</code></td>
+<td>不能</td>
+</tr>
+</tbody></table>
+<p>官方文档把规则写得很直白：绑定由 <code>fork</code> 启动的所有线程继承；而像 <code>ForkJoinPool</code> 这类遗留线程管理类<strong>不支持继承</strong>，因为它们无法保证子线程会在父线程离开作用域之前结束。这也解释了为什么”请求上下文”这件事，正确做法是 <code>ScopedValue</code> + 结构化并发成对使用——单独的 <code>ScopedValue</code> 只能在同一线程内传递。</p>
+<h2 id="六、版本陷阱：JDK-21-到-27-的-API-漂移"><a href="#六、版本陷阱：JDK-21-到-27-的-API-漂移" class="headerlink" title="六、版本陷阱：JDK 21 到 27 的 API 漂移"></a>六、版本陷阱：JDK 21 到 27 的 API 漂移</h2><p>结构化并发从 JDK 21 起一直是预览，<strong>每次预览都可能改签名</strong>，这是它最实际的成本。核对 openjdk.org 的原文，五个版本全为 <code>Status: Closed / Delivered</code>：</p>
+<table>
+<thead>
+<tr>
+<th>JDK</th>
+<th>JEP</th>
+<th>标题</th>
+<th>API 形态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>21</td>
+<td><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/453">JEP 453</a></td>
+<td>Structured Concurrency (Preview)</td>
+<td><code>class StructuredTaskScope&lt;T&gt;</code> + 公开构造器 + <code>ShutdownOnFailure</code> &#x2F; <code>ShutdownOnSuccess</code> 子类</td>
+</tr>
+<tr>
+<td>24</td>
+<td><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/499">JEP 499</a></td>
+<td>(Fourth Preview)</td>
+<td>与 21 相比 <strong>without change</strong></td>
+</tr>
+<tr>
+<td>25</td>
+<td><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/505">JEP 505</a></td>
+<td>(Fifth Preview)</td>
+<td>改为 <code>sealed interface</code> + <code>open()</code> 工厂 + <code>Joiner</code> 接口，<code>join()</code> 返回值从 scope 变成 <code>R</code></td>
+</tr>
+<tr>
+<td>26</td>
+<td><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/525">JEP 525</a></td>
+<td>(Sixth Preview)</td>
+<td>新增 <code>onTimeout()</code>；<code>allSuccessfulOrThrow()</code> 改为返回 <code>List</code></td>
+</tr>
+<tr>
+<td>27</td>
+<td><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/533">JEP 533</a></td>
+<td>(Seventh Preview)</td>
+<td><code>Joiner&lt;T,R,R_X&gt;</code> 增加第三类型参数；<code>join()</code> 改抛 <code>ExecutionException</code>；<code>onTimeout()</code> 改名 <code>timeout()</code>；<strong>删除 <code>awaitAll()</code></strong></td>
+</tr>
+</tbody></table>
+<p>这意味着：</p>
+<ul>
+<li><strong>网上搜到的示例大概率编译不过</strong>。JEP 505 自己的示例代码里还在用 <code>new StructuredTaskScope.ShutdownOnFailure()</code>，照抄到 JDK 25 上是编译错误——官方 JEP 正文的示例没有跟着最终 API 更新。</li>
+<li><strong>跨版本升级要重读一遍签名</strong>。26 和 27 又改了三处，本文所有代码以 JDK 25 为准（我逐个编译运行过）。</li>
+<li>预览 API 的编译产物带预览标记：用 JDK 25 编译的 class 文件<strong>不能</strong>在 JDK 26 上直接运行，必须用 <code>--release 25</code> 明确目标版本。</li>
+</ul>
+<h2 id="七、什么时候不该用它"><a href="#七、什么时候不该用它" class="headerlink" title="七、什么时候不该用它"></a>七、什么时候不该用它</h2><ul>
+<li><strong>只有一个异步任务</strong>：没有扇出就没有结构可言，<code>CompletableFuture</code> 或者直接同步调用更直白。</li>
+<li><strong>任务之间需要长时间独立演进</strong>：作用域要求”子任务必须在作用域结束前结束”，这正是它的价值，但如果你真的需要一个跑几小时的批处理任务，那它不属于任何请求作用域，用普通的线程池更合适。</li>
+<li><strong>需要跨请求复用线程上下文</strong>：作用域是”一次请求一个”，长生命周期的缓存&#x2F;连接池不属于这里。</li>
+<li><strong>团队还没上 JDK 25</strong>：21&#x2F;24 的 API 形态和 25 不同，为 21 写代码等于为三年后的迁移埋坑。要么等它转正，要么直接以 25 为目标写。</li>
+</ul>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>结构化并发解决的不是”怎么并发”，而是**”谁来负责善后”**：<code>try-with-resources</code> 结束时，作用域保证所有子任务都已经结束或被取消</li>
+<li>实测差异（同一场景）：<code>allOf</code> 等 3015ms 且三个任务全部残留；手写 <code>ExecutorCompletionService</code> 109ms 停止但需要约 15 行样板；结构化并发 112ms 停止且零取消代码</li>
+<li>JDK 25 的入口只有 <code>open()</code>，策略全部由 <code>Joiner</code> 表达；超时属于 <code>Configuration</code>，不属于 joiner</li>
+<li><code>Subtask.state()</code> 把 <code>FAILED</code> 与 <code>UNAVAILABLE</code> 分开，这是”部分成功”场景的关键表达能力</li>
+<li><code>ScopedValue</code> 绑定<strong>只被 <code>fork()</code> 的子任务继承</strong>，其余七种新建线程方式都读不到</li>
+<li>预览 API 的漂移是真实成本：21→27 之间一共派生了七个预览 JEP（453&#x2F;462&#x2F;480&#x2F;499&#x2F;505&#x2F;525&#x2F;533），其中 25、26、27 三次是实质性的 API 变更；写代码前先确认目标 JDK 版本的签名</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/505">JEP 505: Structured Concurrency (Fifth Preview)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/525">JEP 525: Structured Concurrency (Sixth Preview)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/533">JEP 533: Structured Concurrency (Seventh Preview)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/453">JEP 453: Structured Concurrency (Preview)</a></li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/StructuredTaskScope.html">JDK 25 API：StructuredTaskScope</a></li>
+</ul>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><h3 id="语言特性"><a href="#语言特性" class="headerlink" title="语言特性"></a>语言特性</h3><ul>
+<li><a href="/3839425231.html">Java——Optional类的使用</a></li>
+<li><a href="/428901307.html">Java——Stream API 常见误用</a></li>
+<li><a href="/726942613.html">Java——CompletableFuture 异步编程实战</a></li>
+<li><a href="/2767726751.html">Java——record、sealed 与模式匹配</a></li>
+<li><a href="/196752644.html">Java——模式匹配演进史：从 JEP 406 到 JEP 441</a></li>
+<li><a href="/1079149701.html">Java——Stream Gatherers 自定义管道</a></li>
+</ul>
+<h3 id="运行时与版本"><a href="#运行时与版本" class="headerlink" title="运行时与版本"></a>运行时与版本</h3><ul>
+<li><a href="/2315906029.html">Java——虚拟线程实战</a></li>
+<li><a href="/2701826243.html">Java——虚拟线程迁移实测</a></li>
+<li><a href="/271167079.html">Java——一次锁竞争的完整定位</a></li>
+<li><a href="/2521215779.html">Java——JVM 内存与 GC 定位实战</a></li>
+<li><a href="/3912768261.html">Java——JDK 21 到 25 迁移清单</a></li>
+<li><a href="/3365103897.html">Java——容器里的 JVM：内存、CPU 与镜像</a></li>
+<li><a href="/3381769289.html">Java——结构化并发实战（StructuredTaskScope）</a></li>
+<li><a href="/2303830241.html">Java——ScopedValue 替代 ThreadLocal</a></li>
+</ul>
+<h3 id="自建服务"><a href="#自建服务" class="headerlink" title="自建服务"></a>自建服务</h3><ul>
+<li><a href="/2511587958.html">Ubuntu 22.04 &#x2F; 24.04 &#x2F; 26.04 中安装 Docker 和 Docker Compose</a></li>
+<li><a href="/2478192043.html">Ubuntu 24.04 配置 Sing-box 代理服务器完整指南</a></li>
+<li><a href="/2348585228.html">sing-box 分流与 DNS 配置实践</a></li>
+<li><a href="/2831660552.html">自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比</a></li>
+<li><a href="/721297558.html">YouTube 下载 1080p：yt-dlp 实战与自建服务</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/3381769289.html">https://lianglliu.github.io/3381769289.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/2303830241.html" title="Java——ScopedValue 替代 ThreadLocal"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">Java——ScopedValue 替代 ThreadLocal</div></div><div class="info-2"><div class="info-item-1"> 传递”当前请求是谁发的”这类数据，过去的标准答案是 ThreadLocal。它在同步阻塞的世界里很好用，但遇到线程池和虚拟线程就开始漏水：值会跨请求残留、每个线程都要存一份、子线程继承要靠另一套 API。ScopedValue 在 JDK 25 转正（JEP 506，Status: Closed / Delivered、Release: 25），它是”单向、不可变、生命周期跟着代码块走”的上下文传递方式。这篇不讲概念，只讲四件事：怎么用、和线程池一起用会怎样、内存是谁按住的、以及什么情况下不该迁移。  实验环境1234$ java -versionjava 25 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)  一个容易混淆的地方先说清楚：ScopedValue 在 JDK 25 已经是正式特性，不需要 --enable-preview；...</div></div></div></a><a class="pagination-related" href="/3365103897.html" title="Java——容器里的 JVM：内存、CPU 与镜像"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Java——容器里的 JVM：内存、CPU 与镜像</div></div><div class="info-2"><div class="info-item-1"> 这个博客里有两条线：《Ubuntu LTS 中安装 Docker 和 Docker Compose》站在容器外面看机器，《JVM 内存与 GC 定位实战》站在 JVM 里面看内存。这篇是它们的交界处，回答一个很朴素的问题：同一个 jar，在宿主机上和在容器里，JVM 看到的”机器”是不是同一台？不是同一台。默认堆大小、可用核数、甚至 GC 的选择都会变，而且这些变化是静默的——代码不报错，只是行为和你在本机测出来的不一样。下面每个数字都对应 JDK 25 与 Docker 的真实输出。  实验环境12345678910$ java -versionjava 25 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)$ docker version --format &#x27;&#123;&#123;.Server.Version&#125;&...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2521215779.html" title="Java——JVM 内存与 GC 定位实战"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-16</div><div class="info-item-2">Java——JVM 内存与 GC 定位实战</div></div><div class="info-2"><div class="info-item-1"> 上一篇《一次锁竞争的完整定位》查的是 CPU 和锁，这篇查内存。同一个思路：先写一个能复现症状的程序，再用 JVM 自带工具一层层把证据收齐。顺序是从粗到细：GC 日志看趋势，jcmd 和 JFR 看运行时，堆 dump 看末端对象。全文用 JDK 25 跑，每个数字都对应下面贴出来的原始输出。最后收两个真会把人带偏的场景：堆几乎是空的时候 OOM，以及没人碰老年代却一直 Full GC。  实验环境与口径机器和 JDK： 12345678910$ sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize kern.osversionApple M1 Pro101717986918425G83$ java -versionjava version &quot;25&quot; 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mix...</div></div></div></a><a class="pagination-related" href="/3912768261.html" title="Java——JDK 21 到 25 迁移清单"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-5.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-15</div><div class="info-item-2">Java——JDK 21 到 25 迁移清单</div></div><div class="info-2"><div class="info-item-1"> JDK 21 和 JDK 25 是两个相邻的 LTS，中间隔着 22、23、24 三个非 LTS 版本。多数 LTS 到 LTS 的升级都是”安静”的：你的代码大概率原样能跑。但 21 到 25 这两年是”预览转正 + 移除清理”集中发生的窗口，有几类坑是编译器和 JVM 不会替你兜底的：预览 API 改了形状、遗留线程 API 被删、sun.misc.Unsafe 开始打印警告、Security Manager 彻底关死、虚拟线程在 synchronized 里的行为被重写。这篇文章是一份可执行的迁移清单：每条结论都在本机的 JDK 21（21.0.8）和 JDK 25（25+37-LTS）上分别编译或运行过，原始输出贴在对应的 &#96;&#96;&#96;txt 块里。凡是没在本机验证过的，都单独标注”未实测”。  实验环境与取证方式本机是 Apple M1 Pro（10 核 arm64，macOS），装了 JDK 21.0.8 和 JDK 25 两个版本，路径如下： 123456789$ /Library/Java/JavaVirtualMachines/jdk-21....</div></div></div></a><a class="pagination-related" href="/2303830241.html" title="Java——ScopedValue 替代 ThreadLocal"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">Java——ScopedValue 替代 ThreadLocal</div></div><div class="info-2"><div class="info-item-1"> 传递”当前请求是谁发的”这类数据，过去的标准答案是 ThreadLocal。它在同步阻塞的世界里很好用，但遇到线程池和虚拟线程就开始漏水：值会跨请求残留、每个线程都要存一份、子线程继承要靠另一套 API。ScopedValue 在 JDK 25 转正（JEP 506，Status: Closed / Delivered、Release: 25），它是”单向、不可变、生命周期跟着代码块走”的上下文传递方式。这篇不讲概念，只讲四件事：怎么用、和线程池一起用会怎样、内存是谁按住的、以及什么情况下不该迁移。  实验环境1234$ java -versionjava 25 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)  一个容易混淆的地方先说清楚：ScopedValue 在 JDK 25 已经是正式特性，不需要 --enable-preview；...</div></div></div></a><a class="pagination-related" href="/726942613.html" title="Java——CompletableFuture 异步编程实战"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-15</div><div class="info-item-2">Java——CompletableFuture 异步编程实战</div></div><div class="info-2"><div class="info-item-1"> CompletableFuture 是 JDK 8 引入的异步编排工具（java.util.concurrent，类上 @since 1.8），同时实现了 Future&lt;T&gt; 与 CompletionStage&lt;T&gt;。它解决的问题是：把「查用户、查订单、算总价」这类有依赖关系或可以并行执行的步骤，写成一条声明式的异步链，而不是一堆层层嵌套的回调或者手动管理线程。本文逐条讲清每个 API 的语义边界：谁有返回值、谁吞异常、回调在哪个线程跑、默认线程池有什么坑、取消到底能不能打断正在执行的任务，以及它与仍在预览中的结构化并发（StructuredTaskScope）的差别。文中所有输出都来自 JDK 25（LTS）在 macOS 上的实测，示例代码可以原样编译运行。  示例里复用两个类型与一批工具方法，避免每个代码块都重复声明。先看这两段公共代码，后面的例子都直接引用它们。 123456789101112131415161718192021222324252627282930313233343536373839404142import java.util.L...</div></div></div></a><a class="pagination-related" href="/428901307.html" title="Java——Stream API 常见误用"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-15</div><div class="info-item-2">Java——Stream API 常见误用</div></div><div class="info-2"><div class="info-item-1"> Stream API 从 Java 8 引入，声明式的写法很容易让人把它当成「换一套语法写循环」。实际上它自带一套求值模型（惰性）、一套并发模型（ForkJoinPool）和一组明确契约（identity、结合律、有序性、一次性消费），违反契约的代码常常在单测里跑得好好的，换个数据量或换成并行流才炸。  验证环境文中所有代码都在下面的环境编译并运行，javac -Xlint:all 无告警： 123java version &quot;25&quot; 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)javac 25  涉及版本能力差异的结论一律标注 JDK 版本与 JEP 编号；纯 API 增补（没有对应 JEP 的）以 javadoc 里的 @since 为准。文中出现的实测数字都是本机（Apple M1 Pro）单次运行结果，用途是展示量级差异，不是基准测试。 本文使用的数据模型123456789record OrderLine(String sku, int qty) &#123;&...</div></div></div></a><a class="pagination-related" href="/3365103897.html" title="Java——容器里的 JVM：内存、CPU 与镜像"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">Java——容器里的 JVM：内存、CPU 与镜像</div></div><div class="info-2"><div class="info-item-1"> 这个博客里有两条线：《Ubuntu LTS 中安装 Docker 和 Docker Compose》站在容器外面看机器，《JVM 内存与 GC 定位实战》站在 JVM 里面看内存。这篇是它们的交界处，回答一个很朴素的问题：同一个 jar，在宿主机上和在容器里，JVM 看到的”机器”是不是同一台？不是同一台。默认堆大小、可用核数、甚至 GC 的选择都会变，而且这些变化是静默的——代码不报错，只是行为和你在本机测出来的不一样。下面每个数字都对应 JDK 25 与 Docker 的真实输出。  实验环境12345678910$ java -versionjava 25 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)$ docker version --format &#x27;&#123;&#123;.Server.Version&#125;&...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">21</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">13</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">6</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83"><span class="toc-number">1.</span> <span class="toc-text">实验环境</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E5%90%8C%E4%B8%80%E4%B8%AA%E9%9C%80%E6%B1%82%EF%BC%8C%E4%B8%89%E7%A7%8D%E5%86%99%E6%B3%95"><span class="toc-number">2.</span> <span class="toc-text">一、同一个需求，三种写法</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-%E5%86%99%E6%B3%95%E4%B8%80%EF%BC%9ACompletableFuture-allOf"><span class="toc-number">2.1.</span> <span class="toc-text">1.1 写法一：CompletableFuture.allOf</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-%E5%86%99%E6%B3%95%E4%BA%8C%EF%BC%9AExecutorCompletionService-%E6%89%8B%E5%86%99%E5%BF%AB%E9%80%9F%E5%A4%B1%E8%B4%A5"><span class="toc-number">2.2.</span> <span class="toc-text">1.2 写法二：ExecutorCompletionService 手写快速失败</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-3-%E5%86%99%E6%B3%95%E4%B8%89%EF%BC%9A%E7%BB%93%E6%9E%84%E5%8C%96%E5%B9%B6%E5%8F%91"><span class="toc-number">2.3.</span> <span class="toc-text">1.3 写法三：结构化并发</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-4-%E4%B8%89%E8%80%85%E5%AF%B9%E7%85%A7"><span class="toc-number">2.4.</span> <span class="toc-text">1.4 三者对照</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81JDK-25-%E9%87%8C%E7%9A%84-API-%E5%BD%A2%E6%80%81"><span class="toc-number">3.</span> <span class="toc-text">二、JDK 25 里的 API 形态</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E8%BF%99%E9%87%8C%E6%9C%89%E4%B8%AA%E7%BC%96%E8%AF%91%E5%9D%91"><span class="toc-number">3.1.</span> <span class="toc-text">2.1 这里有个编译坑</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E9%A2%84%E7%BD%AE-Joiner-%E7%9A%84%E5%9B%9B%E7%A7%8D%E8%AF%AD%E4%B9%89"><span class="toc-number">4.</span> <span class="toc-text">三、预置 Joiner 的四种语义</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-%E5%8F%96%E6%9C%80%E5%BF%AB%E6%88%90%E5%8A%9F%EF%BC%88fan-out-%E5%88%B0%E5%A4%9A%E4%B8%AA%E9%95%9C%E5%83%8F%E7%AB%99%EF%BC%89"><span class="toc-number">4.1.</span> <span class="toc-text">3.1 取最快成功（fan-out 到多个镜像站）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-%E9%83%A8%E5%88%86%E6%88%90%E5%8A%9F%E4%B9%9F%E8%A6%81%E5%85%A8%E9%83%A8%E6%94%B6%E9%BD%90%EF%BC%88%E8%81%9A%E5%90%88%E6%8A%A5%E8%A1%A8%EF%BC%89"><span class="toc-number">4.2.</span> <span class="toc-text">3.2 部分成功也要全部收齐（聚合报表）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%A4%B1%E8%B4%A5%E4%B8%8E%E5%8F%96%E6%B6%88%E6%98%AF%E6%80%8E%E4%B9%88%E4%BC%A0%E6%92%AD%E7%9A%84"><span class="toc-number">5.</span> <span class="toc-text">四、失败与取消是怎么传播的</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E4%B8%8E-ScopedValue-%E7%9A%84%E9%85%8D%E5%90%88"><span class="toc-number">6.</span> <span class="toc-text">五、与 ScopedValue 的配合</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E7%89%88%E6%9C%AC%E9%99%B7%E9%98%B1%EF%BC%9AJDK-21-%E5%88%B0-27-%E7%9A%84-API-%E6%BC%82%E7%A7%BB"><span class="toc-number">7.</span> <span class="toc-text">六、版本陷阱：JDK 21 到 27 的 API 漂移</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%B8%8D%E8%AF%A5%E7%94%A8%E5%AE%83"><span class="toc-number">8.</span> <span class="toc-text">七、什么时候不该用它</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">9.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">10.</span> <span class="toc-text">参考资料</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0"><span class="toc-number">11.</span> <span class="toc-text">系列文章</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%AF%AD%E8%A8%80%E7%89%B9%E6%80%A7"><span class="toc-number">11.1.</span> <span class="toc-text">语言特性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%BF%90%E8%A1%8C%E6%97%B6%E4%B8%8E%E7%89%88%E6%9C%AC"><span class="toc-number">11.2.</span> <span class="toc-text">运行时与版本</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%87%AA%E5%BB%BA%E6%9C%8D%E5%8A%A1"><span class="toc-number">11.3.</span> <span class="toc-text">自建服务</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/1079149701.html" title="Java——Stream Gatherers 自定义管道"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——Stream Gatherers 自定义管道"/></a><div class="content"><a class="title" href="/1079149701.html" title="Java——Stream Gatherers 自定义管道">Java——Stream Gatherers 自定义管道</a><time datetime="2026-09-17T05:00:00.000Z" title="发表于 2026-09-17 13:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2303830241.html" title="Java——ScopedValue 替代 ThreadLocal"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——ScopedValue 替代 ThreadLocal"/></a><div class="content"><a class="title" href="/2303830241.html" title="Java——ScopedValue 替代 ThreadLocal">Java——ScopedValue 替代 ThreadLocal</a><time datetime="2026-09-17T04:00:00.000Z" title="发表于 2026-09-17 12:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/3381769289.html" title="Java——结构化并发实战（StructuredTaskScope）"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-7.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——结构化并发实战（StructuredTaskScope）"/></a><div class="content"><a class="title" href="/3381769289.html" title="Java——结构化并发实战（StructuredTaskScope）">Java——结构化并发实战（StructuredTaskScope）</a><time datetime="2026-09-17T03:00:00.000Z" title="发表于 2026-09-17 11:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/3365103897.html" title="Java——容器里的 JVM：内存、CPU 与镜像"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——容器里的 JVM：内存、CPU 与镜像"/></a><div class="content"><a class="title" href="/3365103897.html" title="Java——容器里的 JVM：内存、CPU 与镜像">Java——容器里的 JVM：内存、CPU 与镜像</a><time datetime="2026-09-17T02:00:00.000Z" title="发表于 2026-09-17 10:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2521215779.html" title="Java——JVM 内存与 GC 定位实战"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——JVM 内存与 GC 定位实战"/></a><div class="content"><a class="title" href="/2521215779.html" title="Java——JVM 内存与 GC 定位实战">Java——JVM 内存与 GC 定位实战</a><time datetime="2026-09-16T03:00:00.000Z" title="发表于 2026-09-16 11:00:00">2026-09-16</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>
