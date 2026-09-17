@@ -1,0 +1,563 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Java——JFR 实战：录制、事件与开销实测 | Lianglliu's Blog</title><meta name="author" content="Lianglliu"><meta name="copyright" content="Lianglliu"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="JFR 实战：四种发起录制的方式、jfr 工具的四类读法、常用事件各自回答什么问题，以及同一负载在 default 与 profile 下的吞吐、p99 与文件体积实测。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Java——JFR 实战：录制、事件与开销实测">
+<meta property="og:url" content="https://lianglliu.github.io/4036126103.html">
+<meta property="og:site_name" content="Lianglliu&#39;s Blog">
+<meta property="og:description" content="JFR 实战：四种发起录制的方式、jfr 工具的四类读法、常用事件各自回答什么问题，以及同一负载在 default 与 profile 下的吞吐、p99 与文件体积实测。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png">
+<meta property="article:published_time" content="2026-09-17T10:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T10:00:00.000Z">
+<meta property="article:author" content="Lianglliu">
+<meta property="article:tag" content="Java">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Java——JFR 实战：录制、事件与开销实测",
+  "url": "https://lianglliu.github.io/4036126103.html",
+  "image": "https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png",
+  "datePublished": "2026-09-17T10:00:00.000Z",
+  "dateModified": "2026-09-17T10:00:00.000Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Lianglliu",
+      "url": "https://lianglliu.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/assets/favicon.png"><link rel="canonical" href="https://lianglliu.github.io/4036126103.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="google-site-verification" content="L7Ww6_afE0zhTmkzybvKtFl0sNfyT8mQ9-PPDcyNozs"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: true,
+    post: true
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Java——JFR 实战：录制、事件与开销实测',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8322037152649189" crossorigin="anonymous"></script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">25</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">13</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Lianglliu's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">Java——JFR 实战：录制、事件与开销实测</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-layer-group"></i><span> 系列</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/java/"><i class="fa-fw fab fa-java"></i><span> Java</span></a></li><li><a class="site-page child" href="/network/"><i class="fa-fw fas fa-network-wired"></i><span> 网络</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 目录</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li></ul></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 娱乐</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/gallery/"><i class="fa-fw fas fa-images"></i><span> 图廊</span></a></li><li><a class="site-page child" href="/games/"><i class="fa-fw fas fa-gamepad"></i><span> 游戏</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/link/"><i class="fa-fw fas fa-link"></i><span> 传送门</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Java——JFR 实战：录制、事件与开销实测</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="fa-fw post-meta-icon far fa-calendar-alt"></i><span class="post-meta-label">发表于</span><time datetime="2026-09-17T10:00:00.000Z" title="发表于 2026-09-17 18:00:00">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/Java/">Java</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">5.7k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>24分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><blockquote>
+<p>JFR 是 JDK 自带的记录器：常态开着也不贵，出事时能把现场和过去几分钟的事件一起拿走。这篇不讨论它多有用，只回答怎么用——录制从哪里发起、录完拿什么读、五百多个事件里先看哪几个。<br>三条先给的结论：<code>jfr</code> 命令行工具<strong>不能</strong>发起录制，它只处理录制文件；纯 CPU 负载上 <code>default</code> 与 <code>profile</code> 的开销落在测量噪声里（三档吞吐都是 131k ops&#x2F;s 上下）；分配型负载上，配置之间的差异（0.4%<del>3%）比测量系统自己的轮间漂移（2%</del>4%）还小。<br>数据来自本机（Apple M1 Pro &#x2F; JDK 25，对照版本 JDK 21.0.8），原始输出贴在每段下面，失效的地方直接写出来。</p>
+</blockquote>
+<h2 id="实验环境与口径"><a href="#实验环境与口径" class="headerlink" title="实验环境与口径"></a>实验环境与口径</h2><figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">$ sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize kern.osversion</span><br><span class="line">Apple M1 Pro</span><br><span class="line">10</span><br><span class="line">17179869184</span><br><span class="line">25G83</span><br><span class="line"></span><br><span class="line">$ java -version</span><br><span class="line">java version &quot;25&quot; 2025-09-16 LTS</span><br><span class="line">Java(TM) SE Runtime Environment (build 25+37-LTS-3491)</span><br><span class="line">Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)</span><br><span class="line"></span><br><span class="line">$ /Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home/bin/java -version</span><br><span class="line">java version &quot;21.0.8&quot; 2025-07-15 LTS</span><br></pre></td></tr></table></figure>
+
+<p>工具只用 JDK 自带的 <code>java</code> &#x2F; <code>javac</code> &#x2F; <code>jcmd</code> &#x2F; <code>jfr</code>，没装 JMC 或 async-profiler。本机同时装了 11、17、21、25，所以命令都用绝对路径指定 JDK。</p>
+<h3 id="被测负载"><a href="#被测负载" class="headerlink" title="被测负载"></a>被测负载</h3><p>「开销」和「体积」两节跑同一个类，<code>--mode</code> 切两种负载：<code>cpu</code> 只做算术，<code>alloc</code> 每个操作额外分配 2KB 并把最近 64 个留在 <code>HashMap</code> 里。单线程，每操作约 4 微秒，量的是单位操作耗时而不是 QPS：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">Workload</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">int</span> <span class="variable">CAP</span> <span class="operator">=</span> <span class="number">4_000_000</span>;   <span class="comment">// 最多统计 400 万个操作</span></span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">int</span> <span class="variable">INNER</span> <span class="operator">=</span> <span class="number">4_000</span>;     <span class="comment">// 每个操作的算术轮数，本机约 4 微秒</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span> <span class="type">long</span> <span class="title function_">burn</span><span class="params">(<span class="type">long</span> seed)</span> &#123;</span><br><span class="line">        <span class="type">long</span> <span class="variable">x</span> <span class="operator">=</span> seed;</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; INNER; i++) &#123;</span><br><span class="line">            x ^= x &lt;&lt; <span class="number">13</span>;</span><br><span class="line">            x ^= x &gt;&gt;&gt; <span class="number">7</span>;</span><br><span class="line">            x ^= x &lt;&lt; <span class="number">17</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> x;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span> <span class="type">long</span> <span class="title function_">step</span><span class="params">(<span class="type">long</span> seed, <span class="type">boolean</span> alloc, Map&lt;Integer, <span class="type">byte</span>[]&gt; live, <span class="type">int</span> payload)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (!alloc) &#123;</span><br><span class="line">            <span class="keyword">return</span> burn(seed);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="type">byte</span>[] b = <span class="keyword">new</span> <span class="title class_">byte</span>[payload];</span><br><span class="line">        <span class="type">long</span> <span class="variable">x</span> <span class="operator">=</span> burn(seed ^ payload);</span><br><span class="line">        b[<span class="number">0</span>] = (<span class="type">byte</span>) x;</span><br><span class="line">        live.put((<span class="type">int</span>) (x &amp; <span class="number">0x3f</span>), b);   <span class="comment">// 保留最近 64 个，其余可回收</span></span><br><span class="line">        <span class="keyword">return</span> x;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>main</code> 解析 <code>--mode</code> &#x2F; <code>--warmup</code> &#x2F; <code>--measure</code> &#x2F; <code>--payload</code> &#x2F; <code>--ops</code>，先 warmup 3 秒再统计；<code>--ops=N</code> 是定量模式（固定跑 N 次、不做 warmup），用于「总共分配多少字节」这类对照实验。测量循环用 <code>System.nanoTime()</code> 记每操作墙钟耗时，用 <code>ThreadMXBean.getCurrentThreadCpuTime()</code> 记本线程 CPU 时间：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">while</span> (n &lt; CAP) &#123;</span><br><span class="line">    <span class="type">long</span> <span class="variable">t0</span> <span class="operator">=</span> System.nanoTime();</span><br><span class="line">    seed = step(seed, alloc, live, payload);</span><br><span class="line">    <span class="type">long</span> <span class="variable">t1</span> <span class="operator">=</span> System.nanoTime();</span><br><span class="line">    lat[(<span class="type">int</span>) n++] = t1 - t0;</span><br><span class="line">    tEnd = t1;</span><br><span class="line">    <span class="keyword">if</span> (t1 &gt; deadline) &#123; <span class="keyword">break</span>; &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="type">long</span> <span class="variable">cpuEnd</span> <span class="operator">=</span> mx.getCurrentThreadCpuTime();</span><br><span class="line"><span class="type">double</span> <span class="variable">cpuNsPerOp</span> <span class="operator">=</span> (cpuEnd - cpuStart) / (<span class="type">double</span>) n;   <span class="comment">// 每操作 CPU 纳秒</span></span><br><span class="line"><span class="type">double</span> <span class="variable">cpuWallRatio</span> <span class="operator">=</span> (cpuEnd - cpuStart) / (<span class="type">double</span>) (tEnd - tStart);</span><br></pre></td></tr></table></figure>
+
+<p>测量纪律：每轮重启一个新 JVM，warmup 3 秒 + 统计 8 秒；每档配置 5 轮取中位数；不同配置<strong>交错轮转</strong>而不是一档跑完再跑下一档，每轮记下当时的 load average。本机不是空的（实验期间 load average 3.8~5.7），所以只看同批次的横向比较，绝对值不要外推。</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/javac -d classes Workload.java</span><br><span class="line">$ $J25/bin/java -cp classes Workload --mode=alloc --warmup=1 --measure=2</span><br><span class="line">RESULT mode=alloc ops=257976 seconds=2.000 opsPerSec=129001 p50us=7.63 p99us=10.21 p999us=19.21 maxus=523.96 allocMBps=264.2 cpuNsPerOp=7743 cpuRatio=0.999</span><br><span class="line">checksum=8478105385099004376 live=64</span><br><span class="line">JVM 25 jfrInitialized=false args=[]</span><br></pre></td></tr></table></figure>
+
+<p><code>jfrInitialized=false</code> 这行值得留意：没开录制时 JFR 是惰性初始化的，<code>FlightRecorder.isInitialized()</code> 返回 false。JEP 328 的验收指标之一就是「未启用时没有可测量的开销」，这也是后面对照组的基线。</p>
+<h2 id="四种发起录制的方式"><a href="#四种发起录制的方式" class="headerlink" title="四种发起录制的方式"></a>四种发起录制的方式</h2><h3 id="方式一：jcmd-挂运行中的进程"><a href="#方式一：jcmd-挂运行中的进程" class="headerlink" title="方式一：jcmd 挂运行中的进程"></a>方式一：<code>jcmd</code> 挂运行中的进程</h3><p>进程已经在跑、问题正在发生，就用这种。一次完整的三步操作（<code>JFR.start</code> → 干活 → <code>JFR.dump</code> 取快照 → <code>JFR.stop</code> 结束），目标进程跑的就是上面那个 <code>Workload</code>：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">$ jcmd 20498 JFR.start name=demo settings=profile filename=out/rec-jcmd.jfr</span><br><span class="line">20498:</span><br><span class="line">Started recording 1. No limit specified, using maxsize=250MB as default.</span><br><span class="line"></span><br><span class="line">$ jcmd 20498 JFR.dump name=demo filename=/tmp/jfr-exp/out/rec-jcmd-snapshot.jfr</span><br><span class="line">20498:</span><br><span class="line">Dumped recording &quot;demo&quot;, 372.5 kB written to:</span><br><span class="line">/private/tmp/jfr-exp/out/rec-jcmd-snapshot.jfr</span><br><span class="line"></span><br><span class="line">$ jcmd 20498 JFR.stop name=demo</span><br><span class="line">20498:</span><br><span class="line">Stopped recording &quot;demo&quot;, 743.6 kB written to:</span><br><span class="line">/private/tmp/jfr-exp/out/rec-jcmd.jfr</span><br></pre></td></tr></table></figure>
+
+<p><code>JFR.dump</code> 是一次<strong>不打断录制</strong>的快照，所以同一次录制可以先取中间态（372.5 kB），结束时再得到完整文件（743.6 kB）。录制开着时 <code>JFR.check verbose=true</code> 会列出每个事件当前生效的开关，这是最快搞清「默认配置到底开了什么」的办法：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">$ jcmd 20498 JFR.check verbose=true</span><br><span class="line">20498:</span><br><span class="line">Recording 1: name=demo maxsize=250.0MB (running)</span><br><span class="line"></span><br><span class="line"> Flight Recording (jdk.ActiveRecording)</span><br><span class="line">   [enabled=true]</span><br><span class="line"> Allocation Requiring GC (jdk.AllocationRequiringGC)</span><br><span class="line">   [stackTrace=true,enabled=false]</span><br></pre></td></tr></table></figure>
+
+<p><code>jcmd</code> 还有个 <code>JFR.configure</code>，管<strong>全局</strong>参数：堆栈深度（本机 64）、内存上限（10 MB）、单 chunk 上限（12 MB）。</p>
+<p><code>jcmd &lt;pid&gt; help JFR.start</code> 列出的参数（<code>delay</code> &#x2F; <code>disk</code> &#x2F; <code>dumponexit</code> &#x2F; <code>duration</code> &#x2F; <code>filename</code> &#x2F; <code>maxage</code> &#x2F; <code>maxsize</code> &#x2F; <code>name</code> &#x2F; <code>settings</code> &#x2F; <code>report-on-exit</code>）与启动参数那套是同一组名字。</p>
+<h3 id="方式二：启动参数-XX-StartFlightRecording"><a href="#方式二：启动参数-XX-StartFlightRecording" class="headerlink" title="方式二：启动参数 -XX:StartFlightRecording"></a>方式二：启动参数 <code>-XX:StartFlightRecording</code></h3><p>进程可以重启，或者要录 JVM 启动阶段（录制在 0.18 秒就开始，比 <code>main</code> 早）。参数一共十一个：<code>delay</code> &#x2F; <code>disk</code> &#x2F; <code>dumponexit</code> &#x2F; <code>duration</code> &#x2F; <code>filename</code> &#x2F; <code>maxage</code> &#x2F; <code>maxsize</code> &#x2F; <code>name</code> &#x2F; <code>path-to-gc-roots</code> &#x2F; <code>report-on-exit</code> &#x2F; <code>settings</code>，完整说明用 <code>-XX:StartFlightRecording=help</code> 打印（和 <code>jcmd &lt;pid&gt; help JFR.start</code> 是同一组名字）。</p>
+<p>实际跑一次：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/java -XX:StartFlightRecording=settings=default,filename=out/rec-flag.jfr -cp classes Workload --mode=cpu --warmup=1 --measure=2</span><br><span class="line">[0.181s][info][jfr,startup] Started recording 1. No limit specified, using maxsize=250MB as default.</span><br><span class="line">RESULT mode=cpu ops=259812 seconds=2.000 opsPerSec=129906 p50us=7.63 p99us=8.29 p999us=22.00 maxus=191.29 allocMBps=0.0</span><br><span class="line">JVM 25 jfrInitialized=true args=[-XX:StartFlightRecording=settings=default,filename=/tmp/jfr-exp/out/rec-flag.jfr]</span><br></pre></td></tr></table></figure>
+
+<p>三点直接读出来：录制在 <code>0.181s</code> 开始（早于 <code>main</code>）、<code>jfrInitialized=true</code>、退出时文件已写好（379679 字节）。启动参数可以叠多份，一次跑同时录两套配置——输出里会看到 <code>Started recording 1</code> &#x2F; <code>2</code>：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/java -XX:StartFlightRecording=settings=profile,filename=out/rec-flag-profile.jfr -XX:StartFlightRecording=settings=default,filename=out/rec-flag-default.jfr -version</span><br><span class="line">[0.178s][info][jfr,startup] Started recording 1. No limit specified, using maxsize=250MB as default.</span><br><span class="line">[0.186s][info][jfr,startup] Started recording 2. No limit specified, using maxsize=250MB as default.</span><br><span class="line">java version &quot;25&quot; 2025-09-16 LTS</span><br></pre></td></tr></table></figure>
+
+<p>帮助文本说 <code>dumponexit</code> 默认 <code>false</code>，但<strong>只给 <code>filename</code> 不给 <code>dumponexit</code> 时文件照样在退出时写出来</strong>（<code>rec-flag.jfr</code> 就是这么来的）。既不给 <code>filename</code> 也不给 <code>dumponexit</code> 才是真的什么都没有：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/java -XX:StartFlightRecording=settings=profile,maxage=1h,maxsize=8m,name=noexit -cp classes Workload --mode=cpu --warmup=1 --measure=1</span><br><span class="line">[0.176s][info][jfr,startup] Started recording 1.</span><br><span class="line">$ ls -lt *.jfr</span><br><span class="line">ls: cannot access &#x27;*.jfr&#x27;: No such file or directory</span><br></pre></td></tr></table></figure>
+
+<h3 id="方式三：代码里的-jdk-jfr-Recording-API"><a href="#方式三：代码里的-jdk-jfr-Recording-API" class="headerlink" title="方式三：代码里的 jdk.jfr.Recording API"></a>方式三：代码里的 <code>jdk.jfr.Recording</code> API</h3><p>录制逻辑要跟业务挂钩时（只在这个批处理窗口录、出错时把最近 10 秒留下来）用 API。核心就这几行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Path</span> <span class="variable">out</span> <span class="operator">=</span> Path.of(<span class="string">&quot;/tmp/jfr-exp/out/rec-api.jfr&quot;</span>);</span><br><span class="line"><span class="type">Recording</span> <span class="variable">r</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Recording</span>();</span><br><span class="line">r.setName(<span class="string">&quot;api-demo&quot;</span>);</span><br><span class="line">r.setMaxSize(<span class="number">16</span> * <span class="number">1024</span> * <span class="number">1024L</span>);</span><br><span class="line">r.enable(<span class="string">&quot;jdk.ExecutionSample&quot;</span>).with(<span class="string">&quot;period&quot;</span>, <span class="string">&quot;10 ms&quot;</span>);</span><br><span class="line">r.enable(<span class="string">&quot;jdk.ObjectAllocationSample&quot;</span>).with(<span class="string">&quot;throttle&quot;</span>, <span class="string">&quot;100/s&quot;</span>);</span><br><span class="line">r.enable(<span class="string">&quot;jdk.ThreadPark&quot;</span>).withThreshold(Duration.ofMillis(<span class="number">1</span>));</span><br><span class="line">r.start();                                            <span class="comment">// 状态 NEW -&gt; RUNNING</span></span><br><span class="line"><span class="comment">// ... 干活 ...</span></span><br><span class="line">r.dump(out);                                          <span class="comment">// 运行中快照，不打断录制</span></span><br><span class="line">r.stop();</span><br><span class="line">r.dump(out);                                          <span class="comment">// 停止后再 dump，把尾部补齐</span></span><br><span class="line">r.close();</span><br></pre></td></tr></table></figure>
+
+<p>状态迁移：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/java -cp classes RecordingApiDemo /tmp/jfr-exp/out/rec-api.jfr</span><br><span class="line">before start: state=NEW id=1 settings=8</span><br><span class="line">after start:  state=RUNNING size=0</span><br><span class="line">after dump:   state=RUNNING size=133396 bytes</span><br><span class="line">after stop:   state=STOPPED size=258684 bytes</span><br><span class="line">after close:  state=CLOSED fileSize=258684 bytes</span><br></pre></td></tr></table></figure>
+
+<p><code>dump()</code> 不停录制（<code>state</code> 还是 <code>RUNNING</code>），只是把到现在为止的数据写一份出来；<code>stop()</code> 之后再 <code>dump()</code> 一次，文件从 133396 字节涨到 258684 字节——中间那段被补上了。<code>enable(...).with(&quot;period&quot;, &quot;10 ms&quot;)</code> 就是 <code>.jfc</code> 里 <code>&lt;setting name=&quot;period&quot;&gt;10 ms&lt;/setting&gt;</code> 的等价物。</p>
+<h3 id="方式四：jfr-命令行工具——它不负责开始录制"><a href="#方式四：jfr-命令行工具——它不负责开始录制" class="headerlink" title="方式四：jfr 命令行工具——它不负责开始录制"></a>方式四：<code>jfr</code> 命令行工具——它不负责开始录制</h3><p>最容易被误解的一条。<code>jfr</code> 工具的全部能力里<strong>没有</strong> <code>start</code>：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/jfr --help</span><br><span class="line">Tool for working with Flight Recorder files</span><br><span class="line"></span><br><span class="line"> jfr print [--xml|--json|--exact]</span><br><span class="line">           [--categories &lt;filter&gt;]</span><br><span class="line">           [--events &lt;filter&gt;]</span><br><span class="line">           [--stack-depth &lt;depth&gt;]</span><br><span class="line">           &lt;file&gt;</span><br><span class="line">     Print contents of a recording file. See &#x27;jfr help print&#x27; for details.</span><br></pre></td></tr></table></figure>
+
+<p>完整的命令表是 <code>print</code> &#x2F; <code>view</code> &#x2F; <code>configure</code> &#x2F; <code>metadata</code> &#x2F; <code>scrub</code> &#x2F; <code>summary</code> &#x2F; <code>assemble</code> &#x2F; <code>disassemble</code> &#x2F; <code>version</code> &#x2F; <code>help</code>——<strong>没有 <code>start</code></strong>。它处理的是<strong>录制文件</strong>：读（<code>summary</code> &#x2F; <code>print</code> &#x2F; <code>view</code> &#x2F; <code>metadata</code>）、裁剪与拆合（<code>scrub</code> &#x2F; <code>disassemble</code> &#x2F; <code>assemble</code>）、生成配置（<code>configure</code>）。要开始录制只有三条路：启动参数、<code>jcmd</code>、代码 API（JMC 这类图形界面走的也是同一套 <code>jdk.jfr</code> &#x2F; <code>jdk.management.jfr</code>）。</p>
+<p>所以「方式四」真正负责的是<strong>配置</strong>那一半——<code>jfr configure</code> 生成 <code>.jfc</code>，再交给前三种方式去录。它支持直接改单个事件设置：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/jfr configure jdk.ExecutionSample#period=100ms --output /tmp/jfr-exp/exec100.jfc --verbose</span><br><span class="line">Setting:</span><br><span class="line">&quot;jdk.ExecutionSample#period=100ms&quot;</span><br><span class="line">Configuration written successfully to:</span><br><span class="line">/tmp/jfr-exp/exec100.jfc</span><br></pre></td></tr></table></figure>
+
+<p>也支持一层「选项组」抽象，不用背几百个事件名（不带参数调用时把当前模板的选项打出来）：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/jfr configure</span><br><span class="line">jfr configure: missing argument</span><br><span class="line"></span><br><span class="line">Usage:</span><br><span class="line">...</span><br><span class="line">Options for default.jfc:</span><br><span class="line"></span><br><span class="line">  gc=&lt;off|normal|detailed|high|all&gt;  (normal)</span><br><span class="line"></span><br><span class="line">  allocation-profiling=&lt;off|low|medium|high|maximum&gt;  (low)</span><br><span class="line"></span><br><span class="line">  ...</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>加 <code>--verbose</code> 能看到一个选项改了哪些事件设置，<code>method-profiling=off</code> 把两个采样事件一起关掉：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/jfr configure --verbose method-profiling=off --output /tmp/jfr-exp/sampling-off.jfc</span><br><span class="line">Setting:</span><br><span class="line">&quot;jdk.ExecutionSample#enabled=false&quot;</span><br><span class="line">&quot;jdk.ExecutionSample#period=999 d&quot;</span><br><span class="line">&quot;jdk.NativeMethodSample#enabled=false&quot;</span><br><span class="line">&quot;jdk.NativeMethodSample#period=999 d&quot;</span><br></pre></td></tr></table></figure>
+
+<p>选项组的价值是意图明确，代价是映射不透明，<code>--verbose</code> 应该跟着一起用。上一篇文章《<a href="/271167079.html">一次锁竞争的完整定位</a>》把 <code>locking-threshold</code> 从 10 ms 调到 0 才看见微秒级锁，用的就是这个入口。</p>
+<h2 id="录完怎么读"><a href="#录完怎么读" class="headerlink" title="录完怎么读"></a>录完怎么读</h2><h3 id="jfr-summary：先看事件分布"><a href="#jfr-summary：先看事件分布" class="headerlink" title="jfr summary：先看事件分布"></a><code>jfr summary</code>：先看事件分布</h3><figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">$ jfr summary out/bench-profile-5.jfr</span><br><span class="line"></span><br><span class="line"> Version: 2.1</span><br><span class="line"> Chunks: 1</span><br><span class="line"> Start: 2026-09-17 04:43:14 (UTC)</span><br><span class="line"> Duration: 11 s</span><br><span class="line"></span><br><span class="line"> Event Type                              Count  Size (bytes)</span><br><span class="line">=============================================================</span><br><span class="line"> jdk.GCPhaseParallel                      5109        128027</span><br><span class="line"> jdk.ObjectAllocationSample               2699         37744</span><br><span class="line"> jdk.ExecutionSample                       845          8443</span><br><span class="line"> ...</span><br><span class="line"> jdk.Checkpoint                             57         51278</span><br><span class="line"> jdk.Metadata                                1        110525</span><br></pre></td></tr></table></figure>
+
+<p>（只贴头几行与末尾几行，中间省略。）表格按<strong>事件数</strong>倒序；别只看 Count 列，Size 列更说明问题：</p>
+<table>
+<thead>
+<tr>
+<th>事件</th>
+<th align="right">Count</th>
+<th align="right">Size (bytes)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>jdk.GCPhaseParallel</code></td>
+<td align="right">5109</td>
+<td align="right">128027</td>
+</tr>
+<tr>
+<td><code>jdk.Checkpoint</code></td>
+<td align="right">57</td>
+<td align="right">51278</td>
+</tr>
+<tr>
+<td><code>jdk.Metadata</code></td>
+<td align="right">1</td>
+<td align="right">110525</td>
+</tr>
+</tbody></table>
+<p><code>jdk.Metadata</code> 只有 1 个事件却占 110 kB，是全文件最大的一块。所以「怎么把文件变小」通常不是关采样事件——<code>jdk.ExecutionSample</code> 845 个才 8443 字节——而是换模板、压 chunk、<code>scrub</code> 掉不需要的事件。</p>
+<h3 id="jfr-print：看单条事件的原貌"><a href="#jfr-print：看单条事件的原貌" class="headerlink" title="jfr print：看单条事件的原貌"></a><code>jfr print</code>：看单条事件的原貌</h3><p><code>print</code> 把事件逐条展开，输出量很大（这份文件不加过滤 9000 多行），基本都配 <code>--events</code> 和 <code>--stack-depth</code>：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/jfr print --events jdk.ExecutionSample --stack-depth 3 out/bench-profile-5.jfr | sed -n &#x27;1,7p&#x27;</span><br><span class="line">jdk.ExecutionSample &#123;</span><br><span class="line">  startTime = 12:43:14.636 (2026-09-17)</span><br><span class="line">  sampledThread = &quot;main&quot; (javaThreadId = 3)</span><br><span class="line">  state = &quot;STATE_RUNNABLE&quot;</span><br><span class="line">  stackTrace = [</span><br><span class="line">    Workload.burn(long) line: 17</span><br><span class="line">    Workload.step(long, boolean, Map, int) line: 30</span><br><span class="line">    ...</span><br><span class="line">  ]</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="jfr-view：给常见问题准备的表格"><a href="#jfr-view：给常见问题准备的表格" class="headerlink" title="jfr view：给常见问题准备的表格"></a><code>jfr view</code>：给常见问题准备的表格</h3><p>JDK 21 和 25 都带 <code>view</code>，但 25 的视图多得多（21 有 48 个，25 有 89 个）：</p>
+<p>25 比 21 多出来的视图里包括 <code>cpu-time-hot-methods</code>、<code>cpu-time-statistics</code>、<code>pinned-threads</code>、<code>tlabs</code>、<code>vm-operations</code>、<code>deoptimizations-by-site</code> 等；两边都有的是 <code>hot-methods</code>、<code>allocation-by-class</code>、<code>gc-pause-phases</code>、<code>socket-reads-by-host</code> 这些。</p>
+<p><code>hot-methods</code> 就是最常用的那个（等价于「谁在吃 CPU」）：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/jfr view --width 110 hot-methods out/bench-profile-5.jfr</span><br><span class="line"></span><br><span class="line">Method                                                                                        Samples Percent</span><br><span class="line">--------------------------------------------------------------------------------------------- ------- -------</span><br><span class="line">Workload.burn(long)                                                                               830  98.22%</span><br><span class="line">java.util.HashMap.putVal(int, Object, Object, boolean, boolean)                                     7   0.83%</span><br><span class="line">Workload.main(String[])                                                                             6   0.71%</span><br></pre></td></tr></table></figure>
+
+<p>同一份文件里 <code>allocation-by-class</code> 回答「分配压力来自谁」（本负载全是 <code>byte[]</code>，98.58%），<code>gc-pauses</code> 回答「GC 停了多少」（19 次、共 22.3 ms），<code>cpu-load</code> 回答「JVM 用了多少 CPU」（9.98%，机器整体 21.95%）。</p>
+<h3 id="jfr-metadata：事件的字段和标签"><a href="#jfr-metadata：事件的字段和标签" class="headerlink" title="jfr metadata：事件的字段和标签"></a><code>jfr metadata</code>：事件的字段和标签</h3><p>不知道某个事件有哪些字段、什么单位、是不是带堆栈，<code>jfr metadata --events</code> 直接给定义：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/jfr metadata --events jdk.ExecutionSample out/bench-profile-5.jfr</span><br><span class="line">@Name(&quot;jdk.ExecutionSample&quot;)</span><br><span class="line">@Label(&quot;Java Execution Sample&quot;)</span><br><span class="line">class ExecutionSample extends jdk.jfr.Event &#123;</span><br><span class="line">  @Label(&quot;Start Time&quot;) @Timestamp(&quot;TICKS&quot;) long startTime;</span><br><span class="line">  @Label(&quot;Thread&quot;) Thread sampledThread;</span><br><span class="line">  @Label(&quot;Stack Trace&quot;) StackTrace stackTrace;</span><br><span class="line">  @Label(&quot;Thread State&quot;) String state;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>@Label</code> &#x2F; <code>@Category</code> &#x2F; <code>@Description</code> 这些注解的用处在这里能看到：它们最终会变成 <code>view</code> 的表头和列名，中文标签也一样。</p>
+<h2 id="事件体系：哪些事件回答哪些问题"><a href="#事件体系：哪些事件回答哪些问题" class="headerlink" title="事件体系：哪些事件回答哪些问题"></a>事件体系：哪些事件回答哪些问题</h2><p>JDK 25 的 <code>default.jfc</code> 里有两百多个事件定义，默认开着约六十个。「默认开关」一列是 <code>default.jfc</code> &#x2F; <code>profile.jfc</code> 里的实测值：</p>
+<table>
+<thead>
+<tr>
+<th>事件</th>
+<th>回答什么问题</th>
+<th>default</th>
+<th>profile</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>jdk.ExecutionSample</code></td>
+<td>哪些 Java 方法在吃 CPU（线程栈采样）</td>
+<td>20 ms 周期</td>
+<td>10 ms 周期</td>
+</tr>
+<tr>
+<td><code>jdk.ObjectAllocationSample</code></td>
+<td>分配压力来自哪个类（带 <code>weight</code> 估算）</td>
+<td>throttle 150&#x2F;s</td>
+<td>300&#x2F;s</td>
+</tr>
+<tr>
+<td><code>jdk.JavaMonitorEnter</code></td>
+<td>谁在等锁、等了多久</td>
+<td>阈值 20 ms</td>
+<td>10 ms</td>
+</tr>
+<tr>
+<td><code>jdk.ThreadPark</code></td>
+<td><code>LockSupport.park</code> &#x2F; 并发容器里的等待</td>
+<td>阈值 20 ms</td>
+<td>10 ms</td>
+</tr>
+<tr>
+<td><code>jdk.SocketRead</code> &#x2F; <code>jdk.SocketWrite</code></td>
+<td>网络 IO 慢在哪、对端是谁</td>
+<td>阈值 1 ms，100&#x2F;s</td>
+<td>1 ms，300&#x2F;s</td>
+</tr>
+<tr>
+<td><code>jdk.GCPhasePause</code></td>
+<td>GC 停顿的相位与时长</td>
+<td>阈值 0 ms</td>
+<td>0 ms</td>
+</tr>
+<tr>
+<td><code>jdk.ThreadStart</code></td>
+<td>线程是不是在被反复创建</td>
+<td>开，带栈</td>
+<td>开，带栈</td>
+</tr>
+<tr>
+<td><code>jdk.JavaExceptionThrow</code></td>
+<td>异常风暴（哪个异常、谁抛的）</td>
+<td>开，100&#x2F;s</td>
+<td>300&#x2F;s</td>
+</tr>
+<tr>
+<td><code>jdk.ClassLoad</code></td>
+<td>类加载</td>
+<td><strong>关</strong></td>
+<td><strong>关</strong></td>
+</tr>
+<tr>
+<td><code>jdk.CPUTimeSample</code></td>
+<td>CPU 时间采样（JEP 509，仅 Linux）</td>
+<td><strong>关</strong></td>
+<td><strong>关</strong></td>
+</tr>
+</tbody></table>
+<p>JDK 21 与 25 在这个表上有两处会被误判的差异：</p>
+<ul>
+<li><strong>同名事件的默认值变了</strong>：JDK 21 的 <code>default.jfc</code> 里 <code>jdk.SocketRead</code> 是「阈值 20 ms、无节流」，JDK 25 改成「1 ms + 100&#x2F;s」，<code>jdk.JavaExceptionThrow</code> 从 <code>enabled=false</code> 变成默认开启——同一份代码在两边记录的不是同一批事件。</li>
+<li><strong>事件名也在变</strong>：25 新增 <code>jdk.CPUTimeSample</code>、<code>jdk.MethodTiming</code> 等，21 的 <code>jdk.GCLocker</code>、<code>jdk.SafepointCleanup</code>、<code>jdk.ZUnmap</code> 在 25 里没有了。写死的过滤脚本会静默失效——<code>jfr metadata</code> 不带文件参数时打印当前 JDK 的完整事件表，升级后 diff 一遍比读发布说明快。</li>
+</ul>
+<h2 id="自定义事件"><a href="#自定义事件" class="headerlink" title="自定义事件"></a>自定义事件</h2><p>业务事件用 <code>@Name</code> &#x2F; <code>@Label</code> &#x2F; <code>@Category</code> &#x2F; <code>@StackTrace</code> 注解，字段写在事件类里：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">class</span> <span class="title class_">CheckoutDemo</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Name(&quot;demo.Checkout&quot;)</span></span><br><span class="line">    <span class="meta">@Label(&quot;结算请求&quot;)</span></span><br><span class="line">    <span class="meta">@Category(&#123;&quot;Demo&quot;, &quot;Business&quot;&#125;)</span></span><br><span class="line">    <span class="meta">@StackTrace(true)</span></span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">class</span> <span class="title class_">Checkout</span> <span class="keyword">extends</span> <span class="title class_">Event</span> &#123;</span><br><span class="line">        <span class="meta">@Label(&quot;订单号&quot;)</span> String orderId;          <span class="comment">// 字段标签会变成视图表头</span></span><br><span class="line">        <span class="meta">@Label(&quot;金额(分)&quot;)</span> <span class="type">int</span> amountCents;</span><br><span class="line">        <span class="meta">@Label(&quot;是否成功&quot;)</span> <span class="type">boolean</span> ok;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span> <span class="type">boolean</span> <span class="title function_">checkout</span><span class="params">(String orderId, <span class="type">int</span> cents, <span class="type">int</span> failAt)</span> &#123;</span><br><span class="line">        <span class="type">Checkout</span> <span class="variable">e</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Checkout</span>();</span><br><span class="line">        e.orderId = orderId;</span><br><span class="line">        e.amountCents = cents;</span><br><span class="line">        e.begin();</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="keyword">return</span> e.ok = Integer.parseInt(orderId) != failAt;</span><br><span class="line">        &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">            e.commit();     <span class="comment">// finally 里 commit，异常也不丢事件</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+
+<p>跑 20 次、其中 1 次失败，录制里就有 20 条事件：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">$ $J25/bin/jfr summary out/rec-custom.jfr | sed -n &#x27;/Checkout/p&#x27;</span><br><span class="line"> demo.Checkout                              20           400</span><br><span class="line"></span><br><span class="line">$ $J25/bin/jfr print --events demo.Checkout --stack-depth 3 out/rec-custom.jfr | sed -n &#x27;1,11p&#x27;</span><br><span class="line">demo.Checkout &#123;</span><br><span class="line">  startTime = 12:50:18.060 (2026-09-17)</span><br><span class="line">  duration = 0.262 ms</span><br><span class="line">  orderId = &quot;0000&quot;</span><br><span class="line">  amountCents = 100</span><br><span class="line">  ok = true</span><br><span class="line">  eventThread = &quot;main&quot; (javaThreadId = 3)</span><br><span class="line">  stackTrace = [ CheckoutDemo.checkout(...) line: 36, ... ]</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>jfr view</code> 还能直接按事件名出表，表头用的是 <code>@Label</code> 的中文。自定义事件默认开启，20 条共 400 字节——比自己写日志便宜，还天然带上线程、时间、堆栈和 <code>duration</code>。</p>
+<h2 id="开销实测"><a href="#开销实测" class="headerlink" title="开销实测"></a>开销实测</h2><p>方法：每轮新 JVM，warmup 3 秒 + 统计 8 秒，5 轮取中位数，配置<strong>交错轮转</strong>（同一轮里每档各跑一次）。指标有三个：吞吐、每操作墙钟 p50&#x2F;p99、每操作 <strong>CPU 时间</strong>（<code>ThreadMXBean</code>）——第三个是关键，能把「机器调度噪声」和「本进程真多花了 CPU」分开。</p>
+<h3 id="纯-CPU-负载：测不出差别"><a href="#纯-CPU-负载：测不出差别" class="headerlink" title="纯 CPU 负载：测不出差别"></a>纯 CPU 负载：测不出差别</h3><table>
+<thead>
+<tr>
+<th>配置</th>
+<th align="right">吞吐中位数 (ops&#x2F;s)</th>
+<th align="right">相对不录制</th>
+<th align="right">p50</th>
+<th align="right">p99</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>不录制</td>
+<td align="right">131109</td>
+<td align="right">—</td>
+<td align="right">7.46 µs</td>
+<td align="right">8.25 µs</td>
+</tr>
+<tr>
+<td><code>default</code>（ExecutionSample 20 ms）</td>
+<td align="right">131117</td>
+<td align="right">+0.01%</td>
+<td align="right">7.46 µs</td>
+<td align="right">8.25 µs</td>
+</tr>
+<tr>
+<td><code>profile</code>（10 ms，分配采样 300&#x2F;s）</td>
+<td align="right">131151</td>
+<td align="right">+0.03%</td>
+<td align="right">7.46 µs</td>
+<td align="right">8.25 µs</td>
+</tr>
+</tbody></table>
+<p>三档的 p50 与 p99 一模一样，吞吐差异 0.03%——比同一档配置的轮间波动还小。一个不做分配、不做 IO 的循环里，采样事件没有可观察的开销。</p>
+<h3 id="分配型负载：差异落在漂移里"><a href="#分配型负载：差异落在漂移里" class="headerlink" title="分配型负载：差异落在漂移里"></a>分配型负载：差异落在漂移里</h3><p>同一个负载换成 <code>alloc</code>（每个操作分配 2 KB，约 264 MB&#x2F;s），情况不一样：</p>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th align="right">吞吐中位数 (ops&#x2F;s)</th>
+<th align="right">相对不录制</th>
+<th align="right">每操作 CPU 时间</th>
+<th align="right">相对</th>
+<th align="right">p99</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>不录制</td>
+<td align="right">129364</td>
+<td align="right">—</td>
+<td align="right">7718 ns</td>
+<td align="right">—</td>
+<td align="right">8.42 µs</td>
+</tr>
+<tr>
+<td><code>default</code></td>
+<td align="right">128685</td>
+<td align="right">-0.5%</td>
+<td align="right">7750 ns</td>
+<td align="right">+0.4%</td>
+<td align="right">8.67 µs</td>
+</tr>
+<tr>
+<td><code>settings=none</code>（JFR 开着，零事件）</td>
+<td align="right">126338</td>
+<td align="right">-2.3%</td>
+<td align="right">7897 ns</td>
+<td align="right">+2.3%</td>
+<td align="right">8.67 µs</td>
+</tr>
+<tr>
+<td><code>sampling-off</code>（关掉两个采样事件）</td>
+<td align="right">125341</td>
+<td align="right">-3.1%</td>
+<td align="right">7952 ns</td>
+<td align="right">+3.0%</td>
+<td align="right">9.13 µs</td>
+</tr>
+<tr>
+<td><code>profile</code></td>
+<td align="right">125722</td>
+<td align="right">-2.8%</td>
+<td align="right">7929 ns</td>
+<td align="right">+2.7%</td>
+<td align="right">8.88 µs</td>
+</tr>
+<tr>
+<td><code>alloc-20k</code>（分配采样 150&#x2F;s → 20000&#x2F;s）</td>
+<td align="right">125713</td>
+<td align="right">-2.8%</td>
+<td align="right">7932 ns</td>
+<td align="right">+2.8%</td>
+<td align="right">9.38 µs</td>
+</tr>
+</tbody></table>
+<p>不录制的 5 轮是 7708<del>7735 ns（<strong>跨轮极差 0.35%</strong>），开着 JFR 的配置在 7738</del>8010 ns 之间摆。三个事实要一起看：把采样事件全关掉（<code>sampling-off</code>）或把分配采样放大 130 倍（<code>alloc-20k</code>）都落在同一档，和开满事件的 <code>profile</code> 没有量级差别；一个事件都不开的 <code>settings=none</code> 也在这一档；而第二轮复测里 <code>sampling-off</code> 又跑出 7726 ns。同一配置跨轮能差 2%~4%，只有「不录制」这一组在 14 轮里始终最快。</p>
+<p>GC 也被排除了：测量窗口里 13<del>14 次 young GC，MXBean 记到的停顿只有 7</del>14 ms（约 0.1%），填不满那 200 ms 的差。</p>
+<p>结论写成可核验的形式：<strong>在这台机器、这个负载上，配置之间的差异（中位 0.4%<del>3%）小于测量系统自身的轮间漂移（2%</del>4%）；唯一稳定的是不录制最快。</strong> <code>profile.jfc</code> 自己写的是「typically around 2 % overhead」，JEP 328 的验收指标是「SPECjbb2015 上 ≤1%」——数量级吻合，但任何单轮测出的「JFR 开销 X%」都是噪声级结论。</p>
+<h2 id="体积与阈值控制"><a href="#体积与阈值控制" class="headerlink" title="体积与阈值控制"></a>体积与阈值控制</h2><p>同一个负载（alloc）两档配置，文件体积只差 6%，事件数却差一倍：</p>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th align="right">大小</th>
+<th align="right">ExecutionSample</th>
+<th align="right">ObjectAllocationSample</th>
+<th align="right">Duration</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>bench-default-5.jfr</td>
+<td align="right">549593 B</td>
+<td align="right">404</td>
+<td align="right">1614</td>
+<td align="right">11 s</td>
+</tr>
+<tr>
+<td>bench-profile-5.jfr</td>
+<td align="right">582488 B</td>
+<td align="right">845</td>
+<td align="right">2699</td>
+<td align="right">11 s</td>
+</tr>
+</tbody></table>
+<p>体积的大头是 metadata、checkpoint 这类一次性数据，所以压体积的顺序是：换模板 → 压 chunk → 最后才考虑关采样事件。阈值改动的效果倒是线性的——<code>jfr configure jdk.ExecutionSample#period=100ms</code> 之后，同样 8 秒里 ExecutionSample 从 395 条掉到 104 条。</p>
+<p><code>maxage</code> &#x2F; <code>maxsize</code> 是<strong>保留窗口</strong>而不是体积上限，而且以 chunk 为单位生效。32 秒的 profile 录制（<code>maxchunksize=1m</code>，<code>disk=true,maxage=5s,maxsize=2m</code>）得到 912278 字节、Duration 32 s；同一负载不设上限是 921155 字节、Duration 32 s——<strong>看不出任何差别</strong>，因为总量还没超出一个 chunk。要让它们生效得先让 chunk 轮转起来，而 chunk 最小值是 1 MB：<code>-XX:FlightRecorderOptions=maxchunksize=256k</code> 会让 JVM 直接拒绝启动（<code>Max chunk size must be at least 1048576</code>）；<code>disk=false</code> 时 JVM 会警告 <code>Option maxage has no effect with disk=false.</code>。</p>
+<h2 id="踩坑"><a href="#踩坑" class="headerlink" title="踩坑"></a>踩坑</h2><ul>
+<li><code>jfr print --events</code> 过滤器<strong>大小写敏感且静默失败</strong>：<code>--events executionsample</code> 输出 0 行、不报错；<code>ExecutionSample</code> 与 <code>jdk.ExecutionSample</code> 都能用（同一份文件 9295 行）。</li>
+<li>启动参数里 <code>filename</code> 与 <code>dumponexit</code> <strong>互相约束</strong>：只给 <code>filename</code> 会在退出时写文件；写成 <code>dumponexit=false,filename=...</code> 直接起不来——<code>Filename can only be set for a time bound recording or if dumponexit=true.</code></li>
+<li><code>jcmd JFR.start</code> 不给 <code>filename</code>、<code>JFR.stop</code> 也不给，JFR 只回 <code>Stopped recording &quot;lost&quot;.</code>，一个新文件都没有。</li>
+<li><code>maxage</code> &#x2F; <code>maxsize</code> 以 <strong>chunk</strong> 为单位生效，不是「体积上限」：32 秒的 profile 录制加上它们之后大小几乎不变（见上一节），因为总量没超过一个 chunk；<code>disk=false</code> 时 JVM 警告 <code>Option maxage has no effect with disk=false.</code>。</li>
+<li><code>jfr view</code> 的可用性取决于 JDK 版本和录制里有没有对应事件：JDK 21 上没有 <code>cpu-time-hot-methods</code>；JDK 25 上有，但 macOS 上打开 <code>jdk.CPUTimeSample</code> 时 JVM 警告 <code>CPU time method sampling not supported in JFR on your platform</code>（JEP 509 只支持 Linux）。没有事件时视图输出 <code>No events found for &#39;Pinned Virtual Threads&#39;.</code>。</li>
+<li><code>ObjectAllocationSample</code> 是<strong>采样</strong>，不能当分配计数用：100 万次分配（共 2048 MB）在 <code>default</code> 下只记到 1145 条（≈147&#x2F;s，正好是节流值）；throttle 提到 20000&#x2F;s 也只有 2019 条。每条样本自带 <code>weight</code>（实测 <code>15.8 MB</code>），官方给的本来就是「估算总量」。</li>
+</ul>
+<h2 id="和另外两篇的关系"><a href="#和另外两篇的关系" class="headerlink" title="和另外两篇的关系"></a>和另外两篇的关系</h2><p>《<a href="/271167079.html">一次锁竞争的完整定位</a>》和《<a href="/2521215779.html">JVM 内存与 GC 定位实战</a>》把 JFR 当<strong>取证工具</strong>：前者从 <code>jdk.JavaMonitorEnter</code> 量出 8 秒里累计等待 429.5 秒的锁竞争，后者用分配事件追内存泄漏的分配点。那两篇关心「JFR 说了什么」，这篇关心「JFR 这个工具本身」——怎么发起录制、文件怎么读、事件怎么配、它自己要花多少钱。而开销决定了它在什么场景能常态开启。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>录制只有三条发起路径：<code>-XX:StartFlightRecording</code>、<code>jcmd &lt;pid&gt; JFR.start</code>、<code>jdk.jfr.Recording</code> API。<code>jfr</code> 命令行工具<strong>不负责开始录制</strong>，它是文件侧工具（读、裁剪、拆合、生成 <code>.jfc</code>）。</li>
+<li><code>jcmd</code> 适合已经出问题的进程：<code>JFR.dump</code> 是不打断录制的快照（372.5 kB），<code>JFR.stop</code> 给完整文件（743.6 kB），<code>JFR.check verbose=true</code> 列出每个事件的生效开关。</li>
+<li>读文件的顺序：<code>jfr summary</code>（注意 Size 列，<code>jdk.Metadata</code> 一个事件占 110 kB）→ <code>jfr view</code>（<code>hot-methods</code> &#x2F; <code>allocation-by-class</code> &#x2F; <code>gc-pauses</code> &#x2F; <code>cpu-load</code>）→ <code>jfr print --events</code> → <code>jfr metadata</code>。</li>
+<li>JDK 21 与 25 的默认配置差异会改变结论：<code>jdk.SocketRead</code> 从「20 ms 无节流」变成「1 ms + 100&#x2F;s」，<code>jdk.JavaExceptionThrow</code> 从默认关变成默认开，JDK 25 的 <code>jfr view</code> 比 21 多 40 多个视图，<code>jdk.CPUTimeSample</code> 只在 Linux 上有数据。</li>
+<li>开销：纯 CPU 负载上三档差 0.03%（p50 完全相同）；分配型负载上配置之间的中位差在 0.4%<del>3.1%，但同一配置跨轮极差就有 2%</del>4%，并伴随 GC 计数不变——所以「JFR 的开销」在这台机器上小于这套测量方法的误差，唯一稳定的是不录制组始终最快。</li>
+<li>自定义事件不需要额外注册（20 条共 400 字节），<code>jfr view demo.Checkout</code> 会用 <code>@Label</code> 的中文做表头。</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/328">JEP 328: Flight Recorder</a> — Closed &#x2F; Delivered，Release 11</li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/349">JEP 349: JFR Event Streaming</a> — Closed &#x2F; Delivered，Release 14</li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/509">JEP 509: JFR CPU-Time Profiling</a> — Closed &#x2F; Delivered，Release 25（仅 Linux）</li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/518">JEP 518: JFR Cooperative Sampling</a> — Closed &#x2F; Delivered，Release 25</li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://openjdk.org/jeps/167">JEP 167: Event-Based JVM Tracing</a> — Closed &#x2F; Delivered，Release 7u40</li>
+<li><a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/specs/man/jfr.html"><code>jfr</code></a> &#x2F; <a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/specs/man/jcmd.html"><code>jcmd</code></a> &#x2F; <a target="_blank" rel="noopener external nofollow noreferrer" href="https://docs.oracle.com/en/java/javase/25/docs/api/jdk.jfr/module-summary.html"><code>jdk.jfr</code> API</a>（JDK 25 文档）</li>
+</ul>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><h3 id="语言特性"><a href="#语言特性" class="headerlink" title="语言特性"></a>语言特性</h3><ul>
+<li><a href="/3839425231.html">Java——Optional类的使用</a></li>
+<li><a href="/428901307.html">Java——Stream API 常见误用</a></li>
+<li><a href="/726942613.html">Java——CompletableFuture 异步编程实战</a></li>
+<li><a href="/2767726751.html">Java——record、sealed 与模式匹配</a></li>
+<li><a href="/196752644.html">Java——模式匹配演进史：从 JEP 406 到 JEP 441</a></li>
+<li><a href="/1079149701.html">Java——Stream Gatherers 自定义管道</a></li>
+</ul>
+<h3 id="运行时与版本"><a href="#运行时与版本" class="headerlink" title="运行时与版本"></a>运行时与版本</h3><ul>
+<li><a href="/2315906029.html">Java——虚拟线程实战</a></li>
+<li><a href="/2701826243.html">Java——虚拟线程迁移实测</a></li>
+<li><a href="/271167079.html">Java——一次锁竞争的完整定位</a></li>
+<li><a href="/2521215779.html">Java——JVM 内存与 GC 定位实战</a></li>
+<li><a href="/3912768261.html">Java——JDK 21 到 25 迁移清单</a></li>
+<li><a href="/3365103897.html">Java——容器里的 JVM：内存、CPU 与镜像</a></li>
+<li><a href="/3381769289.html">Java——结构化并发实战（StructuredTaskScope）</a></li>
+<li><a href="/2303830241.html">Java——ScopedValue 替代 ThreadLocal</a></li>
+<li><a href="/984104886.html">Java——并发工具选型：从线程池到结构化并发</a></li>
+<li><a href="/4036126103.html">Java——JFR 实战：录制、事件与开销实测</a></li>
+</ul>
+<h3 id="自建服务"><a href="#自建服务" class="headerlink" title="自建服务"></a>自建服务</h3><ul>
+<li><a href="/2511587958.html">Ubuntu 22.04 &#x2F; 24.04 &#x2F; 26.04 中安装 Docker 和 Docker Compose</a></li>
+<li><a href="/2478192043.html">Ubuntu 24.04 配置 Sing-box 代理服务器完整指南</a></li>
+<li><a href="/2348585228.html">sing-box 分流与 DNS 配置实践</a></li>
+<li><a href="/2831660552.html">自建 DNS 实测：DoH、DoT 与 UDP 的延迟对比</a></li>
+<li><a href="/721297558.html">YouTube 下载 1080p：yt-dlp 实战与自建服务</a></li>
+<li><a href="/495884662.html">Docker 容器走代理：注入点、作用范围与实测踩到的坑</a></li>
+<li><a href="/3348503170.html">sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io">Lianglliu</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://lianglliu.github.io/4036126103.html">https://lianglliu.github.io/4036126103.html</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="external nofollow noreferrer" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://lianglliu.github.io" target="_blank">Lianglliu's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a></div><div class="post-share"><div class="social-share" data-image="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">Java——并发工具选型：从线程池到结构化并发</div></div><div class="info-2"><div class="info-item-1"> 这个博客的并发文章已经有五篇：《虚拟线程实战》讲它什么时候有用、《虚拟线程迁移实测》给出改造前后的数字、《一次锁竞争的完整定位》讲出事怎么查、《结构化并发实战》讲谁负责善后、《ScopedValue 替代 ThreadLocal》讲上下文怎么传。它们各自回答了一个问题，却没人回答那个每天都要回答的问题：这段代码该用哪件工具。这篇就是那张对照表：请求扇出、CPU 密集计算、超时与取消、批处理限流、上下文传递，每个推荐都附「什么时候不要用」和出处；唯一新加的实验只有 4 秒。版本基线是 JDK 25（LTS）：虚拟线程（JEP 444）与 ScopedValue（JEP 506）已转正，StructuredTaskScope 仍是预览 API，编译运行都要 --enable-preview，形态是 open() + Joiner——new StructuredTaskScope.ShutdownOnFailure() 那套是 JDK 21&#x2F;24 的写法，在 25 上编译不过。  一张决策表   场景 首选 理由（实测） 什么时候不要用    单请求扇出 2–10 个下游，...</div></div></div></a><a class="pagination-related" href="/3348503170.html" title="sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法</div></div><div class="info-2"><div class="info-item-1"> 客户端上的 TUN 模式和「代理模式」的差别在于接管范围：代理模式只服务主动配置了代理的应用，TUN 模式把整机流量都交给 sing-box。代价是必须处理路由、DNS 与分流，而且这三个东西经常出问题，所以验证方法比配置本身更重要。这篇在一台一次性 Ubuntu 虚拟机（arm64）上用 sing-box 1.14.1 跑完整套接管：TUN 接口与路由的变化、DNS 劫持、用一条 reject 规则证明分流确实生效、退出后的自动回收，以及 1.14 会直接拒绝启动的三处旧写法原文报错。  1. 便宜的说法与真实的代价服务端那篇讲的是「在一台服务器上暴露代理」；客户端这边解决的是另一个问题：本机有一堆程序，浏览器、终端、Docker、后台服务，逐个配代理既麻烦又会漏。TUN 的做法是造一个虚拟网卡，把默认路由指过去，让内核把流量交给 sing-box 决定怎么走。 听上去只是「接管」，实际要同时成立四件事：  路由要从物理网卡切到 TUN，且不能把 sing-box 自己的出站流量也绕回去（回环） DNS 要一起接管，否则域名解析仍然暴露在明网，分流规则也无从匹配 分流规则要能...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/196752644.html" title="Java——模式匹配演进史：从 JEP 406 到 JEP 441"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-15</div><div class="info-item-2">Java——模式匹配演进史：从 JEP 406 到 JEP 441</div></div><div class="info-2"><div class="info-item-1"> Java 的模式匹配不是一次 JEP 完成的，而是十几轮叠加出来的：instanceof 模式三轮（JDK 14 预览、15 再预览、16 定稿），switch 上的模式匹配五轮（JDK 17~20 四次预览、21 定稿），记录模式三轮（19、20 预览、21 定稿），未命名变量两轮（21 预览、22 定稿），而原始类型模式到 JDK 27 已经是第五次预览，仍然没有定稿。这篇文章不教怎么写模式匹配，而是按 JEP 的顺序回答另一类问题：每一轮究竟改了什么、为什么不得不改，以及那些只在预览期存在过的语法去了哪里。文中所有编译器输出都来自本机实测（JDK 17.0.5 &#x2F; JDK 21.0.8 &#x2F; JDK 25+37-LTS，Apple M1 Pro，macOS）；凡是标注「实测」的结论，都能在下面找到对应的原始输出块。JEP 的编号、版本、状态与引用的动机，全部核对自 openjdk.org 的 JEP 页面正文。  先看一条时间线把后面要展开的东西压成一张表，方便随时对照：    JEP JDK 状态 关键变化    305 14 预览 instanceo...</div></div></div></a><a class="pagination-related" href="/2303830241.html" title="Java——ScopedValue 替代 ThreadLocal"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-4.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">Java——ScopedValue 替代 ThreadLocal</div></div><div class="info-2"><div class="info-item-1"> 传递”当前请求是谁发的”这类数据，过去的标准答案是 ThreadLocal。它在同步阻塞的世界里很好用，但遇到线程池和虚拟线程就开始漏水：值会跨请求残留、每个线程都要存一份、子线程继承要靠另一套 API。ScopedValue 在 JDK 25 转正（JEP 506，Status: Closed / Delivered、Release: 25），它是”单向、不可变、生命周期跟着代码块走”的上下文传递方式。这篇不讲概念，只讲四件事：怎么用、和线程池一起用会怎样、内存是谁按住的、以及什么情况下不该迁移。  实验环境1234$ java -versionjava 25 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)  一个容易混淆的地方先说清楚：ScopedValue 在 JDK 25 已经是正式特性，不需要 --enable-preview；...</div></div></div></a><a class="pagination-related" href="/3381769289.html" title="Java——结构化并发实战（StructuredTaskScope）"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-17</div><div class="info-item-2">Java——结构化并发实战（StructuredTaskScope）</div></div><div class="info-2"><div class="info-item-1"> 《虚拟线程实战》解决的是”线程不再贵”，但没解决”谁来管这些线程”。一个请求扇出到三个下游，其中一个失败了怎么办？超时了剩下的两个还在跑吗？调用方抛出异常时，那些已经没人等待的任务去哪了？这些问题的答案，在 CompletableFuture、ExecutorService 里是”你自己记住”，在结构化并发里是”作用域负责”。这篇用同一份需求把三种写法跑一遍，用实测的耗时和线程残留数说话。全部代码在 JDK 25 上编译运行，StructuredTaskScope 目前仍是预览 API，编译需要 --enable-preview。  实验环境1234$ java -versionjava 25 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mixed mode, sharing)  编译与运行都要带预览开关： 12javac --enable-preview --release...</div></div></div></a><a class="pagination-related" href="/2315906029.html" title="Java——虚拟线程实战"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-3.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-15</div><div class="info-item-2">Java——虚拟线程实战</div></div><div class="info-2"><div class="info-item-1"> 虚拟线程（Virtual Threads）由 JEP 444 在 JDK 21 转正，它把「一个请求一个线程」写法的成本从操作系统线程降到了 JVM 对象级别。但它不是更快的线程，只是更便宜的线程：它买来的是吞吐（scale），不是延迟（speed），把 CPU 密集任务丢进去只会得到负数收益。这篇文章按「什么时候有用、什么时候是负优化」这条线，把调度结构、池化禁忌、限流方式、固定（pinning）问题、ThreadLocal 放大和排障手段依次拆开。  虚拟线程的两层结构平台线程、虚拟线程与载体平台线程是操作系统线程的薄包装，一个平台线程在其整个生命周期内独占一条 OS 线程，所以它的数量上限就是 OS 线程的上限。虚拟线程同样是 java.lang.Thread 的实例，但不绑定到某条固定的 OS 线程：它只在需要执行 CPU 指令时才占有一条 OS 线程，遇到阻塞操作就把 OS 线程让出去。 被让出去的这条 OS 线程叫载体线程（carrier）。虚拟线程的调度器是 JDK 自己实现的，它是一个工作在 FIFO 模式下的 work-stealing ForkJoinPoo...</div></div></div></a><a class="pagination-related" href="/2521215779.html" title="Java——JVM 内存与 GC 定位实战"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-5.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-16</div><div class="info-item-2">Java——JVM 内存与 GC 定位实战</div></div><div class="info-2"><div class="info-item-1"> 上一篇《一次锁竞争的完整定位》查的是 CPU 和锁，这篇查内存。同一个思路：先写一个能复现症状的程序，再用 JVM 自带工具一层层把证据收齐。顺序是从粗到细：GC 日志看趋势，jcmd 和 JFR 看运行时，堆 dump 看末端对象。全文用 JDK 25 跑，每个数字都对应下面贴出来的原始输出。最后收两个真会把人带偏的场景：堆几乎是空的时候 OOM，以及没人碰老年代却一直 Full GC。  实验环境与口径机器和 JDK： 12345678910$ sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize kern.osversionApple M1 Pro101717986918425G83$ java -versionjava version &quot;25&quot; 2025-09-16 LTSJava(TM) SE Runtime Environment (build 25+37-LTS-3491)Java HotSpot(TM) 64-Bit Server VM (build 25+37-LTS-3491, mix...</div></div></div></a><a class="pagination-related" href="/3839425231.html" title="Java——Optional类的使用"><img class="cover" src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-9.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2022-11-25</div><div class="info-item-2">Java——Optional类的使用</div></div><div class="info-2"><div class="info-item-1"> Optional 是一个容器对象：要么包含一个非 null 的值，要么为空（empty）。有值时 isPresent() 返回 true、get() 返回该值；为空时 isPresent() 返回 false。它不保存 null——容器内部的 null 只表示「没有值」（Optional.empty() 与 ofNullable(null) 拿到的都是它）；Optional 变量本身也永远不该是 null，这是官方 API Note 明确要求的。Optional 把「这个值可能为空」写进类型，让调用方必须显式处理；它本身并不消除空指针异常。   用例中的Person类  12345678public class Person &#123;    private String name;    private int age;    private String password;    private List&lt;String&gt; hobbies;    // getter and setter&#125;  创建Optional对象使用empty()方法创建空的Opt...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/assets/avatar.jpeg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Lianglliu</div><div class="author-info-description">程序员Lianglliu的个人博客，分享开发教程、实用工具、技术框架解析，记录技术成长点滴。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">25</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">13</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">7</div></a></div><a id="card-info-btn" target="_blank" rel="noopener external nofollow noreferrer" href="https://github.com/Lianglliu"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Lianglliu" rel="external nofollow noreferrer" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83%E4%B8%8E%E5%8F%A3%E5%BE%84"><span class="toc-number">1.</span> <span class="toc-text">实验环境与口径</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%A2%AB%E6%B5%8B%E8%B4%9F%E8%BD%BD"><span class="toc-number">1.1.</span> <span class="toc-text">被测负载</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E7%A7%8D%E5%8F%91%E8%B5%B7%E5%BD%95%E5%88%B6%E7%9A%84%E6%96%B9%E5%BC%8F"><span class="toc-number">2.</span> <span class="toc-text">四种发起录制的方式</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%96%B9%E5%BC%8F%E4%B8%80%EF%BC%9Ajcmd-%E6%8C%82%E8%BF%90%E8%A1%8C%E4%B8%AD%E7%9A%84%E8%BF%9B%E7%A8%8B"><span class="toc-number">2.1.</span> <span class="toc-text">方式一：jcmd 挂运行中的进程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%96%B9%E5%BC%8F%E4%BA%8C%EF%BC%9A%E5%90%AF%E5%8A%A8%E5%8F%82%E6%95%B0-XX-StartFlightRecording"><span class="toc-number">2.2.</span> <span class="toc-text">方式二：启动参数 -XX:StartFlightRecording</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%96%B9%E5%BC%8F%E4%B8%89%EF%BC%9A%E4%BB%A3%E7%A0%81%E9%87%8C%E7%9A%84-jdk-jfr-Recording-API"><span class="toc-number">2.3.</span> <span class="toc-text">方式三：代码里的 jdk.jfr.Recording API</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%96%B9%E5%BC%8F%E5%9B%9B%EF%BC%9Ajfr-%E5%91%BD%E4%BB%A4%E8%A1%8C%E5%B7%A5%E5%85%B7%E2%80%94%E2%80%94%E5%AE%83%E4%B8%8D%E8%B4%9F%E8%B4%A3%E5%BC%80%E5%A7%8B%E5%BD%95%E5%88%B6"><span class="toc-number">2.4.</span> <span class="toc-text">方式四：jfr 命令行工具——它不负责开始录制</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BD%95%E5%AE%8C%E6%80%8E%E4%B9%88%E8%AF%BB"><span class="toc-number">3.</span> <span class="toc-text">录完怎么读</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#jfr-summary%EF%BC%9A%E5%85%88%E7%9C%8B%E4%BA%8B%E4%BB%B6%E5%88%86%E5%B8%83"><span class="toc-number">3.1.</span> <span class="toc-text">jfr summary：先看事件分布</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jfr-print%EF%BC%9A%E7%9C%8B%E5%8D%95%E6%9D%A1%E4%BA%8B%E4%BB%B6%E7%9A%84%E5%8E%9F%E8%B2%8C"><span class="toc-number">3.2.</span> <span class="toc-text">jfr print：看单条事件的原貌</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jfr-view%EF%BC%9A%E7%BB%99%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E5%87%86%E5%A4%87%E7%9A%84%E8%A1%A8%E6%A0%BC"><span class="toc-number">3.3.</span> <span class="toc-text">jfr view：给常见问题准备的表格</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jfr-metadata%EF%BC%9A%E4%BA%8B%E4%BB%B6%E7%9A%84%E5%AD%97%E6%AE%B5%E5%92%8C%E6%A0%87%E7%AD%BE"><span class="toc-number">3.4.</span> <span class="toc-text">jfr metadata：事件的字段和标签</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8B%E4%BB%B6%E4%BD%93%E7%B3%BB%EF%BC%9A%E5%93%AA%E4%BA%9B%E4%BA%8B%E4%BB%B6%E5%9B%9E%E7%AD%94%E5%93%AA%E4%BA%9B%E9%97%AE%E9%A2%98"><span class="toc-number">4.</span> <span class="toc-text">事件体系：哪些事件回答哪些问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%87%AA%E5%AE%9A%E4%B9%89%E4%BA%8B%E4%BB%B6"><span class="toc-number">5.</span> <span class="toc-text">自定义事件</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%80%E9%94%80%E5%AE%9E%E6%B5%8B"><span class="toc-number">6.</span> <span class="toc-text">开销实测</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%BA%AF-CPU-%E8%B4%9F%E8%BD%BD%EF%BC%9A%E6%B5%8B%E4%B8%8D%E5%87%BA%E5%B7%AE%E5%88%AB"><span class="toc-number">6.1.</span> <span class="toc-text">纯 CPU 负载：测不出差别</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%88%86%E9%85%8D%E5%9E%8B%E8%B4%9F%E8%BD%BD%EF%BC%9A%E5%B7%AE%E5%BC%82%E8%90%BD%E5%9C%A8%E6%BC%82%E7%A7%BB%E9%87%8C"><span class="toc-number">6.2.</span> <span class="toc-text">分配型负载：差异落在漂移里</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BD%93%E7%A7%AF%E4%B8%8E%E9%98%88%E5%80%BC%E6%8E%A7%E5%88%B6"><span class="toc-number">7.</span> <span class="toc-text">体积与阈值控制</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%B8%A9%E5%9D%91"><span class="toc-number">8.</span> <span class="toc-text">踩坑</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%92%8C%E5%8F%A6%E5%A4%96%E4%B8%A4%E7%AF%87%E7%9A%84%E5%85%B3%E7%B3%BB"><span class="toc-number">9.</span> <span class="toc-text">和另外两篇的关系</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">10.</span> <span class="toc-text">总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">11.</span> <span class="toc-text">参考资料</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0"><span class="toc-number">12.</span> <span class="toc-text">系列文章</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%AF%AD%E8%A8%80%E7%89%B9%E6%80%A7"><span class="toc-number">12.1.</span> <span class="toc-text">语言特性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%BF%90%E8%A1%8C%E6%97%B6%E4%B8%8E%E7%89%88%E6%9C%AC"><span class="toc-number">12.2.</span> <span class="toc-text">运行时与版本</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%87%AA%E5%BB%BA%E6%9C%8D%E5%8A%A1"><span class="toc-number">12.3.</span> <span class="toc-text">自建服务</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-6.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——并发工具选型：从线程池到结构化并发"/></a><div class="content"><a class="title" href="/984104886.html" title="Java——并发工具选型：从线程池到结构化并发">Java——并发工具选型：从线程池到结构化并发</a><time datetime="2026-09-17T11:00:00.000Z" title="发表于 2026-09-17 19:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/4036126103.html" title="Java——JFR 实战：录制、事件与开销实测"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-2.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——JFR 实战：录制、事件与开销实测"/></a><div class="content"><a class="title" href="/4036126103.html" title="Java——JFR 实战：录制、事件与开销实测">Java——JFR 实战：录制、事件与开销实测</a><time datetime="2026-09-17T10:00:00.000Z" title="发表于 2026-09-17 18:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/3348503170.html" title="sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-1.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法"/></a><div class="content"><a class="title" href="/3348503170.html" title="sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法">sing-box 客户端 TUN 落地：配置、分流验证与 1.14 拒收的旧写法</a><time datetime="2026-09-17T06:00:00.000Z" title="发表于 2026-09-17 14:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/1079149701.html" title="Java——Stream Gatherers 自定义管道"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-10.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Java——Stream Gatherers 自定义管道"/></a><div class="content"><a class="title" href="/1079149701.html" title="Java——Stream Gatherers 自定义管道">Java——Stream Gatherers 自定义管道</a><time datetime="2026-09-17T05:00:00.000Z" title="发表于 2026-09-17 13:00:00">2026-09-17</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/495884662.html" title="Docker 容器走代理：注入点、作用范围与实测踩到的坑"><img src="https://fastly.jsdelivr.net/gh/jerryc127/CDN/img/material-8.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Docker 容器走代理：注入点、作用范围与实测踩到的坑"/></a><div class="content"><a class="title" href="/495884662.html" title="Docker 容器走代理：注入点、作用范围与实测踩到的坑">Docker 容器走代理：注入点、作用范围与实测踩到的坑</a><time datetime="2026-09-17T04:50:00.000Z" title="发表于 2026-09-17 12:50:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2020 - 2026 By Lianglliu</span></div><div class="footer_custom_text"><a href="https://beian.miit.gov.cn/" rel="external nofollow noreferrer" target="_blank">陕ICP备2025072215号-1</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>
