@@ -1,5 +1,13 @@
-/* 相册卡片与游戏卡片的缩略图上有亮色内容时，白字标题看不清；
-   给 figcaption（卡片整块叠层）压一层从上到下的暗角，不影响点击区域。 */
+/* 相册/游戏卡片的两处修正 */
+
+/* 1) 主题给卡片图设了 opacity: .8，压在深色 figure 背景上会把浅色缩略图洗成灰的。
+      缩略图现在是浅色设计，必须以原色显示（hover 态仍走主题自己的 .4）。 */
+.container figure.gallery-group img {
+  opacity: 1;
+}
+
+/* 2) 亮色缩略图上白色标题看不清：给 figcaption（铺满整块的叠层）压一层暗角，
+      不影响点击区域（空锚点仍在最上层）。 */
 .gallery-group figcaption {
   background: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0) 60%);
 }

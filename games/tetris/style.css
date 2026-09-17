@@ -1,171 +1,85 @@
-:root {
-  --bg: #16181d;
-  --panel: #1f2329;
-  --panel-2: #1a1e24;
-  --primary: #49b1f5;
-  --text: #e6e8eb;
-  --muted: #9aa4b2;
-  --radius: 12px;
-}
+/* 俄罗斯方块 · 棋盘 / 预览 / 飘字（骨架、HUD、按钮、遮罩来自 base.css） */
 
-* { box-sizing: border-box; }
-
-html, body { margin: 0; padding: 0; }
-
-body {
-  background: var(--bg);
-  color: var(--text);
-  overflow-x: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
-  -webkit-text-size-adjust: 100%;
-  display: flex;
-  justify-content: center;
-  padding: 16px 12px 28px;
-}
-
-.game {
-  width: 100%;
-  max-width: 420px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  outline: none;
-}
-
-.bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.bar h1 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.bar a {
-  color: var(--primary);
-  font-size: 14px;
-  text-decoration: none;
-}
-
-.bar a:hover { text-decoration: underline; }
-
-.hud {
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px;
-  background: var(--panel);
-  border-radius: var(--radius);
-}
-
-.stat {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.stat span { font-size: 11px; color: var(--muted); }
-
-.stat b {
-  font-size: 16px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.play {
+/* 棋盘 + 右侧预览，坐在灰色 .frame 里 */
+.stage {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
+  background: var(--cell);
+  border-radius: 2px;
 }
 
-.board-wrap { flex: 1 1 auto; min-width: 0; }
+.board-wrap { position: relative; }
 
-.board {
-  display: block;
-  width: 100%;
-  max-width: 300px;
-  height: auto;
-  border-radius: var(--radius);
-  background: var(--panel-2);
-  touch-action: none;
-}
+#board { display: block; }
 
+/* ---------- 预览区（与主棋盘同族：圆角块 + 高光） ---------- */
 .side {
-  flex: 0 0 82px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  align-items: stretch;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
 }
 
 .side-label {
   margin: 0;
-  font-size: 11px;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 
-.next {
-  width: 64px;
-  height: 64px;
-  align-self: center;
-  border-radius: 10px;
-  background: var(--panel-2);
+#next {
+  display: block;
+  background: var(--cell);
+  border: 1px solid var(--frame);
+  border-radius: 3px;
 }
 
-.btn {
-  font: inherit;
-  font-size: 13px;
-  color: var(--text);
-  background: #262b33;
-  border: 0;
-  border-radius: 10px;
-  padding: 9px 6px;
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
+/* ---------- Combo 飘字（棋盘中央） ---------- */
+.combo {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  color: var(--accent);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
 }
 
-.btn:hover { background: #2f3a46; }
+.combo.on { animation: combo-rise 0.9s ease-out; }
 
-.pad {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+@keyframes combo-rise {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  22% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  60% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -170%) scale(1); }
 }
 
-.pad-btn {
-  font: inherit;
-  font-size: 15px;
-  color: var(--text);
-  background: #262b33;
-  border: 0;
-  border-radius: 10px;
-  min-height: 48px;
-  padding: 0;
-  cursor: pointer;
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
+/* ---------- 升级提示（HUD 等级项上方） ---------- */
+.level-float {
+  position: absolute;
+  left: 50%;
+  top: -0.6em;
+  transform: translateX(-50%);
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.pad-btn:active,
-.pad-btn.is-down {
-  background: #2f3a46;
-  color: var(--primary);
-}
+.level-float.on { animation: level-rise 0.9s ease-out; }
 
-.pad-btn[data-key="Space"] { grid-column: span 2; }
-
-.hint {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--muted);
-  text-align: center;
+@keyframes level-rise {
+  0% { opacity: 0; transform: translate(-50%, 0.4em); }
+  20% { opacity: 1; transform: translate(-50%, 0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -1.4em); }
 }

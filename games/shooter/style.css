@@ -1,150 +1,40 @@
-* {
-  box-sizing: border-box;
-}
+/* 飞机大战 · 浅色天空场（骨架 / HUD / 按钮 / 遮罩 / 动画全部来自 base.css） */
 
-html,
-body {
-  margin: 0;
-  padding: 0;
+/* 响应式画布：外框居中、宽度自适应 */
+.frame {
+  display: block;
+  max-width: 390px;
+  margin: 0 auto;
 }
-
-body {
-  background: #16181d;
-  color: #e6e8eb;
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
-  min-height: 100vh;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 16px 12px 24px;
-}
-
-.bar {
-  width: 100%;
-  max-width: 360px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #e6e8eb;
-}
-
-.back {
-  color: #49b1f5;
-  text-decoration: none;
-  font-size: 14px;
-}
-
-.back:hover {
-  text-decoration: underline;
-}
-
-.hud {
-  width: 100%;
-  max-width: 360px;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.hud-item {
-  background: #1f2329;
-  border-radius: 12px;
-  padding: 8px 10px;
-  font-size: 12px;
-  color: #9aa4b2;
-  text-align: center;
-}
-
-.num {
-  color: #e6e8eb;
-  font-variant-numeric: tabular-nums;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.stage {
-  position: relative;
-  width: 100%;
-  max-width: 360px;
-}
-
-canvas {
+.stage { width: 100%; }
+.stage canvas {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 12px;
-  background: #1f2329;
+  border-radius: 2px;
   cursor: crosshair;
-  touch-action: none;
   outline: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: rgba(22, 24, 29, 0.78);
-  border-radius: 12px;
-  gap: 8px;
-}
+/* 生命 ♥：用玫红，掉血后变暗 */
+.hearts { color: var(--c2); letter-spacing: 2px; }
+.hearts i { font-style: normal; transition: opacity 0.2s; }
+.hearts[data-lives="0"] i:nth-child(n + 1),
+.hearts[data-lives="1"] i:nth-child(n + 2),
+.hearts[data-lives="2"] i:nth-child(n + 3) { opacity: 0.25; }
 
-.overlay.hidden {
-  display: none;
-}
+/* 四格 HUD：窄屏换行；列间距留宽一点，给 +10 飘字让位 */
+.hud { flex-wrap: wrap; gap: 16px 34px; }
 
-.ov-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: #e6e8eb;
-}
+/* 中弹晃动（复用 base 的 shake 关键帧） */
+.shake { animation: shake 0.4s ease; }
 
-.ov-sub {
-  font-size: 14px;
-  color: #9aa4b2;
-}
-
-.controls {
-  width: 100%;
-  max-width: 360px;
-  margin-top: 12px;
-  text-align: center;
-}
-
-#restart {
-  background: #49b1f5;
-  color: #16181d;
-  border: none;
-  border-radius: 12px;
-  font-size: 15px;
-  font-weight: 600;
-  padding: 10px 28px;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-#restart:hover {
-  filter: brightness(1.1);
-}
-
-#restart:active {
-  filter: brightness(0.95);
-}
-
-.hint {
-  margin: 14px 0 0;
-  font-size: 13px;
-  color: #9aa4b2;
-  text-align: center;
+/* 触屏：把场地压到一屏内，让拖动之外的 .pad 也能直接点到 */
+@media (hover: none) and (pointer: coarse) {
+  .frame { display: inline-block; }
+  .stage { width: auto; }
+  .stage canvas { width: auto; height: 50vh; }
 }

@@ -4,43 +4,56 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>俄罗斯方块 · 摸鱼小游戏</title>
+<link rel="icon" href="/assets/favicon.png">
+  <link rel="stylesheet" href="/games/assets/base.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main class="game" id="stage" tabindex="0" aria-label="俄罗斯方块">
-  <header class="bar">
-    <h1>俄罗斯方块</h1>
-    <a href="/games/">← 返回游戏列表</a>
+<main class="app">
+  <header class="app-head">
+    <h1 class="app-title" aria-label="俄罗斯方块"><span>俄</span><span>罗</span><span>斯</span><span>方</span><span>块</span></h1>
+    <a class="back" href="/games/">← 返回游戏列表</a>
   </header>
 
-  <div class="hud">
-    <div class="stat"><span>分数</span><b id="score">0</b></div>
-    <div class="stat"><span>最高分</span><b id="best">0</b></div>
-    <div class="stat"><span>消行</span><b id="lines">0</b></div>
-    <div class="stat"><span>等级</span><b id="level">1</b></div>
-  </div>
+  <section class="directions"><p><strong>怎么玩：</strong>方向键 / WASD 移动与旋转，空格硬降。填满一整行即可消除，消得越多分数越高！</p></section>
 
-  <div class="play">
-    <div class="board-wrap">
-      <canvas id="board" class="board"></canvas>
+  <section class="hud">
+    <span class="hud-item hud-best">历史最佳<b id="best">0</b></span>
+    <span class="hud-item">分数<b id="score">0</b><span class="float" id="float"></span></span>
+    <span class="hud-item">消行<b id="lines">0</b></span>
+    <span class="hud-item">等级<b id="level">1</b><span class="level-float" id="level-float"></span></span>
+  </section>
+
+  <div class="frame">
+    <div class="stage" id="stage">
+      <div class="board-wrap">
+        <canvas id="board" width="220" height="440"></canvas>
+        <div class="combo" id="combo"></div>
+      </div>
+      <aside class="side">
+        <p class="side-label">下一个</p>
+        <canvas id="next" width="52" height="108"></canvas>
+      </aside>
+      <div class="overlay" id="overlay">
+        <span class="overlay-emoji" id="overlay-emoji">🙈</span>
+        <span class="overlay-title" id="overlay-title">游戏结束</span>
+        <span class="overlay-sub" id="overlay-sub">得分 0</span>
+        <button class="btn" id="again" type="button">再试一次</button>
+      </div>
     </div>
-    <aside class="side">
-      <p class="side-label">下一个</p>
-      <canvas id="next" class="next"></canvas>
-      <button type="button" class="btn" id="btn-restart">重新开始</button>
-      <button type="button" class="btn" id="btn-pause">暂停</button>
-    </aside>
   </div>
 
   <div class="pad">
-    <button type="button" class="pad-btn" data-key="ArrowLeft">←</button>
-    <button type="button" class="pad-btn" data-key="ArrowUp">旋转</button>
-    <button type="button" class="pad-btn" data-key="ArrowRight">→</button>
-    <button type="button" class="pad-btn" data-key="ArrowDown">↓ 软降</button>
-    <button type="button" class="pad-btn" data-key="Space">硬降</button>
+    <button type="button" data-action="left">←</button>
+    <button type="button" data-action="rotate">↻</button>
+    <button type="button" data-action="right">→</button>
+    <button type="button" data-action="down">↓ 软降</button>
+    <button type="button" data-action="drop">硬降</button>
   </div>
 
-  <p class="hint">方向键移动 · ↑/X 顺时针旋转 · Z 逆时针 · 空格硬降 · P 暂停 · R 重新开始</p>
+  <div class="actions"><button class="btn" id="restart" type="button">重新开始</button></div>
+
+  <p class="hint">←→ 移动 · ↑/X/Z 旋转 · ↓ 软降 · 空格硬降 · P 暂停 · R 重新开始</p>
 </main>
 <script src="game.js"></script>
 </body>

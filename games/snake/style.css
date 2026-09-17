@@ -1,120 +1,47 @@
-*, *::before, *::after { box-sizing: border-box; }
+/* 贪吃蛇 · 页面专属样式
+ * 页面骨架 / HUD / 按钮 / 遮罩 / 动画 都来自 /games/assets/base.css，这里只写棋盘。
+ */
 
-html, body { overflow-x: hidden; }
+/* ---------- 棋盘 ---------- */
 
-body {
-  margin: 0;
-  padding: 16px 14px 28px;
-  background: #16181d;
-  color: #e6e8eb;
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
-  -webkit-text-size-adjust: 100%;
-}
+/* .frame 提供灰外框，棋盘本体（奶油底 + 极淡格线 + 蛇与食物）画在 canvas 上 */
+.frame { position: relative; width: 100%; }
+.stage { width: 100%; }
 
-/* 键盘监听挂在 window 上，容器只是用于 tabindex 聚焦，不画焦点环 */
-.app {
-  max-width: 460px;
-  margin: 0 auto;
-  outline: none;
-}
-
-.head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.head h1 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-.head a {
-  color: #49b1f5;
-  font-size: 13px;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.head a:hover { text-decoration: underline; }
-
-.hud {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin: 0 2px 8px;
-  font-size: 13px;
-  color: #9aa4b2;
-  font-variant-numeric: tabular-nums;
-}
-.hud b {
-  margin-left: 4px;
-  font-size: 15px;
-  font-weight: 600;
-  color: #e6e8eb;
-}
-
-.stage {
-  position: relative;
-  padding: 10px;
-  background: #1f2329;
-  border-radius: 12px;
-}
-
-canvas {
+#board {
   display: block;
   width: 100%;
-  height: 400px;
-  background: #1f2329;
-  border-radius: 12px;
+  aspect-ratio: 1 / 1;
+  background: var(--cell);
+  border-radius: var(--radius);
   touch-action: none;
 }
 
+/* 撞墙 / 咬到自己时抖一下棋盘 */
+.frame.shake { animation: shake 0.42s ease-in-out; }
+
+/* ---------- 就绪 / 暂停提示（贴在棋盘下沿，不挡蛇和食物） ---------- */
+
 .notice {
   position: absolute;
-  inset: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
   margin: 0;
-  padding: 0 18px;
-  border-radius: 12px;
-  background: rgba(22, 24, 29, .45);
-  color: #e6e8eb;
-  font-size: 14px;
-  text-align: center;
+  padding: 0.45em 1em;
+  max-width: 92%;
+  background: rgba(255, 253, 242, 0.92);
+  border: 1px solid var(--muted);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 0.85rem;
+  white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  transition: opacity .18s ease;
+  transition: opacity 0.18s ease-in-out;
 }
 .notice.show { opacity: 1; }
 
-.bar {
-  display: flex;
-  gap: 10px;
-  margin-top: 14px;
-}
+/* ---------- 按钮排布 ---------- */
 
-button {
-  flex: 1;
-  padding: 10px 14px;
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 12px;
-  background: #1f2329;
-  color: #e6e8eb;
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-  touch-action: manipulation;
-  appearance: none;
-}
-button:hover { border-color: #49b1f5; color: #49b1f5; }
-button:active { transform: translateY(1px); }
-
-.hint {
-  margin: 14px 2px 0;
-  color: #9aa4b2;
-  font-size: 12px;
-  line-height: 1.7;
-  text-align: center;
-}
+.actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }

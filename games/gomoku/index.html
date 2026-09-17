@@ -4,32 +4,50 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>五子棋 · 摸鱼小游戏</title>
+<link rel="icon" href="/assets/favicon.png">
+  <link rel="stylesheet" href="/games/assets/base.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main class="app" id="app" tabindex="0" aria-label="五子棋">
-  <header class="head">
-    <h1>五子棋</h1>
-    <a href="/games/">← 返回游戏列表</a>
+<main class="app">
+  <header class="app-head">
+    <h1 class="app-title"><span>五</span><span>子</span><span>棋</span></h1>
+    <a class="back" href="/games/">← 返回游戏列表</a>
   </header>
 
-  <div class="hud">
-    <span>分数 <b id="score">0</b></span>
-    <span>最高分 <b id="best">0</b></span>
+  <section class="directions">
+    <p><strong>怎么玩：</strong>你执黑先行，点击棋盘落子；AI 执白。横、竖、斜先连成五子者胜。AI 会成五、会堵四、会抢先做活三。</p>
+  </section>
+
+  <section class="hud">
+    <span class="hud-item hud-best">历史最佳<b id="best">0</b></span>
+    <span class="hud-item">分数<b id="score">0</b><span class="float" id="float"></span></span>
+    <span class="hud-item hud-status" id="status" aria-live="polite">轮到你（黑）</span>
+  </section>
+
+  <div class="frame">
+    <div class="stage" id="stage">
+      <canvas id="board" width="600" height="600" aria-label="十五路五子棋棋盘"></canvas>
+      <div class="overlay" id="overlay">
+        <span class="overlay-emoji" id="overlayEmoji">🎉</span>
+        <span class="overlay-title" id="overlayTitle">你赢了</span>
+        <span class="overlay-sub" id="overlaySub">用了 0 手</span>
+        <button class="btn" id="again" type="button">再来一局</button>
+      </div>
+    </div>
   </div>
 
-  <p class="status" id="status" aria-live="polite">轮到你落子（黑）</p>
-
-  <div class="stage">
-    <canvas id="board" width="600" height="600" aria-label="十五路五子棋棋盘"></canvas>
+  <div class="pad">
+    <button type="button" id="padUndo">悔棋</button>
+    <button type="button" id="padRestart">重开</button>
   </div>
 
-  <div class="bar">
-    <button type="button" id="restart">重新开始</button>
-    <button type="button" id="undo">悔棋</button>
+  <div class="actions">
+    <button class="btn" id="undo" type="button">悔棋</button>
+    <button class="btn" id="restart" type="button">重新开始</button>
   </div>
 
-  <p class="hint">点击 / 触摸棋盘落子 · 方向键移动光标 · 回车或空格落子 · U 悔棋 · R 重新开始</p>
+  <p class="hint">方向键 / WASD 移动光标 · 回车落子 · U 悔棋 · R 重新开始</p>
 </main>
 <script src="game.js" defer></script>
 </body>

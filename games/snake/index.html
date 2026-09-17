@@ -4,31 +4,52 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>贪吃蛇 · 摸鱼小游戏</title>
+<link rel="icon" href="/assets/favicon.png">
+  <link rel="stylesheet" href="/games/assets/base.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main class="app" id="app" tabindex="0" aria-label="贪吃蛇">
-  <header class="head">
-    <h1>贪吃蛇</h1>
-    <a href="/games/">← 返回游戏列表</a>
+<main class="app">
+  <header class="app-head">
+    <h1 class="app-title"><span>贪</span><span>吃</span><span>蛇</span></h1>
+    <a class="back" href="/games/">← 返回游戏列表</a>
   </header>
 
-  <div class="hud">
-    <span>分数 <b id="score">0</b></span>
-    <span>最高分 <b id="best">0</b></span>
+  <section class="directions">
+    <p><strong>怎么玩：</strong>用方向键 / WASD 转向（手机可以滑动），吃掉玫红圆点变长，撞墙或咬到自己就结束。</p>
+  </section>
+
+  <section class="hud">
+    <span class="hud-item hud-best">历史最佳<b id="best">0</b></span>
+    <span class="hud-item">分数<b id="score">0</b><span class="float" id="float"></span></span>
+  </section>
+
+  <div class="frame" id="frame">
+    <div class="stage" id="stage">
+      <canvas id="board" width="400" height="400"></canvas>
+      <p class="notice" id="notice" aria-live="polite"></p>
+    </div>
+    <div class="overlay" id="overlay">
+      <span class="overlay-emoji">🙈</span>
+      <span class="overlay-title">游戏结束</span>
+      <span class="overlay-sub" id="over-sub">得分 0</span>
+      <button class="btn" id="again" type="button">再试一次</button>
+    </div>
   </div>
 
-  <div class="stage" id="stage">
-    <canvas id="board" width="400" height="400"></canvas>
-    <p class="notice" id="notice" aria-live="polite">按方向键 / WASD 开始</p>
+  <div class="pad" id="pad">
+    <button type="button" data-dir="ArrowUp" aria-label="上">↑</button>
+    <button type="button" data-dir="ArrowLeft" aria-label="左">←</button>
+    <button type="button" data-dir="ArrowDown" aria-label="下">↓</button>
+    <button type="button" data-dir="ArrowRight" aria-label="右">→</button>
   </div>
 
-  <div class="bar">
-    <button type="button" id="restart">重新开始</button>
-    <button type="button" id="pause">暂停</button>
+  <div class="actions">
+    <button class="btn" id="restart" type="button">重新开始</button>
+    <button class="btn" id="pause" type="button">暂停</button>
   </div>
 
-  <p class="hint">方向键 / WASD 移动 · 空格暂停 · R 重新开始 · 手机滑动转向</p>
+  <p class="hint">方向键 / WASD 转向 · 空格暂停 · R 重新开始</p>
 </main>
 <script src="game.js" defer></script>
 </body>

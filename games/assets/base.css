@@ -1,0 +1,230 @@
+/* /games/assets/base.css
+ * 六个小游戏共用的设计系统（浅色板，与 2048 同源）。
+ * 各游戏的 style.css 只需写自己那部分，页面骨架、HUD、按钮、遮罩都用这里的类。
+ */
+
+:root {
+  /* 页面 */
+  --bg: #f8ffe5;
+  --ink: #555;
+  --muted: #9a9a95;
+  --accent: #1b9aaa;
+  --accent-hover: #14727e;
+  --accent-press: #0d4a52;
+  /* 强调色家族（与 2048 同源） */
+  --c1: #ffc43d; /* 黄 */
+  --c2: #ef476f; /* 玫红 */
+  --c3: #1b9aaa; /* 青 */
+  --c4: #06d6a0; /* 绿 */
+  --c5: #f37694;
+  --c6: #22c2d6;
+  --c7: #ffd470;
+  --c8: #14727e;
+  /* 棋盘/画布 */
+  --cell: #f8ffe5;
+  --frame: #9a9a95;
+  --surface: #fffdf2;
+  --radius: 3px;
+}
+
+* { box-sizing: border-box; }
+html, body { overflow-x: hidden; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Helvetica, sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- 页面骨架 ---------- */
+
+.app {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+  text-align: center;
+}
+
+.app-head { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+/* 标题：每个字一个色块 */
+.app-title { display: flex; justify-content: center; gap: 6.4px; margin: 0; font-weight: 400; }
+.app-title span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--radius);
+  color: #f8ffe5;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+.app-title span:nth-child(4n + 1) { background: var(--c1); }
+.app-title span:nth-child(4n + 2) { background: var(--c2); }
+.app-title span:nth-child(4n + 3) { background: var(--c3); }
+.app-title span:nth-child(4n + 4) { background: var(--c4); }
+
+.back {
+  color: var(--accent);
+  font-size: 0.9rem;
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+.back:hover { color: var(--accent-hover); }
+
+.directions {
+  margin: 18px 0 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--muted);
+  border-bottom: 1px solid var(--muted);
+  font-size: 0.95rem;
+}
+.directions strong { font-weight: 700; }
+.directions p { margin: 0; }
+
+/* ---------- HUD ---------- */
+
+.hud {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 26px;
+  margin: 16px 0;
+  font-size: 1rem;
+}
+.hud b {
+  margin-left: 6px;
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.hud-item { position: relative; white-space: nowrap; }
+.hud-best { color: var(--muted); }
+
+/* 得分飘字：给 .float 加 .on 触发一次 */
+.float {
+  position: absolute;
+  left: 108%;
+  top: 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+  opacity: 0;
+  pointer-events: none;
+}
+.float.on { animation: float-up 0.8s ease-in-out; }
+
+/* ---------- 游戏区域 ---------- */
+
+/* 灰色外框 + 奶油格子：网格类游戏（贪吃蛇 / 俄罗斯方块 / 五子棋）统一用它 */
+.frame {
+  display: inline-block;
+  padding: 7px;
+  background: var(--frame);
+  border-radius: var(--radius);
+}
+
+.stage {
+  position: relative;
+  margin: 0 auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pad { display: none; justify-content: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.pad button {
+  font: inherit;
+  font-size: 1rem;
+  min-width: 52px;
+  padding: 0.5em 0.9em;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pad button:active { background: var(--muted); color: #fff; }
+@media (hover: none) and (pointer: coarse) { .pad { display: flex; } }
+
+/* ---------- 按钮 / 提示 / 遮罩 ---------- */
+
+.actions { margin-top: 20px; }
+
+.btn {
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 300;
+  letter-spacing: 1px;
+  padding: 0.9em 1.5em;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.btn:hover { background: var(--accent-hover); }
+.btn:active { background: var(--accent-press); }
+.btn:focus-visible { outline: none; box-shadow: inset 0 0 10px var(--accent-press); }
+
+.hint { margin: 12px 0 0; color: var(--muted); font-size: 0.85rem; }
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  background: rgba(85, 85, 85, 0.9);
+  color: #fff;
+  border-radius: var(--radius);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease-in-out, visibility 0.3s;
+}
+.overlay.on { opacity: 1; visibility: visible; }
+.overlay-emoji { font-size: 3rem; line-height: 1; }
+.overlay-title { font-size: 2rem; line-height: 1.2; }
+.overlay-sub { font-size: 0.95rem; opacity: 0.9; }
+
+/* ---------- 动画 ---------- */
+
+@keyframes float-up {
+  0% { opacity: 1; top: 0; }
+  100% { opacity: 0; top: -100%; }
+}
+
+@keyframes pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  90% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes shrink {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.9; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+/* ---------- 响应式 ---------- */
+
+@media (max-width: 440px) {
+  .app { padding: 18px 12px 32px; }
+  .app-title span { width: 2.6rem; height: 2.6rem; font-size: 1.3rem; }
+  .hud { gap: 18px; }
+}

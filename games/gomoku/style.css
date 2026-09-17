@@ -1,117 +1,35 @@
-*, *::before, *::after { box-sizing: border-box; }
+/* 五子棋 · 局部样式（骨架、色板、按钮、遮罩见 /games/assets/base.css） */
 
-html, body { overflow-x: hidden; }
+/* ---------- 棋盘：灰外框 + 奶油底 ---------- */
 
-body {
-  margin: 0;
-  padding: 16px 14px 28px;
-  background: #16181d;
-  color: #e6e8eb;
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
-  -webkit-text-size-adjust: 100%;
-}
+.frame { display: block; }
 
-.app {
-  max-width: 460px;
-  margin: 0 auto;
-  outline: none;
-}
-.app:focus-visible {
-  outline: 2px solid #49b1f5;
-  outline-offset: 6px;
-  border-radius: 12px;
-}
-
-.head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.head h1 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-.head a {
-  color: #49b1f5;
-  font-size: 13px;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.head a:hover { text-decoration: underline; }
-
-.hud {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin: 0 2px 6px;
-  font-size: 13px;
-  color: #9aa4b2;
-  font-variant-numeric: tabular-nums;
-}
-.hud b {
-  margin-left: 4px;
-  font-size: 15px;
-  font-weight: 600;
-  color: #e6e8eb;
-}
-
-.status {
-  margin: 0 2px 8px;
-  font-size: 13px;
-  color: #9aa4b2;
-}
-.status.over {
-  color: #49b1f5;
-  font-weight: 600;
-}
-
-.stage {
-  padding: 10px;
-  background: #1f2329;
-  border-radius: 12px;
-}
+.stage { width: 100%; line-height: 0; }
 
 canvas {
   display: block;
   width: 100%;
   height: auto;
   aspect-ratio: 1 / 1;
-  background: #20242c;
-  border-radius: 10px;
+  background: var(--cell);
+  border-radius: var(--radius);
   cursor: pointer;
-  touch-action: manipulation;
+  touch-action: none;
 }
 
-.bar {
-  display: flex;
-  gap: 10px;
-  margin-top: 14px;
-}
+/* ---------- HUD 里的回合状态 ---------- */
 
-button {
-  flex: 1;
-  padding: 10px 14px;
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 12px;
-  background: #1f2329;
-  color: #e6e8eb;
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-  touch-action: manipulation;
-  appearance: none;
-}
-button:hover:not(:disabled) { border-color: #49b1f5; color: #49b1f5; }
-button:active:not(:disabled) { transform: translateY(1px); }
-button:disabled { opacity: .45; cursor: default; }
+.hud-status { color: var(--accent); font-size: 0.9rem; }
+.hud-status.busy { color: var(--muted); }
 
-.hint {
-  margin: 14px 2px 0;
-  color: #9aa4b2;
-  font-size: 12px;
-  line-height: 1.7;
-  text-align: center;
+/* ---------- 按钮行 ---------- */
+
+.actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn:disabled:hover { background: var(--accent); }
+
+/* 触屏：近手位的 .pad 负责悔棋 / 重开，底部按钮行让位，避免出现两排一样的按钮 */
+@media (hover: none) and (pointer: coarse) {
+  .actions { display: none; }
 }

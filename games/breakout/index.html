@@ -1,52 +1,59 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>打砖块 · 摸鱼小游戏</title>
+<link rel="icon" href="/assets/favicon.png">
+  <link rel="stylesheet" href="/games/assets/base.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main class="card">
-  <header class="topbar">
-    <h1 class="title">打砖块</h1>
+<main class="app">
+  <header class="app-head">
+    <h1 class="app-title"><span>打</span><span>砖</span><span>块</span></h1>
     <a class="back" href="/games/">← 返回游戏列表</a>
   </header>
 
-  <div class="hud">
-    <div class="hud-item">
-      <span class="hud-label">分数</span>
-      <span class="hud-value" id="score">0</span>
-    </div>
-    <div class="hud-item">
-      <span class="hud-label">最高分</span>
-      <span class="hud-value" id="best">0</span>
-    </div>
-    <div class="hud-item">
-      <span class="hud-label">生命</span>
-      <span class="hud-value" id="lives">3</span>
-    </div>
-    <div class="hud-item">
-      <span class="hud-label">关卡</span>
-      <span class="hud-value" id="level">1</span>
-    </div>
-  </div>
+  <section class="directions">
+    <p><strong>怎么玩：</strong>左右移动球拍接住小球，打光所有砖块过关。每块 +10 分，清空一关 +50 分且球更快；掉球损失一颗心，三颗心用完结束。</p>
+  </section>
 
-  <div class="stage">
-    <canvas id="board" width="440" height="600" tabindex="0" aria-label="打砖块游戏画布"></canvas>
-    <div class="overlay" id="overlay" hidden>
-      <div class="overlay-box">
-        <p class="overlay-title" id="overlay-title"></p>
-        <p class="overlay-sub" id="overlay-sub"></p>
+  <section class="hud">
+    <span class="hud-item hud-best">历史最佳<b id="best">0</b></span>
+    <span class="hud-item hud-score">分数<b id="score">0</b><span class="float" id="float"></span></span>
+    <span class="hud-item">生命<b class="hearts" id="lives"><i>♥</i><i>♥</i><i>♥</i></b></span>
+    <span class="hud-item">关卡<b id="level">1</b></span>
+  </section>
+
+  <div class="frame">
+    <div class="stage" id="stage">
+      <canvas id="board" width="440" height="600" tabindex="0" aria-label="打砖块游戏画布"></canvas>
+      <span class="flash" id="flash" aria-hidden="true"></span>
+      <span class="toast" id="toast" aria-hidden="true">
+        <span class="toast-main" id="toast-main"></span>
+        <span class="toast-sub" id="toast-sub"></span>
+      </span>
+      <div class="overlay" id="overlay">
+        <span class="overlay-emoji" id="overlay-emoji">🙈</span>
+        <span class="overlay-title" id="overlay-title">游戏结束</span>
+        <span class="overlay-sub" id="overlay-sub">得分 0</span>
+        <button class="btn" type="button" id="again">再试一次</button>
       </div>
     </div>
   </div>
 
-  <div class="actions">
-    <button type="button" id="restart">重新开始</button>
+  <div class="pad">
+    <button type="button" id="pad-left" aria-label="向左移动球拍">◀</button>
+    <button type="button" id="pad-serve">发球</button>
+    <button type="button" id="pad-right" aria-label="向右移动球拍">▶</button>
   </div>
 
-  <p class="hint">← → 移动球拍 · 空格发球/暂停 · R 重新开始 · 也可拖动鼠标或手指</p>
+  <div class="actions">
+    <button class="btn" type="button" id="restart">重新开始</button>
+  </div>
+
+  <p class="hint">← → / A D 移动 · 空格发球 / 暂停 · R 重新开始 · 触屏拖动接球</p>
 </main>
 <script src="game.js"></script>
 </body>
