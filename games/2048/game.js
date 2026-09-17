@@ -4,8 +4,7 @@
 
   const N = 4;
   const CELLS = N * N;
-  const ANIM_MS = 120;
-  const FONT = '-apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif';
+  const SLIDE_MS = 110; // 与 .tile 的 transform 过渡一致
   const BEST_KEY = 'games.2048.best';
 
   /* ---------- 可播种 PRNG（mulberry32） ---------- */
@@ -27,24 +26,6 @@
   let won = false;
   let keepPlaying = false;
   let memBest = 0;
-  const anims = new Map(); // 索引 -> { type: 'spawn' | 'merge', t0 }
-
-  const TILE_COLORS = {
-    2: ['#2e3641', '#e6e8eb'],
-    4: ['#3a4453', '#e6e8eb'],
-    8: ['#38618c', '#e6e8eb'],
-    16: ['#3d7ebb', '#ffffff'],
-    32: ['#49b1f5', '#10141a'],
-    64: ['#4fd1c5', '#10141a'],
-    128: ['#8bd450', '#10141a'],
-    256: ['#e0c14b', '#10141a'],
-    512: ['#f0a03c', '#10141a'],
-    1024: ['#f27544', '#10141a'],
-    2048: ['#ef5350', '#ffffff'],
-    4096: ['#b06cf5', '#ffffff'],
-    8192: ['#7c4dd4', '#ffffff'],
-  };
-  const FALLBACK_COLORS = ['#4a5461', '#ffffff'];
 
   /* ---------- 最高分持久化（file:// 下 localStorage 可能抛错） ---------- */
   function readBest() {
@@ -109,22 +90,27 @@
   function move(dir) {
     if (over || (won && !keepPlaying)) return false;
     const before = board.slice();
-    const merged = [];
+    const plan = { moves: [], merges: [] }; // 供渲染层做滑动/合并动画
     let gained = 0;
 
     for (const line of LINES[dir]) {
       const vals = [];
-      for (const idx of line) if (board[idx] !== 0) vals.push(board[idx]);
+      const srcs = [];
+      for (const idx of line) if (board[idx] !== 0) { vals.push(board[idx]); srcs.push(idx); }
       const out = [];
       for (let k = 0; k < vals.length; k++) {
+        const to = line[out.length];
         if (k + 1 < vals.length && vals[k] === vals[k + 1]) {
           const v = vals[k] * 2;
           out.push(v);
           gained += v;
-          merged.push(line[out.length - 1]);
+          plan.moves.push({ from: srcs[k], to: to, dead: true });
+          plan.moves.push({ from: srcs[k + 1], to: to, dead: true });
+          plan.merges.push({ to: to, v: v });
           k++; // 每个格子每步只合并一次
         } else {
           out.push(vals[k]);
+          plan.moves.push({ from: srcs[k], to: to, dead: false });
         }
       }
       for (let k = 0; k < N; k++) {
@@ -144,23 +130,19 @@
       if (score > best) { best = score; writeBest(best); }
     }
 
-    anims.clear();
-    const t = performance.now();
-    for (const idx of merged) anims.set(idx, { type: 'merge', t0: t });
+    syncHud();
+    if (gained > 0) floatScore(gained);
     const at = spawn();
-    if (at >= 0) anims.set(at, { type: 'spawn', t0: t });
+    playMove(plan, at);
 
     if (!won && has2048()) {
       won = true;
       keepPlaying = false;
-      showOverlay('达成 2048！得分 ' + score, '继续挑战');
+      showOverlay('达成 2048！', '得分 ' + score, '继续挑战');
     } else if (!canMove()) {
       over = true;
-      showOverlay('无处可走 · 得分 ' + score, '再来一局');
+      showOverlay('游戏结束', '得分 ' + score, '再试一次');
     }
-
-    syncHud();
-    draw();
     return true;
   }
 
@@ -176,27 +158,26 @@
     over = false;
     won = false;
     keepPlaying = false;
-    anims.clear();
+    clearTiles();
     hideOverlay();
 
     const a = spawn();
     const b = spawn();
-    const t = performance.now();
-    if (a >= 0) anims.set(a, { type: 'spawn', t0: t });
-    if (b >= 0) anims.set(b, { type: 'spawn', t0: t });
+    if (a >= 0) addTile(a, board[a], 'pop');
+    if (b >= 0) addTile(b, board[b], 'pop');
 
     syncHud();
-    draw();
   }
 
   /* ---------- 覆盖层 ---------- */
-  function showOverlay(msg, btnText) {
-    overlayMsgEl.textContent = msg;
+  function showOverlay(title, sub, btnText) {
+    overlayMsgEl.textContent = title;
+    overlaySubEl.textContent = sub;
     overlayBtn.textContent = btnText;
-    overlayEl.hidden = false;
+    overlayEl.classList.add('show');
   }
   function hideOverlay() {
-    overlayEl.hidden = true;
+    overlayEl.classList.remove('show');
   }
   function overlayAction() {
     if (over) { restart(); return; }
@@ -205,7 +186,7 @@
       hideOverlay();
       if (!canMove()) {
         over = true;
-        showOverlay('无处可走 · 得分 ' + score, '再来一局');
+        showOverlay('游戏结束', '得分 ' + score, '再试一次');
       }
     }
   }
@@ -229,107 +210,75 @@
     return false;
   }
 
-  /* ---------- 渲染 ---------- */
-  const app = document.querySelector('.app');
-  const boardEl = document.getElementById('board');
-  const canvas = document.getElementById('cv');
-  const ctx = canvas.getContext('2d');
+  /* ---------- 渲染（DOM 方块：transform 定位 + 110ms 过渡） ---------- */
+  const fieldEl = document.getElementById('field');
+  const tilesEl = document.getElementById('tiles');
   const scoreEl = document.getElementById('score');
   const bestEl = document.getElementById('best');
+  const addEl = document.getElementById('add');
+  const boardEl = document.getElementById('board');
   const overlayEl = document.getElementById('overlay');
   const overlayMsgEl = document.getElementById('overlayMsg');
+  const overlaySubEl = document.getElementById('overlaySub');
   const overlayBtn = document.getElementById('overlayBtn');
 
-  if (typeof ctx.roundRect !== 'function') {
-    ctx.roundRect = function (x, y, w, h, r) {
-      r = Math.min(r, w / 2, h / 2);
-      this.moveTo(x + r, y);
-      this.arcTo(x + w, y, x + w, y + h, r);
-      this.arcTo(x + w, y + h, x, y + h, r);
-      this.arcTo(x, y + h, x, y, r);
-      this.arcTo(x, y, x + w, y, r);
-      this.closePath();
-    };
+  let view = new Array(CELLS).fill(null); // 槽位 → { el, inner }
+
+  /* 一格 = 自身宽度的 100%，所以 translate 的百分比就是格子数 */
+  function offset(slot) {
+    return 'translate(' + (slot % N) * 100 + '%,' + Math.floor(slot / N) * 100 + '%)';
   }
 
-  let size = 0;
-  let gap = 0;
-  let cell = 0;
-  let radius = 12;
-
-  function resize() {
-    const rect = boardEl.getBoundingClientRect();
-    const px = Math.round(rect.width);
-    if (px <= 0) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    canvas.width = Math.round(px * dpr);
-    canvas.height = Math.round(px * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    size = px;
-    gap = Math.max(6, size * 0.025);
-    cell = (size - gap * (N + 1)) / N;
-    radius = Math.max(6, cell * 0.12);
-    draw();
+  for (let i = 0; i < CELLS; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.style.transform = offset(i);
+    fieldEl.insertBefore(cell, tilesEl);
   }
 
-  function pos(i) {
-    const c = i % N;
-    const r = (i - c) / N;
-    return { x: gap + c * (cell + gap), y: gap + r * (cell + gap) };
+  function addTile(slot, value, anim) {
+    const el = document.createElement('div');
+    el.className = 'tile';
+    el.style.transform = offset(slot);
+
+    const inner = document.createElement('div');
+    inner.className = 'tile-inner' + (value <= 2048 ? ' v' + value : ''); // 超过 2048 用默认底色
+    inner.textContent = String(value);
+    if (value > 9999) inner.classList.add('d5');
+    else if (value > 999) inner.classList.add('d4');
+    if (anim) inner.classList.add(anim);
+
+    el.appendChild(inner);
+    tilesEl.appendChild(el);
+    view[slot] = { el: el, inner: inner };
   }
 
-  function draw() {
-    if (size <= 0) return;
-    const now = performance.now();
-    ctx.clearRect(0, 0, size, size);
+  function clearTiles() {
+    tilesEl.textContent = '';
+    view.fill(null);
+  }
 
-    for (let i = 0; i < CELLS; i++) {
-      const p = pos(i);
-      ctx.beginPath();
-      ctx.fillStyle = '#262b33';
-      ctx.roundRect(p.x, p.y, cell, cell, radius);
-      ctx.fill();
-    }
-
-    for (let i = 0; i < CELLS; i++) {
-      const v = board[i];
-      if (v === 0) continue;
-      let scale = 1;
-      const a = anims.get(i);
-      if (a) {
-        const p = Math.min(1, (now - a.t0) / ANIM_MS);
-        scale = a.type === 'spawn'
-          ? 0.4 + 0.6 * (1 - (1 - p) * (1 - p))
-          : 1 + 0.22 * (1 - p);
-        if (p >= 1) anims.delete(i);
+  function playMove(plan, spawnIdx) {
+    const dying = [];
+    for (const m of plan.moves) {
+      const t = view[m.from];
+      if (!t) continue;
+      view[m.from] = null;
+      t.el.style.transform = offset(m.to);
+      if (m.dead) {
+        t.inner.classList.add('shrink'); // 被合并掉的方块：滑过去 → 缩小消失
+        dying.push(t.el);
+      } else {
+        view[m.to] = t;
       }
-      drawTile(i, v, scale);
     }
-  }
-
-  function drawTile(i, v, scale) {
-    const p = pos(i);
-    const colors = TILE_COLORS[v] || FALLBACK_COLORS;
-    const w = cell * scale;
-    const h = cell * scale;
-    const cx = p.x + cell / 2;
-    const cy = p.y + cell / 2;
-
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.beginPath();
-    ctx.fillStyle = colors[0];
-    ctx.roundRect(-w / 2, -h / 2, w, h, radius * scale);
-    ctx.fill();
-
-    const digits = String(v).length;
-    const fs = cell * (digits <= 2 ? 0.44 : digits === 3 ? 0.36 : digits === 4 ? 0.3 : 0.24);
-    ctx.fillStyle = colors[1];
-    ctx.font = '700 ' + fs + 'px ' + FONT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(v), 0, fs * 0.04);
-    ctx.restore();
+    for (const g of plan.merges) addTile(g.to, g.v, 'pop-now'); // 合并结果原地弹出
+    if (dying.length) {
+      setTimeout(function () {
+        for (let i = 0; i < dying.length; i++) dying[i].remove();
+      }, SLIDE_MS);
+    }
+    if (spawnIdx >= 0) addTile(spawnIdx, board[spawnIdx], 'pop'); // 新方块等滑完再弹
   }
 
   function syncHud() {
@@ -337,9 +286,11 @@
     bestEl.textContent = String(best);
   }
 
-  function frame() {
-    if (anims.size > 0) draw();
-    requestAnimationFrame(frame);
+  function floatScore(n) {
+    addEl.textContent = '+' + n;
+    addEl.classList.remove('active');
+    void addEl.offsetWidth; // 重排一次，让动画能重新播放
+    addEl.classList.add('active');
   }
 
   /* ---------- 事件 ---------- */
@@ -353,38 +304,33 @@
     press(k);
   });
 
-  boardEl.addEventListener('pointerdown', function () {
-    app.focus({ preventScroll: true });
-  });
-
   document.getElementById('restart').addEventListener('click', restart);
   overlayBtn.addEventListener('click', overlayAction);
 
+  const SWIPE = 24;
   let touchX = 0;
   let touchY = 0;
   let touching = false;
 
-  canvas.addEventListener('touchstart', function (e) {
+  boardEl.addEventListener('touchstart', function (e) {
     const t = e.changedTouches[0];
     touchX = t.clientX;
     touchY = t.clientY;
     touching = true;
   }, { passive: true });
 
-  canvas.addEventListener('touchcancel', function () { touching = false; }, { passive: true });
+  boardEl.addEventListener('touchcancel', function () { touching = false; }, { passive: true });
 
-  canvas.addEventListener('touchend', function (e) {
+  boardEl.addEventListener('touchend', function (e) {
     if (!touching) return;
     touching = false;
     const t = e.changedTouches[0];
     const dx = t.clientX - touchX;
     const dy = t.clientY - touchY;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE) return;
     if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? 'right' : 'left');
     else move(dy > 0 ? 'down' : 'up');
   }, { passive: true });
-
-  window.addEventListener('resize', resize);
 
   /* ---------- 测试钩子 ---------- */
   window.__game = {
@@ -406,7 +352,4 @@
 
   /* ---------- 启动 ---------- */
   restart();
-  resize();
-  requestAnimationFrame(frame);
-  app.focus({ preventScroll: true });
 })();

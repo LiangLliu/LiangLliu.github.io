@@ -3,32 +3,41 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
 <title>2048 · 摸鱼小游戏</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main class="app" tabindex="0" aria-label="2048 游戏">
-  <header class="top">
-    <h1>2048</h1>
-    <a class="back" href="/games/">← 返回游戏列表</a>
-  </header>
+<header class="masthead">
+  <h1 aria-label="2048"><span>2</span><span>0</span><span>4</span><span>8</span></h1>
+</header>
 
-  <div class="hud">
-    <div class="stat"><span>得分</span><strong id="score">0</strong></div>
-    <div class="stat"><span>最高分</span><strong id="best">0</strong></div>
-    <button id="restart" class="btn btn-ghost" type="button">重新开始</button>
+<main class="app">
+  <p class="back-row"><a class="back" href="/games/">← 返回游戏列表</a></p>
+
+  <p class="directions"><strong>如何玩：</strong>用方向键或 WASD 移动数字方块，两个相同的数字撞在一起就会合并成一个！</p>
+
+  <div class="scores">
+    <div class="score-container best-score">历史最佳:<div class="score" id="best">0</div></div>
+    <div class="score-container">分数:<div class="score"><div id="score">0</div><div class="add" id="add"></div></div></div>
   </div>
 
   <div class="board" id="board">
-    <canvas id="cv" aria-label="2048 棋盘"></canvas>
-    <div class="overlay" id="overlay" hidden>
-      <p id="overlayMsg"></p>
-      <button id="overlayBtn" class="btn btn-primary" type="button">继续</button>
+    <div class="field" id="field">
+      <div class="tiles" id="tiles"></div>
+    </div>
+    <div class="overlay" id="overlay">
+      <p class="overlay-title" id="overlayMsg">游戏结束</p>
+      <div class="monkey">🙈</div>
+      <p class="overlay-sub" id="overlaySub">得分 0</p>
+      <button class="btn" id="overlayBtn" type="button">再试一次</button>
     </div>
   </div>
 
-  <p class="hint">方向键 / WASD 移动 · 触屏滑动 · R 重新开始</p>
+  <div class="actions">
+    <button class="btn" id="restart" type="button">重新启动游戏</button>
+  </div>
+
+  <p class="hint">方向键 / WASD / 滑动 · R 重新开始</p>
 </main>
 <script src="game.js"></script>
 </body>
