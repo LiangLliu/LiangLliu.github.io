@@ -2,7 +2,7 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   
   <url>
-    <loc>https://lianglliu.github.io/2222335298.html</loc>
+    <loc>https://lianglliu.github.io/pattern/index.html</loc>
     
     <lastmod>2026-09-17</lastmod>
     
@@ -12,6 +12,15 @@
   
   <url>
     <loc>https://lianglliu.github.io/2097900514.html</loc>
+    
+    <lastmod>2026-09-17</lastmod>
+    
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  
+  <url>
+    <loc>https://lianglliu.github.io/2222335298.html</loc>
     
     <lastmod>2026-09-17</lastmod>
     
