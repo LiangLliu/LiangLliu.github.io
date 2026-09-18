@@ -1,19 +1,111 @@
-/* 俄罗斯方块 — 零依赖 · 可离线 · 可播种 · 浅色设计系统 */
+/* 俄罗斯方块 · Tetris Guideline（现代标准）深度重写
+ *
+ * 规则来源（tetris.wiki）：
+ *   [1] Tetris Guideline   → 10×20 场地、SRS、7-bag、Hold、0.5s 锁定延迟、幽灵、预览、马拉松曲线
+ *   [2] Super Rotation System → JLSTZ 与 I 各一套踢墙表（此处 y 轴已翻转为屏幕坐标：下为正）
+ *   [3] T-Spin             → 3-corner 判定：前角 2 + 后角 ≥1 = 完整 T-spin；前角 1 + 后角 2 = mini，
+ *                            若最后一次旋转用的是第 5 次踢墙（SRS 最后一项，中心位移 1×2）则升级为完整
+ *   [4] Scoring            → Single/Double/Triple/Tetris、T-spin 各档、B2B ×1.5、Combo 50n×L、
+ *                            Perfect Clear 表、软降 1/格、硬降 2/格
+ *   [5] Marathon           → 固定目标（每级 10 行，上限 15 级）；速度 t=(0.8-0.007(L-1))^(L-1) 秒/格
+ *   [6] 40 lines / Ultra   → 冲刺计时终点 / 限时计分终点
+ *
+ * 与 NES·Game Boy 原版的差异（刻意采纳现代版）：
+ *   原版无硬降、无 Hold、无踢墙（旋转会失败）、纯随机（可能连续同块）、触底即锁（无锁定延迟）。
+ *   本作全部采用 Guideline 现代规则：把原版"纯反应"的压力换成现代"规划 + 速度"的压力。
+ */
 (function () {
   'use strict';
 
-  const ROWS = 20;
-  const COLS = 10;
-  const CELL = 22;
-  const NEXT_CELL = 13;
-  const BOARD_W = COLS * CELL;
-  const BOARD_H = ROWS * CELL;
-  const NEXT_W = NEXT_CELL * 4;
-  const NEXT_H = (NEXT_CELL * 2 + 10) * 3;
-  const BEST_KEY = 'tetris.best.v1';
-  const LINE_SCORE = [0, 100, 300, 500, 800];
+  /* ═══════════════ 1. 常量 ═══════════════ */
 
-  const SHAPES = {
+  var COLS = 10, ROWS = 20, CELL = 22;
+  var BOARD_W = COLS * CELL, BOARD_H = ROWS * CELL;
+
+  var HOLD_CELL = 11, HOLD_W = HOLD_CELL * 4, HOLD_H = HOLD_CELL * 2 + 8;
+  var PRE_CELL = 9, PRE_W = PRE_CELL * 4, PRE_SLOT = PRE_CELL * 2 + 8, PREVIEWS = 5;
+  var PRE_H = PRE_SLOT * PREVIEWS;
+
+  /* 手感：Guideline 推荐 DAS 10 帧@120Hz ≈ 167ms、ARR 2 帧 ≈ 33ms */
+  var DAS_MS = 167, ARR_MS = 33, SOFT_MS = 33;
+  var LOCK_MS = 500, LOCK_RESET_MAX = 15;
+  var LEVEL_CAP = 15;
+
+  /* 消行动画时间轴：冻结（命中停顿）→ 闪白 → 逐列塌陷 */
+  var FREEZE_BASE = 30, FREEZE_PER_LINE = 20, FLASH_MS = 70;
+  var COLLAPSE_STAGGER = 8, COLLAPSE_FALL = 120;
+  var SQUASH_MS = 130, TRAIL_MS = 160, SHAKE_MS = 190, LEVEL_FLASH_MS = 420;
+
+  var MODE_LIST = ['marathon', 'sprint', 'ultra'];
+  var MODE_NAME = { marathon: '马拉松', sprint: '40 行冲刺', ultra: '2 分钟限时' };
+  var MARATHON_GOAL = 150, SPRINT_GOAL = 40, ULTRA_MS = 120000;
+
+  /* Guideline 分数表（× 消行前等级）；索引 = 消行数 */
+  var SCORE_NORMAL = [0, 100, 300, 500, 800];
+  var SCORE_MINI = [100, 200, 400, 0, 0];
+  var SCORE_TSPIN = [400, 800, 1200, 1600, 0];
+  var SCORE_PC = [0, 800, 1200, 1800, 2000];
+  var PC_B2B_TETRIS = 3200;
+  var CLEAR_NAME = ['', 'SINGLE', 'DOUBLE', 'TRIPLE', 'TETRIS'];
+
+  var HANDLED = {
+    ArrowLeft: 1, ArrowRight: 1, ArrowUp: 1, ArrowDown: 1, ' ': 1, Space: 1, Spacebar: 1,
+    x: 1, X: 1, z: 1, Z: 1, c: 1, C: 1, Shift: 1, p: 1, P: 1, r: 1, R: 1, m: 1, M: 1,
+    Enter: 1, w: 1, W: 1, a: 1, A: 1, s: 1, S: 1, d: 1, D: 1, '1': 1, '2': 1, '3': 1
+  };
+
+  /* ═══════════════ 2. 存档（file:// 下 localStorage 会抛 SecurityError） ═══════════════ */
+
+  var store = (function () {
+    try {
+      var probe = '__tetris_probe__';
+      window.localStorage.setItem(probe, '1');
+      window.localStorage.removeItem(probe);
+      return window.localStorage;
+    } catch (e) {
+      var mem = Object.create(null);
+      return {
+        getItem: function (k) { return k in mem ? mem[k] : null; },
+        setItem: function (k, v) { mem[k] = String(v); },
+        removeItem: function (k) { delete mem[k]; }
+      };
+    }
+  })();
+
+  var KEY_BEST = { marathon: 'tetris.best.marathon.v2', sprint: 'tetris.best.sprint.v2', ultra: 'tetris.best.ultra.v2' };
+  var KEY_LEGACY = 'tetris.best.v1';
+  var KEY_MUTED = 'tetris.muted.v1';
+
+  function readBest(mode) {
+    var v = Number(store.getItem(KEY_BEST[mode]));
+    if (!(v > 0) && mode === 'marathon') v = Number(store.getItem(KEY_LEGACY)) || 0;
+    return v > 0 ? v : 0;
+  }
+
+  function writeBest(mode, v) {
+    try { store.setItem(KEY_BEST[mode], String(Math.round(v))); } catch (e) { /* 忽略写失败 */ }
+  }
+
+  /* ═══════════════ 3. 随机源 ═══════════════ */
+
+  /* 方块序列用可播种 PRNG（setSeed 可复现）；视觉特效另用一个独立 PRNG，
+     避免屏震/粒子消耗 rng() 而改变后续出块顺序。 */
+  var seed = 1;
+  function mulberry32(a) {
+    return function () {
+      a |= 0;
+      a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  var rng = mulberry32(seed);
+  var vrng = mulberry32(0x9E3779B9);
+
+  /* ═══════════════ 4. 方块几何 + SRS 踢墙表 ═══════════════ */
+
+  var BASE = {
     I: [[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]],
     O: [[1, 1], [1, 1]],
     T: [[0, 1, 0], [1, 1, 1], [0, 0, 0]],
@@ -22,437 +114,835 @@
     J: [[1, 0, 0], [1, 1, 1], [0, 0, 0]],
     L: [[0, 0, 1], [1, 1, 1], [0, 0, 0]]
   };
-  const TYPES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
-  /* 强调色家族（--c3 青为主色，其余按 7 种方块各取一色） */
-  const COLORS = {
-    I: '#1b9aaa', O: '#ffc43d', T: '#f37694', S: '#06d6a0',
-    Z: '#ef476f', J: '#22c2d6', L: '#ffd470'
+  var TYPES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
+  var ID = { I: 1, O: 2, T: 3, S: 4, Z: 5, J: 6, L: 7 };   /* 棋盘存值，沿用旧档 1..7 */
+  var BY_ID = ['', 'I', 'O', 'T', 'S', 'Z', 'J', 'L'];
+  var COLOR = {
+    I: '#22c2d6', J: '#4a7fd4', L: '#ff9f1c', O: '#ffc43d',
+    S: '#06d6a0', Z: '#ef476f', T: '#a06cd5'
   };
-  const ID = { I: 1, O: 2, T: 3, S: 4, Z: 5, J: 6, L: 7 };
-  const BY_ID = ['', 'I', 'O', 'T', 'S', 'Z', 'J', 'L'];
-  const KICKS = [0, -1, 1, -2, 2];
-  /* 手感参数 */
-  const DAS_MS = 160, ARR_MS = 45, SOFT_MS = 45, LOCK_MS = 500, LOCK_RESET_MAX = 15;
-  const FLASH_MS = 90, COLLAPSE_FALL = 180, COLLAPSE_STAGGER = 16, LAND_FLASH_MS = 120;
-  const HANDLED = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Space', 'Spacebar',
-    'x', 'X', 'z', 'Z', 'p', 'P', 'r', 'R', 'Enter', 'w', 'W', 'a', 'A', 's', 'S', 'd', 'D'];
-
-  /* ---------- 存储：file:// 下 localStorage 会抛 SecurityError ---------- */
-  const store = (function () {
-    try {
-      const probe = '__tetris_probe__';
-      window.localStorage.setItem(probe, '1');
-      window.localStorage.removeItem(probe);
-      return window.localStorage;
-    } catch (e) {
-      const mem = Object.create(null);
-      return {
-        getItem: function (k) { return k in mem ? mem[k] : null; },
-        setItem: function (k, v) { mem[k] = String(v); }
-      };
-    }
-  })();
-
-  /* ---------- 可播种 PRNG ---------- */
-  let seed = 1;
-  function mulberry32(a) {
-    return function () {
-      a |= 0;
-      a = (a + 0x6D2B79F5) | 0;
-      let t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-  let rng = mulberry32(seed);
-
-  /* ---------- DOM ---------- */
-  const $ = function (id) { return document.getElementById(id); };
-  const el = {
-    board: $('board'), next: $('next'),
-    score: $('score'), best: $('best'), lines: $('lines'), level: $('level'),
-    float: $('float'), levelFloat: $('level-float'), combo: $('combo'),
-    overlay: $('overlay'), overlayEmoji: $('overlay-emoji'),
-    overlayTitle: $('overlay-title'), overlaySub: $('overlay-sub'),
-    again: $('again'), restartBtn: $('restart')
-  };
-
-  function setupCanvas(canvas, w, h) {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    canvas.style.width = w + 'px';
-    canvas.style.height = h + 'px';
-    const c = canvas.getContext('2d');
-    c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    return c;
-  }
-  const ctx = setupCanvas(el.board, BOARD_W, BOARD_H);
-  const nctx = setupCanvas(el.next, NEXT_W, NEXT_H);
-
-  /* ---------- 状态 ---------- */
-  let board = emptyBoard();
-  let current = null;
-  let bag = [];
-  let queue = [];          // 至少保留 3 个待出方块（queue[0] 即下一个）
-  let score = 0, lines = 0, level = 1, combo = 0;
-  let over = false, paused = false;
-  let best = Number(store.getItem(BEST_KEY)) || 0;
-  let last = 0;
-  let gravAcc = 0, lockAcc = 0, dasAcc = 0, arrAcc = 0, softAcc = 0;
-  let landed = false, lockResets = 0;
-  let heldDir = 0;
-  const keys = { left: false, right: false, down: false };
-  let animating = false, clearAnim = null, landFlash = null;
-
-  function emptyBoard() {
-    const rows = [];
-    for (let y = 0; y < ROWS; y++) rows.push(new Array(COLS).fill(0));
-    return rows;
-  }
-
-  function eachCell(cells, fn) {
-    for (let i = 0; i < cells.length; i++) {
-      for (let j = 0; j < cells[i].length; j++) {
-        if (cells[i][j]) fn(i, j);
-      }
-    }
-  }
+  var BY_ID_COLOR = ['#000000', COLOR.I, COLOR.O, COLOR.T, COLOR.S, COLOR.Z, COLOR.J, COLOR.L];
 
   function rotateCW(m) {
-    const n = m.length;
-    const out = [];
-    for (let i = 0; i < n; i++) {
-      const row = [];
-      for (let j = 0; j < n; j++) row.push(m[n - 1 - j][i]);
+    var n = m.length, out = [], i, j, row;
+    for (i = 0; i < n; i++) {
+      row = [];
+      for (j = 0; j < n; j++) row.push(m[n - 1 - j][i]);
       out.push(row);
     }
     return out;
   }
 
-  /* ---------- 7-bag 随机器 ---------- */
+  /* ROT[type][rot] = { cells: 扁平 [dx,dy,…], mat: 矩阵（供 snapshot）, minX/minY/maxX/maxY } */
+  var ROT = {};
+  (function () {
+    for (var k = 0; k < TYPES.length; k++) {
+      var t = TYPES[k], states = [], m = BASE[t];
+      for (var r = 0; r < 4; r++) {
+        var flat = [], minX = 8, minY = 8, maxX = -1, maxY = -1;
+        for (var i = 0; i < m.length; i++) {
+          for (var j = 0; j < m.length; j++) {
+            if (!m[i][j]) continue;
+            flat.push(j, i);
+            if (j < minX) minX = j;
+            if (j > maxX) maxX = j;
+            if (i < minY) minY = i;
+            if (i > maxY) maxY = i;
+          }
+        }
+        states.push({
+          cells: Int8Array.from(flat), mat: m,
+          minX: minX, minY: minY, maxX: maxX, maxY: maxY
+        });
+        m = rotateCW(m);
+      }
+      ROT[t] = states;
+    }
+  })();
+
+  /* 生成点：3 格宽方块居中偏左（x=3），O 在 x=4，I 占 3..6；顶行对齐可见区第 0 行 */
+  var SPAWN_X = { I: 3, O: 4, T: 3, S: 3, Z: 3, J: 3, L: 3 };
+  var SPAWN_Y = {};
+  (function () {
+    for (var k = 0; k < TYPES.length; k++) SPAWN_Y[TYPES[k]] = -ROT[TYPES[k]][0].minY;
+  })();
+
+  /* SRS 踢墙表。来源 tetris.wiki/Super_Rotation_System；dx 右为正、dy 下为正（原表 y 向上，此处取反）。
+     每行：[起始态, 目标态, 5 次测试 × (dx,dy)]。0=spawn 1=R 2=2 3=L。 */
+  var KICK_SRC = {
+    JLSTZ: [
+      [0, 1, 0, 0, -1, 0, -1, -1, 0, 2, -1, 2],
+      [1, 0, 0, 0, 1, 0, 1, 1, 0, -2, 1, -2],
+      [1, 2, 0, 0, 1, 0, 1, 1, 0, -2, 1, -2],
+      [2, 1, 0, 0, -1, 0, -1, -1, 0, 2, -1, 2],
+      [2, 3, 0, 0, 1, 0, 1, -1, 0, 2, 1, 2],
+      [3, 2, 0, 0, -1, 0, -1, 1, 0, -2, -1, -2],
+      [3, 0, 0, 0, -1, 0, -1, 1, 0, -2, -1, -2],
+      [0, 3, 0, 0, 1, 0, 1, -1, 0, 2, 1, 2]
+    ],
+    I: [
+      [0, 1, 0, 0, -2, 0, 1, 0, -2, 1, 1, -2],
+      [1, 0, 0, 0, 2, 0, -1, 0, 2, -1, -1, 2],
+      [1, 2, 0, 0, -1, 0, 2, 0, -1, -2, 2, 1],
+      [2, 1, 0, 0, 1, 0, -2, 0, 1, 2, -2, -1],
+      [2, 3, 0, 0, 2, 0, -1, 0, 2, -1, -1, 2],
+      [3, 2, 0, 0, -2, 0, 1, 0, -2, 1, 1, -2],
+      [3, 0, 0, 0, 1, 0, -2, 0, 1, 2, -2, -1],
+      [0, 3, 0, 0, -1, 0, 2, 0, -1, -2, 2, 1]
+    ]
+  };
+
+  function buildKicks(src) {
+    var table = new Array(16);
+    for (var i = 0; i < src.length; i++) {
+      var row = src[i];
+      table[row[0] * 4 + row[1]] = Int8Array.from(row.slice(2));
+    }
+    return table;
+  }
+  var KICK_L = buildKicks(KICK_SRC.JLSTZ);
+  var KICK_I = buildKicks(KICK_SRC.I);
+
+  /* ═══════════════ 5. DOM ═══════════════ */
+
+  function $(id) { return document.getElementById(id); }
+  var el = {
+    board: $('board'), next: $('next'), hold: $('hold'),
+    score: $('score'), best: $('best'), lines: $('lines'), level: $('level'),
+    bestLabel: $('best-label'), status: $('status'),
+    float: $('float'), levelFloat: $('level-float'),
+    callout: $('callout'), calloutMain: $('callout-main'), calloutSub: $('callout-sub'),
+    overlay: $('overlay'), overlayEmoji: $('overlay-emoji'),
+    overlayTitle: $('overlay-title'), overlaySub: $('overlay-sub'),
+    again: $('again'), restartBtn: $('restart'), muteBtn: $('mute'), frame: $('frame'),
+    rLines: $('r-lines'), rTime: $('r-time'), rPps: $('r-pps'), rCombo: $('r-combo'),
+    rTspin: $('r-tspin'), rTetris: $('r-tetris'), rBest: $('r-best'), rBestLabel: $('r-best-label')
+  };
+
+  var px = Math.min(window.devicePixelRatio || 1, 2);
+
+  function setupCanvas(canvas, w, h) {
+    canvas.width = Math.round(w * px);
+    canvas.height = Math.round(h * px);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    var c = canvas.getContext('2d');
+    c.setTransform(px, 0, 0, px, 0, 0);
+    return c;
+  }
+  var ctx = setupCanvas(el.board, BOARD_W, BOARD_H);
+  var nctx = setupCanvas(el.next, PRE_W, PRE_H);
+  var hctx = setupCanvas(el.hold, HOLD_W, HOLD_H);
+
+  /* ═══════════════ 6. 音效（WebAudio 合成，零外部文件） ═══════════════ */
+
+  var sfx = (function () {
+    var ac = null, master = null, muted = store.getItem(KEY_MUTED) === '1';
+    var activated = false;
+
+    /* 只在真实用户手势后创建 AudioContext：避免自动播放策略在控制台留下告警 */
+    function ensure() {
+      if (muted || !activated) return null;
+      try {
+        if (!ac) {
+          var Ctor = window.AudioContext || window.webkitAudioContext;
+          if (!Ctor) return null;
+          ac = new Ctor();
+          master = ac.createGain();
+          master.gain.value = 0.17;
+          master.connect(ac.destination);
+        }
+        if (ac.state === 'suspended' && ac.resume) ac.resume();
+        return ac;
+      } catch (e) {
+        ac = null;
+        return null;
+      }
+    }
+
+    function tone(freq, dur, wave, gain, delay, endFreq) {
+      var c = ensure();
+      if (!c) return;
+      try {
+        var t0 = c.currentTime + (delay || 0);
+        var osc = c.createOscillator(), g = c.createGain();
+        osc.type = wave || 'square';
+        osc.frequency.setValueAtTime(freq, t0);
+        if (endFreq) osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), t0 + dur);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(gain, t0 + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        osc.connect(g);
+        g.connect(master);
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.03);
+      } catch (e) { /* 音频异常不影响游戏 */ }
+    }
+
+    function arp(notes, step, dur, wave, gain) {
+      for (var i = 0; i < notes.length; i++) tone(notes[i], dur, wave, gain, i * step);
+    }
+
+    return {
+      unlock: function (trusted) {
+        if (!trusted) return;
+        activated = true;
+        ensure();
+      },
+      isMuted: function () { return muted; },
+      setMuted: function (m) {
+        muted = !!m;
+        try { store.setItem(KEY_MUTED, muted ? '1' : '0'); } catch (e) { /* 忽略 */ }
+      },
+      move: function () { tone(200, 0.03, 'square', 0.22, 0, 160); },
+      rotate: function () { tone(340, 0.045, 'triangle', 0.26, 0, 460); },
+      hold: function () { tone(520, 0.07, 'sine', 0.3, 0, 680); },
+      deny: function () { tone(140, 0.05, 'sawtooth', 0.14, 0, 110); },
+      lock: function () { tone(130, 0.09, 'sine', 0.36, 0, 72); },
+      drop: function () { tone(90, 0.11, 'sine', 0.38, 0, 55); },
+      clear: function (n) {
+        var base = 523;
+        arp([base, base * 1.26, base * 1.5, base * 2], 0.055, 0.11, 'triangle', 0.3);
+        if (n >= 4) {
+          tone(131, 0.34, 'sine', 0.38, 0, 65);
+          tone(1046, 0.3, 'triangle', 0.2, 0.22, 1568);
+        }
+      },
+      tspin: function () { arp([784, 1046, 1318, 1568], 0.05, 0.12, 'square', 0.22); },
+      b2b: function () { tone(1568, 0.14, 'triangle', 0.2, 0.16, 2093); },
+      combo: function (n) {
+        var f = 480 + Math.min(n, 12) * 70;
+        tone(f, 0.07, 'square', 0.24, 0, f * 1.5);
+      },
+      perfect: function () { arp([1046, 1318, 1568, 2093], 0.06, 0.22, 'triangle', 0.24); },
+      levelup: function () { arp([659, 784, 988, 1318], 0.07, 0.16, 'triangle', 0.24); },
+      over: function () { arp([440, 370, 294, 220], 0.13, 0.26, 'sine', 0.28); },
+      win: function () { arp([523, 659, 784, 1046, 1318], 0.1, 0.28, 'triangle', 0.28); },
+      pause: function () { tone(300, 0.06, 'sine', 0.18, 0, 220); }
+    };
+  })();
+
+  /* ═══════════════ 7. 状态 ═══════════════ */
+
+  var board = new Uint8Array(COLS * ROWS);
+  var cur = null;                       /* { type, rot, x, y } */
+  var bag = [], queue = new Array(PREVIEWS);
+  var holdType = null, holdUsed = false;
+
+  var score = 0, lines = 0, level = 1, comboChain = 0, b2b = false;
+  var over = false, paused = false;
+  var mode = 'marathon', elapsed = 0, timeLeft = ULTRA_MS;
+  var bests = { marathon: readBest('marathon'), sprint: readBest('sprint'), ultra: readBest('ultra') };
+
+  var pieces = 0, tetrises = 0, tspinClears = 0, maxCombo = 0, holds = 0;
+  var gravAcc = 0, gravMs = 1000;
+  var lockTimer = 0, lockResets = 0, grounded = false, lowestY = 0;
+  var dasAcc = 0, arrAcc = 0, softAcc = 0, heldDir = 0;
+  var lastRot = false, lastKick = -1, lastClear = null;
+  var keys = { left: false, right: false, down: false };
+
+  var clearAnim = null;
+  var rowMask = new Uint8Array(ROWS);     /* 本次消行标记 */
+  var rowShift = new Int8Array(ROWS);     /* 每行塌陷格数（该行下方被消的行数） */
+  var clearRowsN = 0, bottomCleared = -1;
+  var freezeMs = 0, flashMs = 0, collapseMs = 0;
+  var squashMask = new Uint8Array(COLS * ROWS);
+  var levelFlash = 0, dangerT = 0, hudAcc = 0, elapsedHud = -1;
+  var hudDirty = true;
+  var last = 0;
+
+  /* ═══════════════ 8. 特效池（预分配，帧内零分配） ═══════════════ */
+
+  var PARTS = [];
+  for (var pi = 0; pi < 110; pi++) PARTS.push({ on: false, x: 0, y: 0, vx: 0, vy: 0, t: 0, dur: 1, c: '#000000', s: 2 });
+  var partIdx = 0;
+
+  var SQUASH = [];
+  for (var si = 0; si < 4; si++) SQUASH.push({ on: false, x: 0, y: 0 });
+  var squashN = 0, squashT = 0;
+
+  var TRAIL = [];
+  for (var ti = 0; ti < 4; ti++) TRAIL.push({ on: false, x: 0, from: 0, to: 0 });
+  var trailN = 0, trailT = 0;
+
+  var shakeT = 0, shakeMag = 0;
+
+  function spawnParts(x, y, count, spread, up, color) {
+    for (var i = 0; i < count; i++) {
+      var p = PARTS[partIdx];
+      partIdx = (partIdx + 1) % PARTS.length;
+      p.on = true;
+      p.x = x + (vrng() - 0.5) * spread;
+      p.y = y + (vrng() - 0.5) * spread * 0.5;
+      p.vx = (vrng() - 0.5) * 0.16;
+      p.vy = -up * (0.08 + vrng() * 0.18);
+      p.t = 0;
+      p.dur = 320 + vrng() * 260;
+      p.c = color;
+      p.s = 2 + vrng() * 3;
+    }
+  }
+
+  function clearSquash() {
+    for (var i = 0; i < squashN; i++) {
+      var s = SQUASH[i];
+      squashMask[s.y * COLS + s.x] = 0;
+      s.on = false;
+    }
+    squashN = 0;
+    squashT = 0;
+  }
+
+  /* ═══════════════ 9. 棋盘 / 碰撞 ═══════════════ */
+
+  function collides(type, rot, x0, y0) {
+    var cells = ROT[type][rot].cells;
+    for (var i = 0; i < cells.length; i += 2) {
+      var x = x0 + cells[i], y = y0 + cells[i + 1];
+      if (x < 0 || x >= COLS || y >= ROWS) return true;
+      if (y >= 0 && board[y * COLS + x]) return true;
+    }
+    return false;
+  }
+
+  function rowFull(y) {
+    var off = y * COLS;
+    for (var x = 0; x < COLS; x++) if (!board[off + x]) return false;
+    return true;
+  }
+
+  function stackTop() {
+    for (var y = 0; y < ROWS; y++) {
+      var off = y * COLS;
+      for (var x = 0; x < COLS; x++) if (board[off + x]) return y;
+    }
+    return ROWS;
+  }
+
+  function boardClearedEmpty() {
+    for (var y = 0; y < ROWS; y++) {
+      if (rowMask[y]) continue;
+      var off = y * COLS;
+      for (var x = 0; x < COLS; x++) if (board[off + x]) return false;
+    }
+    return true;
+  }
+
+  /* ═══════════════ 10. 7-bag 随机器 ═══════════════ */
+
   function refillBag() {
-    bag = TYPES.slice();
-    for (let i = bag.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      const t = bag[i];
+    /* 整袋洗牌：一袋 7 块，天然保证"14 连抽内每块恰好 2 次"与首包完整 */
+    bag.length = 0;
+    for (var i = 0; i < TYPES.length; i++) bag.push(TYPES[i]);
+    for (i = bag.length - 1; i > 0; i--) {
+      var j = Math.floor(rng() * (i + 1)), t = bag[i];
       bag[i] = bag[j];
       bag[j] = t;
     }
   }
 
   function refillQueue() {
-    while (queue.length < 3) {
+    for (var i = 0; i < PREVIEWS; i++) {
+      if (queue[i]) continue;
       if (!bag.length) refillBag();
-      queue.push(bag.pop());
+      queue[i] = bag.pop();
     }
   }
 
-  function collide(cells, px, py) {
-    for (let i = 0; i < cells.length; i++) {
-      for (let j = 0; j < cells[i].length; j++) {
-        if (!cells[i][j]) continue;
-        const x = px + j;
-        const y = py + i;
-        if (x < 0 || x >= COLS || y >= ROWS) return true;
-        if (y >= 0 && board[y][x]) return true;
+  function shiftQueue() {
+    var head = queue[0], i;
+    for (i = 0; i < PREVIEWS - 1; i++) queue[i] = queue[i + 1];
+    queue[PREVIEWS - 1] = null;
+    refillQueue();
+    return head;
+  }
+
+  /* ═══════════════ 11. 生成 / 暂存 ═══════════════ */
+
+  function spawnP(type) {
+    cur = { type: type, rot: 0, x: SPAWN_X[type], y: SPAWN_Y[type] };
+    grounded = false;
+    lockTimer = 0; lockResets = 0; lowestY = cur.y;
+    gravAcc = 0; lastRot = false; lastKick = -1;
+    pieces++;
+    hudDirty = true;
+    if (collides(type, 0, cur.x, cur.y)) {   /* 生成即重叠 → 顶死 */
+      cur = null;
+      endGame('topout');
+      return false;
+    }
+    return true;
+  }
+
+  function spawnNext(force) {
+    refillQueue();
+    var type = force || shiftQueue();
+    refillQueue();
+    return spawnP(type);
+  }
+
+  function doHold() {
+    if (!cur || over || paused || clearAnim) return;
+    if (holdUsed) { sfx.deny(); return; }    /* 一次一块：交换后必须本块锁定才能再暂存 */
+    var outgoing = cur.type;
+    holdUsed = true;
+    holds++;
+    sfx.hold();
+    el.hold.classList.remove('empty');
+    if (holdType) {
+      var incoming = holdType;
+      holdType = outgoing;
+      spawnP(incoming);                      /* 换出的方块回到生成点（旋转态复位、锁定延迟重置） */
+    } else {
+      holdType = outgoing;
+      cur = null;
+      spawnNext();
+    }
+    hudDirty = true;
+  }
+
+  /* ═══════════════ 12. 旋转（SRS） ═══════════════ */
+
+  function rotate(dir) {
+    if (!cur || over || paused || clearAnim) return false;
+    var from = cur.rot;
+    var to = (from + (dir > 0 ? 1 : 3)) & 3;
+    var table = cur.type === 'I' ? KICK_I : (cur.type === 'O' ? null : KICK_L);
+    var kicks = table ? table[from * 4 + to] : null;
+    var tries = kicks ? 5 : 1;
+    for (var i = 0; i < tries; i++) {
+      var dx = kicks ? kicks[i * 2] : 0;
+      var dy = kicks ? kicks[i * 2 + 1] : 0;
+      if (!collides(cur.type, to, cur.x + dx, cur.y + dy)) {
+        cur.rot = to; cur.x += dx; cur.y += dy;
+        lastRot = true; lastKick = kicks ? i : -1;
+        if (cur.y > lowestY) { lowestY = cur.y; lockResets = 0; }
+        afterAction(true);
+        return true;
       }
     }
     return false;
   }
 
-  function spawn() {
-    refillQueue();
-    const type = queue.shift();
-    refillQueue();
-    const x = type === 'O' ? 4 : 3;
-    current = { type: type, id: ID[type], x: x, y: 0, cells: SHAPES[type].map(function (r) { return r.slice(); }) };
-    landed = false;
-    lockAcc = 0;
-    lockResets = 0;
-    gravAcc = 0;
-    dasAcc = 0;
-    arrAcc = 0;
-    softAcc = 0;
-    if (collide(current.cells, current.x, current.y)) gameOver();
-  }
-
-  function updateBest() {
-    if (score > best) {
-      best = score;
-      try { store.setItem(BEST_KEY, String(best)); } catch (e) { /* 忽略写入失败 */ }
+  /* 移动/旋转/下落之后统一刷新接地状态与锁定延迟（move reset，上限 15 次） */
+  function afterAction(isActive) {
+    if (!cur) return;
+    var g = collides(cur.type, cur.rot, cur.x, cur.y + 1);
+    if (g) {
+      if (!grounded) { grounded = true; lockTimer = 0; lockResets = 0; }
+      else if (isActive && lockResets < LOCK_RESET_MAX) { lockTimer = 0; lockResets++; }
+    } else {
+      grounded = false;
+      lockTimer = 0;
     }
   }
 
-  /* ---------- 落地 / 消行 ---------- */
-  function touchGround() {
-    landed = true;
-    lockAcc = 0;
-    lockResets = 0;
+  /* ═══════════════ 13. T-spin 判定（3-corner） ═══════════════ */
+
+  function occ(x, y) {
+    if (x < 0 || x >= COLS || y >= ROWS) return 1;   /* 墙与地板视作已占用 */
+    if (y < 0) return 0;                             /* 顶部缓冲不算 */
+    return board[y * COLS + x] ? 1 : 0;
   }
 
-  function resetLock() {
-    if (lockResets < LOCK_RESET_MAX) {
-      lockAcc = 0;
-      lockResets++;
-    }
+  /* 返回 0=无 1=mini 2=完整；必须在写入棋盘之前调用 */
+  function detectTSpin() {
+    if (!cur || cur.type !== 'T' || !lastRot) return 0;
+    var x = cur.x, y = cur.y, rot = cur.rot;
+    var a = occ(x, y), b = occ(x + 2, y), c = occ(x, y + 2), d = occ(x + 2, y + 2);
+    if (a + b + c + d < 3) return 0;
+    var front, back;
+    if (rot === 0) { front = a + b; back = c + d; }        /* 尖朝上：前 = 上方两角 */
+    else if (rot === 1) { front = b + d; back = a + c; }   /* 朝右 */
+    else if (rot === 2) { front = c + d; back = a + b; }   /* 朝下 */
+    else { front = a + c; back = b + d; }                  /* 朝左 */
+    if (front === 2 && back >= 1) return 2;
+    if (front === 1 && back === 2) return lastKick === 4 ? 2 : 1;   /* 第 5 次踢墙 → 升级为完整 */
+    return 0;
   }
 
-  function gravityStep() {
-    if (!current) return;
-    if (!collide(current.cells, current.x, current.y + 1)) {
-      current.y++;
-      landed = false;
-      lockAcc = 0;
-      lockResets = 0;
-    } else if (!landed) {
-      touchGround();
-    }
-  }
+  /* ═══════════════ 14. 锁定 / 消行 / 计分 ═══════════════ */
 
-  function doLock() {
-    if (!current) return;
-    eachCell(current.cells, function (i, j) {
-      const y = current.y + i;
-      if (y >= 0) board[y][current.x + j] = current.id;
-    });
-    current = null;
-    landed = false;
-    lockAcc = 0;
-    lockResets = 0;
+  function lock() {
+    if (!cur) return;
+    var type = cur.type, rot = cur.rot, cx = cur.x, cy = cur.y;
+    var cells = ROT[type][rot].cells;
+    var i, x, y;
 
-    const clearedRows = [];
-    for (let y = ROWS - 1; y >= 0; y--) {
-      let full = true;
-      for (let x = 0; x < COLS; x++) {
-        if (!board[y][x]) { full = false; break; }
-      }
-      if (full) clearedRows.push(y);
-    }
+    var tspin = detectTSpin();
 
-    if (clearedRows.length === 0) {
-      combo = 0;
-      updateBest();
-      renderHud();
-      spawn();
-      return;
-    }
-
-    /* 记录塌陷动画：每列从上往下，落在已消行上方的格子下坠 shift 格 */
-    const clearedSet = new Set(clearedRows);
-    const settle = [];
-    for (let c = 0; c < COLS; c++) {
-      let shift = 0;
-      for (let r = ROWS - 1; r >= 0; r--) {
-        if (clearedSet.has(r)) { shift++; continue; }
-        if (board[r][c]) settle.push({ c: c, from: r, to: r + shift, delay: c * COLLAPSE_STAGGER });
+    clearSquash();
+    for (i = 0; i < cells.length; i += 2) {
+      x = cx + cells[i]; y = cy + cells[i + 1];
+      if (y < 0) continue;
+      board[y * COLS + x] = ID[type];
+      if (squashN < 4) {
+        var sq = SQUASH[squashN++];
+        sq.on = true; sq.x = x; sq.y = y;
+        squashMask[y * COLS + x] = 1;
       }
     }
+    squashT = SQUASH_MS;
+    sfx.lock();
 
-    const gained = LINE_SCORE[clearedRows.length] * level;
-    lines += clearedRows.length;
+    /* 满行扫描 */
+    clearRowsN = 0;
+    bottomCleared = -1;
+    for (y = 0; y < ROWS; y++) rowMask[y] = 0;
+    for (y = ROWS - 1; y >= 0; y--) {
+      if (rowFull(y)) { rowMask[y] = 1; clearRowsN++; if (y > bottomCleared) bottomCleared = y; }
+    }
+    /* 每行塌陷格数 = 该行下方被消的行数 */
+    var below = 0;
+    for (y = ROWS - 1; y >= 0; y--) {
+      rowShift[y] = below;
+      if (rowMask[y]) below++;
+    }
+
+    var lvl = level;
+    /* 计分索引钳到 4：真实对局中一块最多补满 4 行，但 setBoard 这类
+       测试钩子可以直接造出十几行满行（此时按 Tetris 档计分，避免 NaN） */
+    var scoreN = clearRowsN > 4 ? 4 : clearRowsN;
+    var base = tspin === 2 ? SCORE_TSPIN[scoreN] : (tspin === 1 ? SCORE_MINI[scoreN] : SCORE_NORMAL[scoreN]);
+    base *= lvl;
+
+    var difficult = clearRowsN > 0 && (clearRowsN >= 4 || tspin > 0);
+    var b2bHit = difficult && b2b;
+    if (b2bHit) base = Math.floor(base * 1.5);
+
+    var comboBonus = 0;
+    if (clearRowsN > 0) {
+      comboChain++;
+      if (comboChain > 1) comboBonus = 50 * (comboChain - 1) * lvl;
+      if (comboChain > maxCombo) maxCombo = comboChain;
+    } else {
+      comboChain = 0;   /* 只有 Single/Double/Triple 断连；T-spin 无消行不断连 */
+    }
+
+    var perfect = false, pcBonus = 0;
+    if (clearRowsN > 0 && boardClearedEmpty()) {
+      perfect = true;
+      pcBonus = (b2bHit && clearRowsN >= 4) ? PC_B2B_TETRIS : SCORE_PC[scoreN];
+    }
+
+    var gained = base + comboBonus + pcBonus;
     score += gained;
-    const newLevel = Math.floor(lines / 10) + 1;
-    const leveled = newLevel !== level;
-    level = newLevel;
-    combo++;
-    updateBest();
 
-    clearAnim = {
-      rows: clearedRows, settle: settle, t: 0,
-      dur: FLASH_MS + (COLS - 1) * COLLAPSE_STAGGER + COLLAPSE_FALL,
-      combo: combo, leveled: leveled, gained: gained
+    if (clearRowsN > 0) {
+      lines += clearRowsN;
+      if (clearRowsN >= 4) tetrises++;
+      if (tspin > 0) tspinClears++;
+      b2b = difficult;
+    }
+
+    lastClear = {
+      lines: clearRowsN, tspin: tspin, points: gained, b2b: b2bHit,
+      combo: comboChain, perfect: perfect, difficult: difficult
     };
-    animating = true;
+
+    var leveled = false;
+    if (mode !== 'sprint') {
+      var nl = Math.min(LEVEL_CAP, Math.floor(lines / 10) + 1);
+      if (nl !== level) { level = nl; applyLevel(true); leveled = true; }
+    }
+
+    cur = null;
+    holdUsed = false;
+    grounded = false;
+    lockTimer = 0;
+    lockResets = 0;
+    hudDirty = true;
+
+    if (clearRowsN > 0) {
+      startClearFx(clearRowsN, tspin, b2bHit, perfect, gained, leveled, difficult);
+    } else {
+      if (tspin > 0) {
+        sfx.tspin();
+        callout(tspin === 2 ? 'T-SPIN' : 'T-SPIN MINI', comboChain > 1 ? 'COMBO ×' + comboChain : '', 'tspin');
+      }
+      if (gained > 0) flashFloat('+' + gained);
+      updateBest();
+      if (!checkGoal()) spawnNext();
+    }
+  }
+
+  function startClearFx(n, tspin, b2bHit, perfect, gained, leveled, difficult) {
+    var x, y;
+    for (y = 0; y < ROWS; y++) {
+      if (!rowMask[y]) continue;
+      for (x = 0; x < COLS; x += 2) {
+        spawnParts(x * CELL + CELL / 2, y * CELL + CELL / 2, 2, CELL * 0.9, 1, BY_ID_COLOR[board[y * COLS + x]]);
+      }
+    }
+
+    freezeMs = FREEZE_BASE + FREEZE_PER_LINE * n;
+    flashMs = FLASH_MS;
+    collapseMs = (COLS - 1) * COLLAPSE_STAGGER + COLLAPSE_FALL;
+    clearAnim = { t: 0, n: n, gain: gained };
+
+    shakeT = SHAKE_MS;
+    shakeMag = n >= 4 ? 5 : (n >= 2 || tspin > 0 ? 3 : 1.5);
+    if (n >= 3 || tspin > 0 || perfect) triggerClass(el.frame, 'shake');
+
+    if (tspin > 0) sfx.tspin();
+    sfx.clear(n);
+    if (difficult && b2bHit) sfx.b2b();
+    if (perfect) sfx.perfect();
+    if (leveled) sfx.levelup();
+
+    var main, bits = [];
+    var nameN = n > 4 ? 4 : n;
+    if (perfect) main = 'PERFECT CLEAR';
+    else if (tspin > 0) main = (tspin === 2 ? 'T-SPIN ' : 'T-SPIN MINI ') + (nameN > 0 ? CLEAR_NAME[nameN] : '');
+    else main = nameN > 0 ? CLEAR_NAME[nameN] : '';
+    if (difficult && b2bHit) bits.push('BACK-TO-BACK');
+    if (comboChain > 1) { bits.push('COMBO ×' + comboChain); sfx.combo(comboChain); }
+    callout(main, bits.join(' · '), perfect ? 'perfect' : (tspin > 0 ? 'tspin' : (n >= 4 ? 'tetris' : '')));
+
+    flashFloat('+' + gained);
+    if (leveled) showLevel();
+    updateBest();
+    hudDirty = true;
+  }
+
+  /* 真正的行删除：写指针压实（一次遍历，无 splice / 无分配，支持非相邻消行）。
+     动画中途被打断（限时结束 / 顶死）时也要调用，否则已消的行会留在结算画面里。 */
+  function compactCleared() {
+    var write = ROWS - 1, read, x, y;
+    if (clearRowsN > 0) {
+      for (read = ROWS - 1; read >= 0; read--) {
+        if (rowMask[read]) continue;
+        if (write !== read) {
+          var src = read * COLS, dst = write * COLS;
+          for (x = 0; x < COLS; x++) board[dst + x] = board[src + x];
+        }
+        write--;
+      }
+      for (y = write; y >= 0; y--) {
+        var off = y * COLS;
+        for (x = 0; x < COLS; x++) board[off + x] = 0;
+      }
+    }
+    for (y = 0; y < ROWS; y++) rowMask[y] = 0;
+    clearRowsN = 0;
+    bottomCleared = -1;
   }
 
   function finishClear() {
-    const a = clearAnim;
-    const sorted = a.rows.slice().sort(function (x, y) { return x - y; });
-    for (let i = 0; i < sorted.length; i++) {
-      board.splice(sorted[i], 1);
-      board.unshift(new Array(COLS).fill(0));
-    }
-    renderHud();
-    showFloat('+' + a.gained);
-    if (a.combo >= 2) showCombo(a.combo);
-    if (a.leveled) showLevel();
     clearAnim = null;
-    animating = false;
-    spawn();
+    compactCleared();
+    hudDirty = true;
+    if (!checkGoal()) spawnNext();
   }
 
-  /* ---------- 操作 ---------- */
-  function move(dx) {
-    if (over || paused || animating || !current) return;
-    if (!collide(current.cells, current.x + dx, current.y)) {
-      current.x += dx;
-      const wasGrounded = landed;
-      const nowGrounded = collide(current.cells, current.x, current.y + 1);
-      if (nowGrounded && !wasGrounded) touchGround();
-      else if (nowGrounded && wasGrounded) resetLock();
-      else { landed = false; lockAcc = 0; lockResets = 0; }
-    }
+  function checkGoal() {
+    if (mode === 'marathon' && lines >= MARATHON_GOAL) { endGame('goal'); return true; }
+    if (mode === 'sprint' && lines >= SPRINT_GOAL) { endGame('goal'); return true; }
+    return false;
   }
 
-  function rotate(dir) {
-    if (over || paused || animating || !current) return;
-    let cells = current.cells;
-    const times = dir > 0 ? 1 : 3;
-    for (let k = 0; k < times; k++) cells = rotateCW(cells);
-    for (let k = 0; k < KICKS.length; k++) {
-      const dx = KICKS[k];
-      if (!collide(cells, current.x + dx, current.y)) {
-        current.cells = cells;
-        current.x += dx;
-        const wasGrounded = landed;
-        const nowGrounded = collide(current.cells, current.x, current.y + 1);
-        if (nowGrounded && !wasGrounded) touchGround();
-        else if (nowGrounded && wasGrounded) resetLock();
-        else { landed = false; lockAcc = 0; lockResets = 0; }
-        return;
-      }
-    }
+  /* ═══════════════ 15. 速度曲线 / 等级 ═══════════════ */
+
+  /* Tetris Worlds 马拉松曲线：单格下落时间 t = (0.8 - 0.007*(L-1))^(L-1) 秒 */
+  function gravityOf(lv) {
+    var t = Math.pow(0.8 - (lv - 1) * 0.007, lv - 1) * 1000;
+    if (t < 0.6) t = 0.6;
+    if (t > 2000) t = 2000;
+    return t;
+  }
+
+  function applyLevel(flash) {
+    gravMs = mode === 'sprint' ? 1000 : gravityOf(level);
+    if (flash) levelFlash = LEVEL_FLASH_MS;
+  }
+
+  /* ═══════════════ 16. 操作 ═══════════════ */
+
+  function moveStep(dx) {
+    if (!cur || over || paused || clearAnim) return false;
+    if (collides(cur.type, cur.rot, cur.x + dx, cur.y)) return false;
+    cur.x += dx;
+    lastRot = false;
+    afterAction(true);
+    return true;
   }
 
   function softDrop() {
-    if (over || paused || animating || !current) return;
-    if (!collide(current.cells, current.x, current.y + 1)) {
-      current.y++;
-      score += 1;
-      landed = false;
-      lockAcc = 0;
-      lockResets = 0;
-      renderHud();
-    } else if (!landed) {
-      touchGround();
+    if (!cur || over || paused || clearAnim) return false;
+    if (collides(cur.type, cur.rot, cur.x, cur.y + 1)) {
+      if (!grounded) { grounded = true; lockTimer = 0; lockResets = 0; }
+      return false;
     }
+    cur.y++;
+    score += 1;
+    if (cur.y > lowestY) { lowestY = cur.y; lockResets = 0; }
+    lastRot = false;
+    afterAction(false);
+    hudDirty = true;
+    return true;
   }
 
   function hardDrop() {
-    if (over || paused || animating || !current) return;
-    let dist = 0;
-    while (!collide(current.cells, current.x, current.y + 1)) {
-      current.y++;
-      dist++;
-    }
+    if (!cur || over || paused || clearAnim) return false;
+    var y0 = cur.y, dist = 0;
+    while (!collides(cur.type, cur.rot, cur.x, cur.y + 1)) { cur.y++; dist++; }
     score += dist * 2;
-    const rows = new Set();
-    eachCell(current.cells, function (i, j) {
-      const y = current.y + i;
-      if (y >= 0) rows.add(y);
-    });
-    doLock();
-    if (!clearAnim) landFlash = { rows: rows, t: 0, dur: LAND_FLASH_MS };
-    gravAcc = 0;
+    /* 硬降拖影：按列记录起始/结束行 */
+    trailN = 0;
+    var cells = ROT[cur.type][cur.rot].cells;
+    for (var i = 0; i < cells.length; i += 2) {
+      if (trailN >= 4) break;
+      var t = TRAIL[trailN++];
+      t.on = true;
+      t.x = cur.x + cells[i];
+      t.from = y0 + cells[i + 1];
+      t.to = cur.y + cells[i + 1];
+    }
+    trailT = TRAIL_MS;
+    /* 硬降距离为 0 时不改变"最后一次操作是旋转"标记：
+       否则"旋转进洞 + 空格秒锁"的 T-spin 永远判定不出来 */
+    if (dist > 0) { sfx.drop(); lastRot = false; }
+    hudDirty = true;
+    lock();
+    return true;
   }
 
-  function dropInterval() {
-    return Math.max(80, 800 - (level - 1) * 70);
+  /* ═══════════════ 17. 模式 / 结算 ═══════════════ */
+
+  function setMode(m) {
+    if (MODE_LIST.indexOf(m) === -1 || m === mode) return;
+    mode = m;
+    for (var i = 0; i < modeBtns.length; i++) {
+      var btn = modeBtns[i], on = btn.getAttribute('data-mode') === m;
+      btn.classList[on ? 'add' : 'remove']('on');
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    restart();
   }
 
-  function gameOver() {
+  function bestLabelText() { return mode === 'sprint' ? '最快时间' : '历史最佳'; }
+
+  function fmtBest(v) {
+    if (mode === 'sprint') return (v / 1000).toFixed(2) + 's';
+    return String(v);
+  }
+
+  function updateBest() {
+    if (mode === 'sprint') return;   /* 冲刺的最佳只在结算时写 */
+    if (!isFinite(score)) return;    /* 防守：任何异常分数都不入库 */
+    if (score > bests[mode]) { bests[mode] = score; writeBest(mode, score); hudDirty = true; }
+  }
+
+  function buildResult() {
+    var secs = elapsed / 1000;
+    var pps = secs > 0 ? pieces / secs : 0;
+    el.rLines.textContent = String(lines);
+    el.rTime.textContent = secs.toFixed(mode === 'sprint' ? 2 : 1) + 's';
+    el.rPps.textContent = pps.toFixed(2);
+    el.rCombo.textContent = maxCombo > 1 ? String(maxCombo - 1) : '0';
+    el.rTspin.textContent = String(tspinClears);
+    el.rTetris.textContent = String(tetrises);
+    el.rBestLabel.textContent = bestLabelText();
+    el.rBest.textContent = fmtBest(bests[mode]);
+  }
+
+  function endGame(reason) {
+    if (over) return;
     over = true;
     paused = false;
-    updateBest();
-    renderHud();
-    el.overlayEmoji.textContent = '🙈';
-    el.overlayTitle.textContent = '游戏结束';
-    el.overlaySub.textContent = '得分 ' + score;
+    cur = null;
+    if (clearAnim) { clearAnim = null; compactCleared(); }   /* 动画被打断也要压实棋盘 */
+    heldKeysClear();
+
+    var secs = elapsed / 1000;
+    var emoji = '🙈', title = '游戏结束', sub = '', newBest = false;
+
+    if (reason === 'goal' && mode === 'sprint') {
+      if (!bests.sprint || elapsed < bests.sprint) { bests.sprint = elapsed; writeBest('sprint', elapsed); newBest = true; }
+      emoji = '⏱'; title = '40 行完成'; sub = '用时 ' + secs.toFixed(2) + 's';
+      sfx.win();
+    } else if (reason === 'goal') {
+      if (score > bests.marathon) { bests.marathon = score; writeBest('marathon', score); newBest = true; }
+      emoji = '🏆'; title = '150 行通关'; sub = '得分 ' + score;
+      sfx.win();
+    } else if (reason === 'timeout') {
+      if (score > bests.ultra) { bests.ultra = score; writeBest('ultra', score); newBest = true; }
+      emoji = '⏰'; title = '时间到'; sub = '得分 ' + score;
+      sfx.over();
+    } else {
+      if (mode !== 'sprint' && score > bests[mode]) { bests[mode] = score; writeBest(mode, score); newBest = true; }
+      emoji = '🙈'; title = '游戏结束'; sub = '得分 ' + score;
+      sfx.over();
+    }
+
+    buildResult();
+    el.overlayEmoji.textContent = emoji;
+    el.overlayTitle.textContent = title;
+    el.overlaySub.textContent = sub + (newBest ? ' · 新纪录！' : '');
     el.again.textContent = '再试一次';
     el.overlay.classList.add('on');
+    triggerClass(el.frame, 'shake');
+    hudDirty = true;
+    renderHud();          /* over 后 update() 会提前返回，这里直接刷新，保证 HUD 显示新纪录 */
   }
 
   function togglePause() {
     if (over) return;
     paused = !paused;
-    last = 0;
     if (paused) {
+      heldKeysClear();
       el.overlayEmoji.textContent = '⏸';
       el.overlayTitle.textContent = '已暂停';
-      el.overlaySub.textContent = '按 P 或点「继续」回到游戏';
+      el.overlaySub.textContent = MODE_NAME[mode] + ' · 分数 ' + score + ' · 消行 ' + lines;
       el.again.textContent = '继续';
       el.overlay.classList.add('on');
+      sfx.pause();
     } else {
       el.overlay.classList.remove('on');
     }
+    hudDirty = true;
+  }
+
+  function heldKeysClear() {
+    keys.left = false; keys.right = false; keys.down = false;
+    heldDir = 0; dasAcc = 0; arrAcc = 0; softAcc = 0;
   }
 
   function restart() {
     rng = mulberry32(seed);
-    bag = [];
-    queue = [];
-    board = emptyBoard();
-    current = null;
-    score = 0;
-    lines = 0;
-    level = 1;
-    combo = 0;
-    over = false;
-    paused = false;
-    animating = false;
-    clearAnim = null;
-    landFlash = null;
-    landed = false;
-    lockResets = 0;
-    gravAcc = 0;
-    lockAcc = 0;
-    dasAcc = 0;
-    arrAcc = 0;
-    softAcc = 0;
-    last = 0;
-    heldDir = 0;
-    keys.left = keys.right = keys.down = false;
+    bag.length = 0;
+    for (var i = 0; i < PREVIEWS; i++) queue[i] = null;
+    board = new Uint8Array(COLS * ROWS);
+    cur = null;
+    holdType = null;
+    holdUsed = false;
+    el.hold.classList.add('empty');
+    score = 0; lines = 0; level = 1; comboChain = 0; b2b = false;
+    over = false; paused = false;
+    elapsed = 0; timeLeft = ULTRA_MS;
+    pieces = 0; tetrises = 0; tspinClears = 0; maxCombo = 0; holds = 0;
+    gravAcc = 0; lockTimer = 0; lockResets = 0; grounded = false; lowestY = 0;
+    dasAcc = 0; arrAcc = 0; softAcc = 0;
+    lastRot = false; lastKick = -1; lastClear = null;
+    clearAnim = null; clearRowsN = 0; bottomCleared = -1;
+    levelFlash = 0; shakeT = 0; trailT = 0;
+    clearSquash();
+    trailN = 0;
+    for (i = 0; i < TRAIL.length; i++) TRAIL[i].on = false;
+    for (i = 0; i < PARTS.length; i++) PARTS[i].on = false;
+    for (i = 0; i < ROWS; i++) { rowMask[i] = 0; rowShift[i] = 0; }
+    hudAcc = 0; elapsedHud = -1;
     el.overlay.classList.remove('on');
-    refillQueue();
-    spawn();
-    renderHud();
+    applyLevel(false);
+    heldKeysClear();
+    hudDirty = true;
+    spawnNext();
+    hudDirty = true;
     draw();
   }
 
-  function normKey(k) {
-    switch (k) {
-      case 'w': case 'W': return 'ArrowUp';
-      case 'a': case 'A': return 'ArrowLeft';
-      case 's': case 'S': return 'ArrowDown';
-      case 'd': case 'D': return 'ArrowRight';
-    }
-    return k;
-  }
+  /* ═══════════════ 18. 渲染 ═══════════════ */
 
-  function handleKey(key) {
-    key = normKey(key);
-    switch (key) {
-      case 'ArrowLeft': keys.left = true; heldDir = -1; dasAcc = 0; arrAcc = 0; move(-1); break;
-      case 'ArrowRight': keys.right = true; heldDir = 1; dasAcc = 0; arrAcc = 0; move(1); break;
-      case 'ArrowDown': keys.down = true; softAcc = 0; softDrop(); break;
-      case 'ArrowUp': case 'x': case 'X': rotate(1); break;
-      case 'z': case 'Z': rotate(-1); break;
-      case ' ': case 'Space': case 'Spacebar': hardDrop(); break;
-      case 'p': case 'P': togglePause(); break;
-      case 'r': case 'R': restart(); return;
-      case 'Enter': if (over) restart(); return;
-      default: return;
-    }
-    draw();
-  }
-
-  function releaseKey(key) {
-    key = normKey(key);
-    if (key === 'ArrowLeft') { keys.left = false; heldDir = keys.right ? 1 : 0; dasAcc = 0; arrAcc = 0; }
-    else if (key === 'ArrowRight') { keys.right = false; heldDir = keys.left ? -1 : 0; dasAcc = 0; arrAcc = 0; }
-    else if (key === 'ArrowDown') { keys.down = false; }
-  }
-
-  function clearHeld() {
-    keys.left = keys.right = keys.down = false;
-    heldDir = 0;
-    dasAcc = 0;
-    arrAcc = 0;
-    softAcc = 0;
-  }
-
-  /* ---------- 渲染 ---------- */
   function rrect(c, x, y, w, h, r) {
     r = Math.min(r, w / 2, h / 2);
     c.beginPath();
@@ -465,19 +955,18 @@
     c.closePath();
   }
 
-  /* 圆角方块 + 上缘内高光；ghost 只画低透明度纯色 */
-  function drawCell(c, px, py, size, color, alpha, ghost) {
-    const m = Math.max(1, Math.round(size * 0.06));
-    const s = size - m * 2;
-    const r = Math.max(2, Math.round(s * 0.18));
+  function drawCell(c, x, y, size, color, alpha, ghost) {
+    var m = Math.max(1, Math.round(size * 0.06));
+    var s = size - m * 2;
+    var r = Math.max(2, Math.round(s * 0.18));
     c.globalAlpha = alpha;
     c.fillStyle = color;
-    rrect(c, px + m, py + m, s, s, r);
+    rrect(c, x + m, y + m, s, s, r);
     c.fill();
     if (!ghost) {
-      c.globalAlpha = Math.min(1, alpha * 0.4);
+      c.globalAlpha = alpha * 0.4;
       c.fillStyle = '#ffffff';
-      rrect(c, px + m + s * 0.14, py + m + s * 0.1, s * 0.72, s * 0.26, r * 0.6);
+      rrect(c, x + m + s * 0.14, y + m + s * 0.1, s * 0.72, s * 0.26, r * 0.6);
       c.fill();
     }
     c.globalAlpha = 1;
@@ -487,291 +976,634 @@
     ctx.strokeStyle = 'rgba(154, 154, 149, 0.16)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let x = 1; x < COLS; x++) {
-      ctx.moveTo(x * CELL + 0.5, 0);
-      ctx.lineTo(x * CELL + 0.5, BOARD_H);
-    }
-    for (let y = 1; y < ROWS; y++) {
-      ctx.moveTo(0, y * CELL + 0.5);
-      ctx.lineTo(BOARD_W, y * CELL + 0.5);
-    }
+    for (var x = 1; x < COLS; x++) { ctx.moveTo(x * CELL + 0.5, 0); ctx.lineTo(x * CELL + 0.5, BOARD_H); }
+    for (var y = 1; y < ROWS; y++) { ctx.moveTo(0, y * CELL + 0.5); ctx.lineTo(BOARD_W, y * CELL + 0.5); }
     ctx.stroke();
   }
 
-  function drawBoard() {
+  function drawBoardBase() {
+    ctx.fillStyle = '#f8ffe5';
+    ctx.fillRect(-12, -12, BOARD_W + 24, BOARD_H + 24);
     drawGrid();
-    for (let y = 0; y < ROWS; y++) {
-      for (let x = 0; x < COLS; x++) {
-        const v = board[y][x];
-        if (v) drawCell(ctx, x * CELL, y * CELL, CELL, COLORS[BY_ID[v]], 1, false);
-      }
-    }
-    if (landFlash) {
-      const p = 1 - landFlash.t / landFlash.dur;
-      ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.55 * p).toFixed(3) + ')';
-      landFlash.rows.forEach(function (r) { ctx.fillRect(1, r * CELL + 1, BOARD_W - 2, CELL - 2); });
-    }
-    if (current && !over) {
-      const color = COLORS[current.type];
-      let gy = current.y;
-      while (!collide(current.cells, current.x, gy + 1)) gy++;
-      if (gy > current.y) {
-        eachCell(current.cells, function (i, j) {
-          if (gy + i >= 0) drawCell(ctx, (current.x + j) * CELL, (gy + i) * CELL, CELL, color, 0.18, true);
-        });
-      }
-      eachCell(current.cells, function (i, j) {
-        if (current.y + i >= 0) drawCell(ctx, (current.x + j) * CELL, (current.y + i) * CELL, CELL, color, 1, false);
-      });
+    /* 危险区：堆到顶部 4 行时泛红呼吸 */
+    if (!over && stackTop() <= 4) {
+      ctx.globalAlpha = 0.09 + 0.05 * Math.sin(dangerT / 220);
+      ctx.fillStyle = '#ef476f';
+      ctx.fillRect(0, 0, BOARD_W, 4 * CELL);
+      ctx.globalAlpha = 1;
     }
   }
 
-  function drawClearAnim() {
-    const a = clearAnim;
-    const inFlash = a.t < FLASH_MS;
-    const clearedSet = new Set(a.rows);
-    const settleByRC = new Map();
-    for (let i = 0; i < a.settle.length; i++) settleByRC.set(a.settle[i].c * ROWS + a.settle[i].from, a.settle[i]);
+  function drawSettled() {
+    for (var y = 0; y < ROWS; y++) {
+      var off = y * COLS;
+      for (var x = 0; x < COLS; x++) {
+        var v = board[off + x];
+        if (!v) continue;
+        if (squashT > 0 && squashMask[off + x]) continue;   /* 由挤压特效单独绘制 */
+        drawCell(ctx, x * CELL, y * CELL, CELL, BY_ID_COLOR[v], 1, false);
+      }
+    }
+  }
+
+  function drawSquash() {
+    if (squashT <= 0) return;
+    var p = 1 - squashT / SQUASH_MS;
+    var k = p < 0.35 ? p / 0.35 : 1 - (p - 0.35) / 0.65 * 0.7;   /* 压扁 → 回弹 */
+    for (var i = 0; i < squashN; i++) {
+      var s = SQUASH[i];
+      var v = board[s.y * COLS + s.x];
+      if (!v) continue;
+      var h = CELL * (1 - 0.16 * k);
+      var w = CELL * (1 + 0.07 * k);
+      drawCell(ctx, s.x * CELL + (CELL - w) / 2, s.y * CELL + (CELL - h), w, BY_ID_COLOR[v], 1, false);
+    }
+  }
+
+  function drawTrail() {
+    if (trailT <= 0) return;
+    ctx.globalAlpha = (trailT / TRAIL_MS) * 0.28;
+    ctx.fillStyle = '#ffffff';
+    for (var i = 0; i < trailN; i++) {
+      var t = TRAIL[i];
+      var y0 = Math.min(t.from, t.to) * CELL;
+      var h = (Math.abs(t.to - t.from) + 1) * CELL;
+      if (h <= CELL) continue;
+      ctx.fillRect(t.x * CELL + CELL * 0.28, y0, CELL * 0.44, h);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawActive() {
+    if (!cur || over) return;
+    var color = COLOR[cur.type];
+    var st = ROT[cur.type][cur.rot];
+    var i, cxx, cyy;
+
+    /* 列高亮（当前方块覆盖的列） */
+    ctx.globalAlpha = 0.045;
+    ctx.fillStyle = color;
+    ctx.fillRect((cur.x + st.minX) * CELL, 0, (st.maxX - st.minX + 1) * CELL, BOARD_H);
+    ctx.globalAlpha = 1;
+
+    /* 幽灵落点 */
+    var gy = cur.y;
+    while (!collides(cur.type, cur.rot, cur.x, gy + 1)) gy++;
+    if (gy > cur.y) {
+      for (i = 0; i < st.cells.length; i += 2) {
+        cyy = gy + st.cells[i + 1];
+        if (cyy < 0) continue;
+        drawCell(ctx, (cur.x + st.cells[i]) * CELL, cyy * CELL, CELL, color, 0.16, true);
+      }
+    }
+    for (i = 0; i < st.cells.length; i += 2) {
+      cxx = cur.x + st.cells[i];
+      cyy = cur.y + st.cells[i + 1];
+      if (cyy < 0) continue;
+      drawCell(ctx, cxx * CELL, cyy * CELL, CELL, color, 1, false);
+    }
+  }
+
+  function drawClearPhase() {
+    var inFreeze = clearAnim.t < freezeMs;
+    var inFlash = !inFreeze && clearAnim.t < freezeMs + flashMs;
+    var p = clearAnim.t - freezeMs - flashMs;
+    var x, y, v;
 
     drawGrid();
-    for (let y = 0; y < ROWS; y++) {
-      if (clearedSet.has(y)) {
-        if (inFlash) {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-          ctx.fillRect(1, y * CELL + 1, BOARD_W - 2, CELL - 2);
+    for (y = 0; y < ROWS; y++) {
+      if (rowMask[y]) continue;
+      var moving = rowShift[y] > 0;
+      for (x = 0; x < COLS; x++) {
+        v = board[y * COLS + x];
+        if (!v) continue;
+        if (moving && !inFreeze && !inFlash) continue;   /* 塌陷格单独绘制 */
+        drawCell(ctx, x * CELL, y * CELL, CELL, BY_ID_COLOR[v], 1, false);
+      }
+    }
+    if (inFlash) {
+      var k = (clearAnim.t - freezeMs) / flashMs;
+      ctx.globalAlpha = 0.55 + 0.4 * (1 - k);
+      ctx.fillStyle = '#ffffff';
+      for (y = 0; y < ROWS; y++) {
+        if (!rowMask[y]) continue;
+        var w = BOARD_W * Math.min(1, k * 1.6);
+        ctx.fillRect((BOARD_W - w) / 2, y * CELL + 1, w, CELL - 2);
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (!inFreeze && !inFlash) {
+      for (x = 0; x < COLS; x++) {
+        var delay = x * COLLAPSE_STAGGER;
+        var t = (p - delay) / COLLAPSE_FALL;
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
+        var e = t * t * t;
+        for (y = 0; y < ROWS; y++) {
+          if (rowShift[y] <= 0) continue;
+          v = board[y * COLS + x];
+          if (!v) continue;
+          drawCell(ctx, x * CELL, (y + rowShift[y] * e) * CELL, CELL, BY_ID_COLOR[v], 1, false);
         }
-        continue;
-      }
-      for (let x = 0; x < COLS; x++) {
-        const v = board[y][x];
-        if (!v) continue;
-        if (!inFlash && settleByRC.has(x * ROWS + y)) continue; // 塌陷格稍后单独画
-        drawCell(ctx, x * CELL, y * CELL, CELL, COLORS[BY_ID[v]], 1, false);
-      }
-    }
-
-    if (!inFlash) {
-      const p0 = a.t - FLASH_MS;
-      for (let i = 0; i < a.settle.length; i++) {
-        const s = a.settle[i];
-        const v = board[s.from][s.c];
-        if (!v) continue;
-        const local = Math.max(0, Math.min(1, (p0 - s.delay) / COLLAPSE_FALL));
-        const y = local <= 0 ? s.from : s.from + (s.to - s.from) * (local * local * local);
-        drawCell(ctx, s.c * CELL, y * CELL, CELL, COLORS[BY_ID[v]], 1, false);
       }
     }
   }
 
-  function drawNext() {
-    nctx.clearRect(0, 0, NEXT_W, NEXT_H);
-    for (let k = 0; k < 3; k++) {
-      const type = queue[k];
-      if (!type) continue;
-      const m = SHAPES[type];
-      let minI = 9, maxI = -1, minJ = 9, maxJ = -1;
-      eachCell(m, function (i, j) {
-        if (i < minI) minI = i;
-        if (i > maxI) maxI = i;
-        if (j < minJ) minJ = j;
-        if (j > maxJ) maxJ = j;
-      });
-      const w = (maxJ - minJ + 1) * NEXT_CELL;
-      const h = (maxI - minI + 1) * NEXT_CELL;
-      const slotH = NEXT_CELL * 2 + 10;
-      const slotY = k * slotH;
-      const ox = (NEXT_W - w) / 2 - minJ * NEXT_CELL;
-      const oy = slotY + (NEXT_CELL * 2 - h) / 2 - minI * NEXT_CELL;
-      eachCell(m, function (i, j) {
-        drawCell(nctx, ox + j * NEXT_CELL, oy + i * NEXT_CELL, NEXT_CELL, COLORS[type], 1, false);
-      });
+  function drawParts() {
+    for (var i = 0; i < PARTS.length; i++) {
+      var p = PARTS[i];
+      if (!p.on) continue;
+      var k = 1 - p.t / p.dur;
+      ctx.globalAlpha = k < 0 ? 0 : k * 0.9;
+      ctx.fillStyle = p.c;
+      ctx.fillRect(p.x - p.s / 2, p.y - p.s / 2, p.s, p.s);
     }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawPieceCentered(c, type, cw, ch, cell, ox, oy) {
+    var st = ROT[type][0];
+    var w = (st.maxX - st.minX + 1) * cell;
+    var h = (st.maxY - st.minY + 1) * cell;
+    var x0 = ox + (cw - w) / 2 - st.minX * cell;
+    var y0 = oy + (ch - h) / 2 - st.minY * cell;
+    for (var i = 0; i < st.cells.length; i += 2) {
+      drawCell(c, x0 + st.cells[i] * cell, y0 + st.cells[i + 1] * cell, cell, COLOR[type], 1, false);
+    }
+  }
+
+  function drawPreviews() {
+    nctx.clearRect(0, 0, PRE_W, PRE_H);
+    nctx.strokeStyle = 'rgba(154, 154, 149, 0.25)';
+    nctx.lineWidth = 1;
+    for (var i = 0; i < PREVIEWS; i++) {
+      var t = queue[i];
+      if (t) drawPieceCentered(nctx, t, PRE_W, PRE_SLOT, PRE_CELL, 0, i * PRE_SLOT);
+      if (i < PREVIEWS - 1) {
+        nctx.beginPath();
+        nctx.moveTo(2, (i + 1) * PRE_SLOT + 0.5);
+        nctx.lineTo(PRE_W - 2, (i + 1) * PRE_SLOT + 0.5);
+        nctx.stroke();
+      }
+    }
+    hctx.clearRect(0, 0, HOLD_W, HOLD_H);
+    if (holdType) drawPieceCentered(hctx, holdType, HOLD_W, HOLD_H, HOLD_CELL, 0, 0);
   }
 
   function draw() {
-    ctx.clearRect(0, 0, BOARD_W, BOARD_H);
-    ctx.fillStyle = '#f8ffe5';
-    ctx.fillRect(0, 0, BOARD_W, BOARD_H);
-    if (clearAnim) drawClearAnim(); else drawBoard();
-    drawNext();
+    var sx = 0, sy = 0;
+    if (shakeT > 0) {
+      var k = shakeT / SHAKE_MS;
+      sx = (vrng() - 0.5) * shakeMag * k * 2;
+      sy = (vrng() - 0.5) * shakeMag * k * 2;
+    }
+    ctx.setTransform(px, 0, 0, px, sx * px, sy * px);
+    drawBoardBase();
+    if (clearAnim) drawClearPhase();
+    else { drawSettled(); drawSquash(); }
+    drawTrail();
+    drawActive();
+    if (levelFlash > 0) {
+      ctx.globalAlpha = 0.45 * (levelFlash / LEVEL_FLASH_MS);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, BOARD_W, BOARD_H);
+      ctx.globalAlpha = 1;
+    }
+    drawParts();
+    ctx.setTransform(px, 0, 0, px, 0, 0);
+    drawPreviews();
   }
 
-  /* ---------- HUD / 飘字 ---------- */
+  /* ═══════════════ 19. HUD / 呼叫 / 结算面板 ═══════════════ */
+
+  var hudCache = { score: -1, best: -1, lines: -1, level: -1, status: '', bestLabel: '' };
+
   function renderHud() {
-    el.score.textContent = String(score);
-    el.best.textContent = String(best);
-    el.lines.textContent = String(lines);
-    el.level.textContent = String(level);
+    if (hudCache.score !== score) { el.score.textContent = String(score); hudCache.score = score; }
+    var bv = bests[mode];
+    if (hudCache.best !== bv) { el.best.textContent = fmtBest(bv); hudCache.best = bv; }
+    if (hudCache.lines !== lines) { el.lines.textContent = String(lines); hudCache.lines = lines; }
+    if (hudCache.level !== level) { el.level.textContent = String(level); hudCache.level = level; }
+    var s;
+    if (mode === 'sprint') s = '40 行冲刺 · ' + lines + '/' + SPRINT_GOAL + ' 行 · ' + (elapsed / 1000).toFixed(1) + 's';
+    else if (mode === 'ultra') s = '2 分钟限时 · 剩余 ' + Math.max(0, timeLeft / 1000).toFixed(1) + 's · 分数 ' + score;
+    else s = '马拉松 · 目标 ' + lines + '/' + MARATHON_GOAL + ' 行 · ' + (elapsed / 1000).toFixed(1) + 's';
+    if (hudCache.status !== s) { el.status.textContent = s; hudCache.status = s; }
+    var bl = bestLabelText();
+    if (hudCache.bestLabel !== bl) { el.bestLabel.textContent = bl; hudCache.bestLabel = bl; }
   }
 
-  function retrigger(elNode) {
-    elNode.classList.remove('on');
-    void elNode.offsetWidth; /* 强制重排以重启动画 */
-    elNode.classList.add('on');
+  function triggerClass(node, cls) {
+    node.classList.remove(cls);
+    void node.offsetWidth;   /* 强制重排以重启动画 */
+    node.classList.add(cls);
   }
 
-  function showFloat(text) {
+  function flashFloat(text) {
     el.float.textContent = text;
-    retrigger(el.float);
-  }
-
-  function showCombo(n) {
-    el.combo.textContent = 'Combo ×' + n;
-    retrigger(el.combo);
+    triggerClass(el.float, 'on');
   }
 
   function showLevel() {
     el.levelFloat.textContent = 'Level ' + level;
-    retrigger(el.levelFloat);
+    triggerClass(el.levelFloat, 'on');
   }
 
-  /* ---------- 主循环 ---------- */
+  function callout(main, sub, cls) {
+    el.calloutMain.textContent = main;
+    el.calloutSub.textContent = sub || '';
+    el.callout.classList.remove('tspin', 'tetris', 'perfect');
+    if (cls) el.callout.classList.add(cls);
+    triggerClass(el.callout, 'on');
+  }
+
+  /* ═══════════════ 20. 主循环 ═══════════════ */
+
+  function update(dt, realDt) {
+    var i, p;
+
+    if (levelFlash > 0) levelFlash -= dt;
+    if (squashT > 0) { squashT -= dt; if (squashT <= 0) clearSquash(); }
+    if (trailT > 0) {
+      trailT -= dt;
+      if (trailT <= 0) { for (i = 0; i < trailN; i++) TRAIL[i].on = false; trailN = 0; }
+    }
+    if (shakeT > 0) shakeT -= dt;
+    for (i = 0; i < PARTS.length; i++) {
+      p = PARTS[i];
+      if (!p.on) continue;
+      p.t += dt;
+      if (p.t >= p.dur) { p.on = false; continue; }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 0.00075 * dt;
+    }
+    dangerT += dt;
+
+    if (over) return;
+
+    /* 计时：暂停不走；用真实 dt（未截断）保证限时的公平 */
+    if (!paused) {
+      elapsed += realDt;
+      if (mode === 'ultra') {
+        timeLeft -= realDt;
+        if (timeLeft <= 0) { timeLeft = 0; endGame('timeout'); return; }
+      }
+    }
+    if (paused) return;
+
+    hudAcc += dt;
+    if (hudAcc > 120) {
+      hudAcc = 0;
+      var shown = Math.round(elapsed / 100);
+      if (shown !== elapsedHud) { elapsedHud = shown; hudDirty = true; }
+    }
+    if (hudDirty) { hudDirty = false; renderHud(); }
+
+    if (clearAnim) {
+      clearAnim.t += dt;
+      if (clearAnim.t >= freezeMs + flashMs + collapseMs) finishClear();
+      return;
+    }
+
+    if (cur) {
+      /* 重力 */
+      gravAcc += dt;
+      var steps = 0;
+      while (gravAcc >= gravMs && steps < 40 && !grounded && cur && !clearAnim) {
+        gravAcc -= gravMs;
+        steps++;
+        if (!collides(cur.type, cur.rot, cur.x, cur.y + 1)) {
+          cur.y++;
+          if (cur.y > lowestY) { lowestY = cur.y; lockResets = 0; }
+          lastRot = false;
+          afterAction(false);
+        }
+      }
+      if (gravAcc > gravMs * 4) gravAcc = gravMs * 4;
+
+      /* 锁定延迟（move reset，上限 15 次） */
+      if (grounded) {
+        lockTimer += dt;
+        if (lockTimer >= LOCK_MS) { lock(); }
+      }
+    }
+
+    if (over || clearAnim || !cur) return;
+
+    /* DAS / ARR */
+    if (heldDir !== 0) {
+      dasAcc += dt;
+      if (dasAcc >= DAS_MS) {
+        arrAcc += dt;
+        var guard = 0;
+        while (arrAcc >= ARR_MS && guard < 20) {
+          arrAcc -= ARR_MS;
+          guard++;
+          if (!moveStep(heldDir)) break;
+        }
+        if (arrAcc > ARR_MS * 4) arrAcc = 0;
+      }
+    }
+    /* 软降（不低于当前重力速度） */
+    if (keys.down) {
+      var softMs = gravMs < SOFT_MS ? gravMs : SOFT_MS;
+      softAcc += dt;
+      var sg = 0;
+      while (softAcc >= softMs && sg < 40) {
+        softAcc -= softMs;
+        sg++;
+        if (!softDrop()) break;
+      }
+      if (softAcc > softMs * 4) softAcc = 0;
+    }
+  }
+
   function frame(t) {
     requestAnimationFrame(frame);
-    const dt = last ? Math.min(t - last, 100) : 0;
+    var raw = last ? t - last : 0;
     last = t;
-
-    if (!paused) {
-      if (clearAnim) {
-        clearAnim.t += dt;
-        if (clearAnim.t >= clearAnim.dur) finishClear();
-      }
-      if (landFlash) {
-        landFlash.t += dt;
-        if (landFlash.t >= landFlash.dur) landFlash = null;
-      }
-    }
-
-    if (!over && !paused && !animating) {
-      gravAcc += dt;
-      const interval = dropInterval();
-      while (gravAcc >= interval) {
-        gravAcc -= interval;
-        gravityStep();
-        if (over || animating) break;
-      }
-      if (landed && !over && !animating) {
-        lockAcc += dt;
-        if (lockAcc >= LOCK_MS) doLock();
-      }
-      if (!over && !animating) {
-        if (heldDir !== 0) {
-          dasAcc += dt;
-          if (dasAcc >= DAS_MS) {
-            arrAcc += dt;
-            while (arrAcc >= ARR_MS) {
-              arrAcc -= ARR_MS;
-              move(heldDir);
-              if (over || animating) break;
-            }
-          }
-        }
-        if (keys.down) {
-          softAcc += dt;
-          while (softAcc >= SOFT_MS) {
-            softAcc -= SOFT_MS;
-            softDrop();
-            if (over || animating) break;
-          }
-        }
-      }
-    }
-
+    if (raw < 0) raw = 0;
+    update(raw > 100 ? 100 : raw, raw > 250 ? 250 : raw);
     draw();
   }
 
-  /* ---------- 输入 ---------- */
+  /* ═══════════════ 21. 输入 ═══════════════ */
+
+  function normKey(k) {
+    switch (k) {
+      case 'w': case 'W': return 'ArrowUp';
+      case 'a': case 'A': return 'ArrowLeft';
+      case 's': case 'S': return 'ArrowDown';
+      case 'd': case 'D': return 'ArrowRight';
+    }
+    return k;
+  }
+
+  function toggleMute() {
+    sfx.setMuted(!sfx.isMuted());
+    el.muteBtn.textContent = '音效：' + (sfx.isMuted() ? '关' : '开');
+  }
+
+  function handleKey(raw) {
+    var key = normKey(raw);
+    if (over) {
+      /* 只有明确的重新开始键才重开：空格是硬降键，手机上的「硬降」按钮
+         会在结算面板上误触，导致成绩面板瞬间被清掉 */
+      if (key === 'Enter' || key === 'r' || key === 'R') restart();
+      return;
+    }
+    switch (key) {
+      case 'ArrowLeft':
+        keys.left = true; heldDir = -1; dasAcc = 0; arrAcc = 0;
+        if (moveStep(-1)) sfx.move();
+        break;
+      case 'ArrowRight':
+        keys.right = true; heldDir = 1; dasAcc = 0; arrAcc = 0;
+        if (moveStep(1)) sfx.move();
+        break;
+      case 'ArrowDown':
+        keys.down = true; softAcc = 0; softDrop();
+        break;
+      case 'ArrowUp': case 'x': case 'X':
+        if (rotate(1)) sfx.rotate();
+        break;
+      case 'z': case 'Z':
+        if (rotate(-1)) sfx.rotate();
+        break;
+      case ' ':
+        hardDrop();
+        break;
+      case 'c': case 'C': case 'Shift':
+        doHold();
+        break;
+      case 'p': case 'P':
+        togglePause();
+        break;
+      case 'm': case 'M':
+        toggleMute();
+        break;
+      case 'r': case 'R':
+        restart();
+        break;
+      case '1': setMode('marathon'); break;
+      case '2': setMode('sprint'); break;
+      case '3': setMode('ultra'); break;
+      default: break;
+    }
+  }
+
+  function releaseKey(raw) {
+    var key = normKey(raw);
+    if (key === 'ArrowLeft') { keys.left = false; heldDir = keys.right ? 1 : 0; dasAcc = 0; arrAcc = 0; }
+    else if (key === 'ArrowRight') { keys.right = false; heldDir = keys.left ? -1 : 0; dasAcc = 0; arrAcc = 0; }
+    else if (key === 'ArrowDown') { keys.down = false; }
+  }
+
   window.addEventListener('keydown', function (e) {
-    if (HANDLED.indexOf(e.key) === -1) return;
+    sfx.unlock(e.isTrusted === true);
+    if (!HANDLED[e.key]) return;
     e.preventDefault();
-    if (e.repeat) return; /* 长按交给 DAS/ARR */
+    if (e.repeat) return;   /* 长按交给 DAS/ARR */
     handleKey(e.key);
   }, { passive: false });
 
-  window.addEventListener('keyup', function (e) {
-    releaseKey(e.key);
-  });
+  window.addEventListener('keyup', function (e) { releaseKey(e.key); });
+  window.addEventListener('blur', heldKeysClear);
 
-  window.addEventListener('blur', clearHeld);
+  el.restartBtn.addEventListener('click', function () { restart(); });
+  el.again.addEventListener('click', function () { if (over) restart(); else togglePause(); });
+  el.muteBtn.addEventListener('click', function () { sfx.unlock(true); toggleMute(); });
 
-  el.restartBtn.addEventListener('click', restart);
-  el.again.addEventListener('click', function () {
-    if (over) restart(); else togglePause();
-  });
-
-  const ACTION_KEY = { left: 'ArrowLeft', rotate: 'ArrowUp', right: 'ArrowRight', down: 'ArrowDown', drop: ' ' };
+  var ACTION_KEY = { left: 'ArrowLeft', rotate: 'ArrowUp', ccw: 'z', right: 'ArrowRight', down: 'ArrowDown', drop: ' ', hold: 'c' };
   Array.prototype.forEach.call(document.querySelectorAll('.pad button'), function (btn) {
-    const key = ACTION_KEY[btn.getAttribute('data-action')];
+    var key = ACTION_KEY[btn.getAttribute('data-action')];
     btn.addEventListener('pointerdown', function (e) {
       e.preventDefault();
+      sfx.unlock(e.isTrusted === true);
       handleKey(key);
     });
-    const release = function () { releaseKey(key); };
+    var release = function () { releaseKey(key); };
     btn.addEventListener('pointerup', release);
     btn.addEventListener('pointercancel', release);
     btn.addEventListener('pointerleave', release);
   });
 
-  /* ---------- 测试钩子（契约不变） ---------- */
-  window.__game = {
-    snapshot: function () {
-      return {
-        score: score,
-        best: best,
-        over: over,
-        paused: paused,
-        lines: lines,
-        level: level,
-        seed: seed,
-        board: board.map(function (r) { return r.slice(); }),
-        next: queue[0] || null,
-        current: current ? {
-          type: current.type,
-          id: current.id,
-          x: current.x,
-          y: current.y,
-          cells: current.cells.map(function (r) { return r.slice(); })
-        } : null
+  var modeBtns = document.querySelectorAll('.mode-btn');
+  Array.prototype.forEach.call(modeBtns, function (btn) {
+    btn.addEventListener('click', function () { setMode(btn.getAttribute('data-mode')); });
+  });
+
+  /* 切走标签页自动暂停：限时模式不会在后台被白嫖 */
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && !over && !paused) togglePause();
+  });
+
+  /* ═══════════════ 22. 测试钩子 ═══════════════ */
+
+  function snapshot() {
+    var rows = [], y, x, off;
+    for (y = 0; y < ROWS; y++) {
+      off = y * COLS;
+      var row = [];
+      for (x = 0; x < COLS; x++) row.push(board[off + x]);
+      rows.push(row);
+    }
+    var curOut = null;
+    if (cur) {
+      var st = ROT[cur.type][cur.rot];
+      curOut = {
+        type: cur.type, id: ID[cur.type], x: cur.x, y: cur.y, rot: cur.rot,
+        cells: st.mat.map(function (r) { return r.slice(); })
       };
-    },
+    }
+    var secs = elapsed / 1000;
+    return {
+      /* —— 既有字段（不得删改名） —— */
+      score: score, best: bests[mode], over: over, paused: paused,
+      lines: lines, level: level, seed: seed, board: rows,
+      next: queue[0] || null, current: curOut,
+      /* —— 新增 —— */
+      mode: mode, phase: over ? 'over' : (paused ? 'paused' : 'playing'),
+      queue: queue.slice(0), hold: holdType, holdUsed: holdUsed,
+      combo: comboChain, b2b: b2b, elapsed: elapsed,
+      timeLeft: mode === 'ultra' ? timeLeft : 0,
+      pieces: pieces, pps: secs > 0 ? pieces / secs : 0,
+      tetrises: tetrises, tspins: tspinClears, maxCombo: maxCombo, holds: holds,
+      gravityMs: gravMs, lockResets: lockResets,
+      lockLeftMs: grounded ? Math.max(0, LOCK_MS - lockTimer) : LOCK_MS,
+      lastRot: lastRot, lastKick: lastKick,
+      lastClear: lastClear ? {
+        lines: lastClear.lines, tspin: lastClear.tspin, points: lastClear.points,
+        b2b: lastClear.b2b, combo: lastClear.combo, perfect: lastClear.perfect
+      } : null,
+      animating: !!clearAnim, squash: squashT > 0, trail: trailT > 0,
+      clearingRows: clearRowsN,
+      stackTop: stackTop(),
+      bests: { marathon: bests.marathon, sprint: bests.sprint, ultra: bests.ultra },
+      muted: sfx.isMuted()
+    };
+  }
+
+  function setBoard(rows) {
+    var src = Array.isArray(rows) ? rows : [];
+    var next = new Uint8Array(COLS * ROWS);
+    var y, x;
+    for (y = 0; y < ROWS; y++) {
+      var row = src[y];
+      if (!row) continue;
+      for (x = 0; x < COLS; x++) {
+        var raw = typeof row === 'string' ? row.charAt(x) : row[x];
+        if (raw === '.' || raw === undefined || raw === null || raw === '') continue;
+        var v = Number(raw);
+        if (!(v >= 1 && v <= 7)) v = 1;   /* 'X' / '#' 等任意非空标记都按实心块处理 */
+        next[y * COLS + x] = v;
+      }
+    }
+    board = next;
+    over = false; paused = false;
+    grounded = false; lockTimer = 0; lockResets = 0; gravAcc = 0;
+    clearAnim = null; clearRowsN = 0; bottomCleared = -1;
+    for (y = 0; y < ROWS; y++) { rowMask[y] = 0; rowShift[y] = 0; }
+    clearSquash();
+    trailT = 0; trailN = 0;
+    for (var i = 0; i < TRAIL.length; i++) TRAIL[i].on = false;
+    el.overlay.classList.remove('on');
+    if (cur && collides(cur.type, cur.rot, cur.x, cur.y)) cur = null;
+    if (!cur) spawnNext();
+    afterAction(false);
+    hudDirty = true;
+    draw();
+    return snapshot().board;
+  }
+
+  function setPiece(type, rot, x, y) {
+    if (TYPES.indexOf(type) === -1) return false;
+    rot = ((Math.floor(Number(rot) || 0) % 4) + 4) % 4;
+    cur = { type: type, rot: rot, x: Math.floor(Number(x) || 0), y: Math.floor(Number(y) || 0) };
+    grounded = false; lockTimer = 0; lockResets = 0; gravAcc = 0;
+    lowestY = cur.y; lastRot = false; lastKick = -1;
+    afterAction(false);
+    draw();
+    return true;
+  }
+
+  function tick(stepMs, times) {
+    var step = Number(stepMs) > 0 ? Number(stepMs) : 16.6667;
+    var n = Number(times) > 0 ? Math.floor(Number(times)) : 1;
+    for (var i = 0; i < n; i++) update(step, step);
+    draw();
+    return snapshot();
+  }
+
+  window.__game = {
+    /* —— 契约四件套 —— */
+    snapshot: snapshot,
     restart: restart,
-    press: function (key) {
-      handleKey(key);
-      releaseKey(key);
-    },
+    press: function (key) { handleKey(key); releaseKey(key); },
     setSeed: function (n) {
       seed = (Number(n) || 0) >>> 0;
       rng = mulberry32(seed);
     },
-    setBoard: function (rows) {
-      const src = Array.isArray(rows) ? rows : [];
-      const next = emptyBoard();
-      for (let y = 0; y < ROWS; y++) {
-        const row = src[y];
-        if (!row) continue;
-        for (let x = 0; x < COLS; x++) {
-          const raw = typeof row === 'string' ? row.charAt(x) : row[x];
-          const v = (raw === '.' || raw === undefined || raw === null || raw === '') ? 0 : Number(raw);
-          if (v >= 1 && v <= 7) next[y][x] = v;
+    /* —— 扩展钩子 —— */
+    setMode: setMode,
+    getMode: function () { return mode; },
+    setBoard: setBoard,
+    setPiece: setPiece,
+    spawn: function (type) {
+      if (TYPES.indexOf(type) === -1) return false;
+      return spawnP(type);
+    },
+    setHold: function (type) {
+      holdType = TYPES.indexOf(type) === -1 ? null : type;
+      if (holdType) el.hold.classList.remove('empty'); else el.hold.classList.add('empty');
+      return holdType;
+    },
+    setHoldUsed: function (v) { holdUsed = !!v; return holdUsed; },
+    forceLevel: function (n) {
+      level = Math.max(1, Math.min(LEVEL_CAP + 5, Math.floor(Number(n) || 1)));
+      applyLevel(false);
+      hudDirty = true;
+      return level;
+    },
+    setLines: function (n) {
+      lines = Math.max(0, Math.floor(Number(n) || 0));
+      if (mode !== 'sprint') { level = Math.min(LEVEL_CAP, Math.floor(lines / 10) + 1); applyLevel(false); }
+      hudDirty = true;
+      return lines;
+    },
+    tick: tick,
+    kickTable: function (piece) {
+      var table = piece === 'I' ? KICK_I : KICK_L;
+      var out = {};
+      for (var f = 0; f < 4; f++) {
+        for (var t = 0; t < 4; t++) {
+          var k = table[f * 4 + t];
+          if (!k) continue;
+          var arr = [];
+          for (var i = 0; i < 5; i++) arr.push([k[i * 2], k[i * 2 + 1]]);
+          out[f + '>' + t] = arr;
         }
       }
-      board = next;
-      over = false;
-      paused = false;
-      landed = false;
-      lockAcc = 0;
-      lockResets = 0;
-      gravAcc = 0;
-      animating = false;
-      clearAnim = null;
-      el.overlay.classList.remove('on');
-      draw();
-      return board.map(function (r) { return r.slice(); });
+      return out;
+    },
+    stats: function () {
+      var secs = elapsed / 1000;
+      return {
+        mode: mode, seconds: secs, pieces: pieces, lines: lines, score: score,
+        pps: secs > 0 ? pieces / secs : 0, lpm: secs > 0 ? lines / secs * 60 : 0,
+        maxCombo: maxCombo, holds: holds, tspins: tspinClears, tetrises: tetrises,
+        gravityMs: gravMs, level: level
+      };
     }
   };
 
-  /* ---------- 启动 ---------- */
-  el.best.textContent = String(best);
+  /* ═══════════════ 23. 启动 ═══════════════ */
+
+  applyLevel(false);
+  el.muteBtn.textContent = '音效：' + (sfx.isMuted() ? '关' : '开');
+  el.hold.classList.add('empty');
   restart();
+  renderHud();
   requestAnimationFrame(frame);
 })();

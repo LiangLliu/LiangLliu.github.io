@@ -1,64 +1,122 @@
-/* 俄罗斯方块 · 棋盘 / 预览 / 飘字（骨架、HUD、按钮、遮罩来自 base.css） */
+/* 俄罗斯方块 · 棋盘 / 暂存 / 预览 / 中央呼叫 / 结算
+   页面骨架、HUD、按钮、遮罩、动画（pop/shrink/float-up/shake）来自 base.css */
 
-/* 棋盘 + 右侧预览，坐在灰色 .frame 里 */
+/* ---------- 模式切换 ---------- */
+.modes {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 2px 0 0;
+  flex-wrap: wrap;
+}
+
+.mode-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.34em 0.9em;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.mode-btn:hover { border-color: var(--accent); color: var(--accent); }
+.mode-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.status {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 分数很长时（历史最佳可达千万级）让 HUD 换行而不是撑破视口 */
+.hud { flex-wrap: wrap; row-gap: 4px; }
+.hud b { font-variant-numeric: tabular-nums; }
+
+/* ---------- 舞台：暂存 + 棋盘 + 预览 ---------- */
 .stage {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
   background: var(--cell);
   border-radius: 2px;
 }
 
-.board-wrap { position: relative; }
-
-#board { display: block; }
-
-/* ---------- 预览区（与主棋盘同族：圆角块 + 高光） ---------- */
-.side {
+.panel {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding-top: 2px;
 }
 
-.side-label {
+.panel-label {
   margin: 0;
-  font-size: 0.8rem;
   color: var(--muted);
+  font-size: 0.7rem;
+  letter-spacing: 1px;
 }
 
-#next {
+#hold, #next {
   display: block;
   background: var(--cell);
-  border: 1px solid var(--frame);
+  border: 1px solid rgba(154, 154, 149, 0.45);
   border-radius: 3px;
 }
 
-/* ---------- Combo 飘字（棋盘中央） ---------- */
-.combo {
+#hold.empty { opacity: 0.4; }
+
+.board-wrap { position: relative; }
+
+#board { display: block; border-radius: 2px; }
+
+/* ---------- 中央呼叫（消行 / T-spin / B2B / Combo） ---------- */
+.callout {
   position: absolute;
   left: 50%;
-  top: 44%;
-  transform: translate(-50%, -50%);
+  top: 42%;
   z-index: 10;
-  color: var(--accent);
-  font-size: 1.5rem;
-  font-weight: 700;
-  letter-spacing: 1px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
+  transform: translate(-50%, -50%);
 }
 
-.combo.on { animation: combo-rise 0.9s ease-out; }
+.callout.on { animation: callout-pop 0.9s ease-out; }
 
-@keyframes combo-rise {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
-  22% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
-  60% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -170%) scale(1); }
+.callout-main {
+  color: var(--accent);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.95), 0 1px 0 #fff;
+}
+
+.callout-sub {
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.95), 0 1px 0 #fff;
+}
+
+.callout.tspin .callout-main { color: #a06cd5; }
+.callout.tetris .callout-main { color: var(--c2); }
+.callout.perfect .callout-main { color: var(--c1); }
+
+@keyframes callout-pop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.55); }
+  18% { opacity: 1; transform: translate(-50%, -50%) scale(1.12); }
+  55% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -130%) scale(1); }
 }
 
 /* ---------- 升级提示（HUD 等级项上方） ---------- */
@@ -82,4 +140,38 @@
   20% { opacity: 1; transform: translate(-50%, 0); }
   75% { opacity: 1; }
   100% { opacity: 0; transform: translate(-50%, -1.4em); }
+}
+
+/* ---------- 结算面板 ---------- */
+.result {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 1px 14px;
+  margin: 8px 0 4px;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.result-row { display: contents; }
+.result dt { text-align: right; opacity: 0.72; }
+.result dd { margin: 0; text-align: left; font-weight: 700; }
+.result-best dd { color: var(--c1); }
+
+/* ---------- 次要按钮 ---------- */
+.btn-quiet {
+  margin-left: 8px;
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--muted);
+}
+
+.btn-quiet:hover { background: var(--cell); color: var(--accent); }
+.btn-quiet:active { background: var(--muted); color: #fff; }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 440px) {
+  .hud { gap: 14px; }
+  .hud b { font-size: 1.2rem; }
+  .callout-main { font-size: 1.15rem; }
+  .callout-sub { font-size: 0.72rem; }
 }

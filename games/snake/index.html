@@ -16,26 +16,54 @@
   </header>
 
   <section class="directions">
-    <p><strong>怎么玩：</strong>用方向键 / WASD 转向（手机可以滑动），吃掉玫红圆点变长，撞墙或咬到自己就结束。</p>
+    <p><strong>怎么玩：</strong>方向键 / WASD / 滑动转向，空格暂停，R 重开，1–4 换模式。吃水果变长变快，<strong>2.6 秒内连吃</strong>触发连锁倍率；<strong>金苹果</strong>限时出现、越早吃分越高且不会变长；六种道具各有用法，撞墙 / 咬自己 / 撞障碍都会结束（护盾能挡一次）。</p>
   </section>
 
   <section class="hud">
-    <span class="hud-item hud-best">历史最佳<b id="best">0</b></span>
+    <span class="hud-item hud-best">最高<b id="best">0</b></span>
     <span class="hud-item">分数<b id="score">0</b><span class="float" id="float"></span></span>
+    <span class="hud-item">长度<b id="len">3</b><span class="float" id="lenFloat"></span></span>
+    <span class="hud-item" id="chainWrap">连锁<b id="chain">×1</b></span>
   </section>
+
+  <div class="modes" id="modes">
+    <button type="button" data-mode="0"><b>经典无尽</b><i>穿墙 · 无墙</i></button>
+    <button type="button" data-mode="1"><b>关卡远征</b><i>8 张地图</i></button>
+    <button type="button" data-mode="2"><b>生长之墙</b><i>越吃越窄</i></button>
+    <button type="button" data-mode="3"><b>60 秒冲刺</b><i>吃一口加时</i></button>
+  </div>
+
+  <div class="bar" id="bar">
+    <div class="bar-head"><span id="barLabel">第 1 关 · 空旷平原</span><span id="barVal">0/5</span></div>
+    <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+  </div>
+
+  <div class="buffs" id="buffs">
+    <i class="chip" data-k="shield"><b>护盾</b><u></u></i>
+    <i class="chip" data-k="magnet"><b>磁铁</b><u></u></i>
+    <i class="chip" data-k="slow"><b>减速</b><u></u></i>
+    <i class="chip" data-k="fast"><b>加速</b><u></u></i>
+    <i class="chip" data-k="double"><b>双倍</b><u></u></i>
+  </div>
 
   <div class="frame" id="frame">
     <div class="stage" id="stage">
       <canvas id="board" width="400" height="400"></canvas>
-      <p class="notice" id="notice" aria-live="polite"></p>
-    </div>
-    <div class="overlay" id="overlay">
-      <span class="overlay-emoji">🙈</span>
-      <span class="overlay-title">游戏结束</span>
-      <span class="overlay-sub" id="over-sub">得分 0</span>
-      <button class="btn" id="again" type="button">再试一次</button>
+      <div class="overlay" id="overlay">
+        <span class="overlay-emoji" id="ovEmoji">🐍</span>
+        <span class="overlay-title" id="ovTitle">经典无尽</span>
+        <span class="overlay-sub" id="ovSub">吃掉水果，别撞自己</span>
+        <span class="ov-stats">
+          <span class="overlay-sub" id="ovA">最高 0</span>
+          <span class="overlay-sub" id="ovB">长度 3</span>
+          <span class="overlay-sub" id="ovC">连吃 ×1</span>
+        </span>
+        <button class="btn" id="again" type="button">开始</button>
+      </div>
     </div>
   </div>
+
+  <p class="notice" id="notice"></p>
 
   <div class="pad" id="pad">
     <button type="button" data-dir="ArrowUp" aria-label="上">↑</button>
@@ -47,9 +75,10 @@
   <div class="actions">
     <button class="btn" id="restart" type="button">重新开始</button>
     <button class="btn" id="pause" type="button">暂停</button>
+    <button class="btn" id="mute" type="button" aria-pressed="false">🔊 音效</button>
   </div>
 
-  <p class="hint">方向键 / WASD 转向 · 空格暂停 · R 重新开始</p>
+  <p class="hint">方向键 / WASD 转向 · 1–4 换模式 · 空格暂停 · R 重开</p>
 </main>
 <script src="game.js" defer></script>
 </body>

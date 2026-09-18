@@ -1,10 +1,10 @@
 /* 贪吃蛇 · 页面专属样式
- * 页面骨架 / HUD / 按钮 / 遮罩 / 动画 都来自 /games/assets/base.css，这里只写棋盘。
+ * 页面骨架 / HUD / 按钮 / 遮罩 / 动画都来自 /games/assets/base.css，这里只写棋盘与本页新增的
+ * 模式条、进度条、道具计时条。注意 .notice 放在棋盘**外面**：提示胶囊不再压住棋盘内容。
  */
 
 /* ---------- 棋盘 ---------- */
 
-/* .frame 提供灰外框，棋盘本体（奶油底 + 极淡格线 + 蛇与食物）画在 canvas 上 */
 .frame { position: relative; width: 100%; }
 .stage { width: 100%; }
 
@@ -17,31 +17,140 @@
   touch-action: none;
 }
 
-/* 撞墙 / 咬到自己时抖一下棋盘 */
+/* 撞墙 / 咬到自己时抖一下棋盘；吃到东西是轻抖 */
 .frame.shake { animation: shake 0.42s ease-in-out; }
+.frame.shake-sm { animation: shake-sm 0.16s ease-in-out; }
 
-/* ---------- 就绪 / 暂停提示（贴在棋盘下沿，不挡蛇和食物） ---------- */
+@keyframes shake-sm {
+  0%, 100% { transform: translateX(0); }
+  30% { transform: translateX(-3px); }
+  70% { transform: translateX(3px); }
+}
+
+/* ---------- 提示条（棋盘下方，不遮棋盘） ---------- */
 
 .notice {
-  position: absolute;
-  left: 50%;
-  bottom: 10px;
-  transform: translateX(-50%);
-  margin: 0;
-  padding: 0.45em 1em;
-  max-width: 92%;
-  background: rgba(255, 253, 242, 0.92);
-  border: 1px solid var(--muted);
-  border-radius: 999px;
-  color: var(--ink);
+  margin: 8px 0 0;
+  min-height: 1.35em;
+  color: var(--muted);
   font-size: 0.85rem;
-  white-space: nowrap;
-  pointer-events: none;
   opacity: 0;
   transition: opacity 0.18s ease-in-out;
 }
 .notice.show { opacity: 1; }
 
+/* ---------- HUD 补充 ---------- */
+
+.hud { flex-wrap: wrap; row-gap: 4px; }
+#chainWrap { color: var(--c2); }
+#chainWrap b { color: var(--c2); }
+#chainWrap.off { display: none; }
+
+/* ---------- 模式条 ---------- */
+
+.modes {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+.modes button {
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 0.35em 0.7em;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.modes button b { font-weight: 700; font-size: 0.85rem; white-space: nowrap; }
+.modes button i { font-style: normal; font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
+.modes button:hover { border-color: var(--accent); }
+.modes button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.modes button.on i { color: rgba(255, 255, 255, 0.78); }
+
+/* ---------- 关卡 / 限时进度条 ---------- */
+
+.bar { margin: 0 0 10px; }
+.bar.off { display: none; }
+.bar-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+.bar-track {
+  height: 8px;
+  background: rgba(154, 154, 149, 0.28);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--c3);
+  border-radius: 999px;
+  transition: width 0.18s linear;
+}
+.bar.urgent .bar-fill { background: var(--c2); }
+
+/* ---------- 生效中的道具 ---------- */
+
+.buffs {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 22px;
+  margin: 0 0 10px;
+}
+.chip {
+  position: relative;
+  display: none;
+  padding: 1px 8px 3px;
+  font-style: normal;
+  font-size: 0.72rem;
+  color: #fff;
+  background: var(--muted);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.chip.on { display: inline-block; animation: pop 0.22s ease-out; }
+.chip[data-k="shield"] { background: #22c2d6; }
+.chip[data-k="magnet"] { background: #ef476f; }
+.chip[data-k="slow"] { background: #5c7cfa; }
+.chip[data-k="fast"] { background: #ff9f1c; }
+.chip[data-k="double"] { background: #d9a017; }
+.chip u {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+/* ---------- 遮罩：就绪/关卡预告时棋盘要能被看清 ---------- */
+
+.overlay.lite { background: rgba(255, 253, 242, 0.66); color: var(--ink); }
+.overlay.lite .overlay-title { text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); }
+.overlay.lite .overlay-sub { opacity: 1; color: var(--ink); }
+.overlay.lite .overlay-emoji { font-size: 2.4rem; }
+
+.ov-stats { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.overlay.on .ov-stats { animation: pop 0.3s ease-out; }
+.overlay.lite .overlay-emoji,
+.overlay.lite .overlay-title,
+.overlay.lite .overlay-sub { text-shadow: none; }
+
 /* ---------- 按钮排布 ---------- */
 
 .actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.actions .btn { padding: 0.7em 1.1em; }

@@ -1,8 +1,7 @@
-/* 打砖块 · 局部样式（页面骨架、HUD、按钮、遮罩见 /games/assets/base.css） */
+/* 打砖块 · 局部样式（页面骨架、按钮、遮罩、动画都来自 /games/assets/base.css） */
 
 /* ---------- 场地：灰外框 + 奶油田地 ---------- */
 
-/* 外框跟着球场走，避免宽屏下灰边留白 */
 .frame {
   display: block;
   max-width: 420px;
@@ -10,8 +9,6 @@
 }
 
 .stage { width: 100%; }
-
-.stage.shake { animation: shake 0.45s ease-in-out; }
 
 canvas {
   display: block;
@@ -23,6 +20,7 @@ canvas {
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  cursor: crosshair;
 }
 
 canvas:focus { outline: none; }
@@ -51,7 +49,26 @@ canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   }
 }
 
-/* 过场提示：第 N 关 / 已暂停 */
+/* 连击倍率徽标：场内置顶，不占布局 */
+.combo {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  background: rgba(255, 253, 242, 0.78);
+  color: var(--c2);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.combo.on { opacity: 1; }
+
+/* 过场提示：第 N 关 / 已暂停 / 拾取胶囊 */
 .toast {
   position: absolute;
   left: 50%;
@@ -72,7 +89,7 @@ canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .toast.on { visibility: visible; animation: toast-in 1.2s ease-in-out both; }
 .toast.on.hold { animation: none; opacity: 1; }
 .toast-main { font-size: 1.4rem; line-height: 1.25; }
-.toast-sub { font-size: 0.8rem; color: var(--muted); }
+.toast-sub { font-size: 0.8rem; color: var(--muted); max-width: 15em; }
 
 @keyframes toast-in {
   0% { opacity: 0; transform: translate(-50%, -50%) scale(0.86); }
@@ -81,22 +98,38 @@ canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
 }
 
-/* ---------- HUD：生命心形 ---------- */
+/* ---------- HUD：六格（最佳 / 分数 / 生命 / 关卡 / 球 / 连击） ---------- */
 
-.hud { flex-wrap: wrap; gap: 22px; }
+.hud {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px 10px;
+  margin: 14px 0 12px;
+}
+.hud b { margin-left: 5px; font-size: 1.05rem; }
 
-/* .float 在分数右侧飘字，给这块留出空间，避免压到下一项 */
-.hud-score { margin-right: 30px; }
+/* 关卡名跟在数字后面，窄屏自动截断 */
+.lname {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* 得分飘字在格子里居中，避免压到相邻项 */
+.hud-score .float { left: auto; right: -6px; }
 
 .hearts {
   margin-left: 6px;
   color: var(--c2);
-  font-size: 1.25rem;
+  font-size: 1.05rem;
   letter-spacing: 1px;
   line-height: 1;
+  font-style: normal;
 }
 .hearts i { font-style: normal; display: inline-block; }
-.hearts i.off { color: var(--muted); opacity: 0.35; }
+.hearts i.off { display: none; }
 .hearts i.hit { animation: heart-out 0.55s ease-out; }
 
 @keyframes heart-out {
@@ -105,11 +138,43 @@ canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   100% { transform: scale(1); }
 }
 
+/* ---------- 结算浮层 ---------- */
+
+.ov-stats { display: flex; flex-direction: column; gap: 1px; }
+.ov-stats b { font-variant-numeric: tabular-nums; }
+.ov-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+
+/* 次要按钮：描边款 */
+.btn-ghost {
+  background: transparent;
+  border: 1px solid #fff;
+  color: #fff;
+  padding: 0.9em 1.2em;
+  font-size: 0.92rem;
+}
+.btn-ghost:hover { background: rgba(255, 255, 255, 0.14); }
+.btn-ghost:active { background: rgba(255, 255, 255, 0.26); }
+.btn-ghost[hidden] { display: none; }
+
 /* ---------- 窄屏 ---------- */
 
 @media (max-width: 440px) {
-  .hud { gap: 14px; font-size: 0.9rem; }
-  .hud b { font-size: 1.2rem; }
+  .hud { gap: 2px 6px; font-size: 0.9rem; }
+  .hud b { font-size: 1rem; }
+  .lname { font-size: 0.7rem; }
   .toast { padding: 8px 16px; }
   .toast-main { font-size: 1.15rem; }
+  .toast-sub { font-size: 0.74rem; }
+  .overlay-title { font-size: 1.6rem; }
+  .overlay-sub { font-size: 0.86rem; }
+  .ov-btns .btn { padding: 0.75em 1em; font-size: 0.92rem; }
+}
+
+/* 触屏：场地按视口高度撑满，滚一屏就能整块看到；操作键在拇指范围 */
+@media (hover: none) and (pointer: coarse) {
+  .directions { font-size: 0.82rem; line-height: 1.5; padding: 8px 0; margin-top: 12px; }
+  .stage canvas { width: auto; height: min(66vh, 520px); max-width: 100%; }
+  .pad { margin-top: 10px; }
+  .actions { margin-top: 10px; }
+  .hint { font-size: 0.78rem; }
 }
