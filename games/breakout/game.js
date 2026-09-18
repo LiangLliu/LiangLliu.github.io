@@ -18,7 +18,7 @@
 
   /* ───────────────── 1. 随机源（三路独立流，无闭包分配） ───────────────── */
 
-  var G_SEED = 1;
+  var G_SEED = (Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0 || 1;
   var gs = 1;             /* 玩法流：发球角度等 */
   var fs = 0x9E3779B9;    /* 特效流：不干扰玩法序列 */
   var ds = 0x2545F491;    /* 掉落流：每次掉落用当前分数重播种（Arkanoid 原版做法） */
@@ -672,6 +672,9 @@
 
   function buildLevel(lv) {
     clearBricks();
+    /* 换关 / 续关 / 进无尽都走这里：清掉命中停顿，
+       否则从结算画面回来时会把冻结的 hitStop 带进新一局（新局前 0.16~0.3 秒球拍不动） */
+    hitStop = 0;
     var def = levelDef(lv);
     curName = def.name;
     curTip = def.tip;
@@ -1306,10 +1309,17 @@
     var steps = Math.ceil(dist / STEP_MAX);
     if (steps < 1) steps = 1;
     if (steps > 32) steps = 32;
-    var sx = dx / steps, sy = dy / steps;
+    var stepLen = dist / steps;
+    var sx = 0, sy = 0;
     var epoch = levelEpoch;
 
     for (var s = 0; s < steps; s++) {
+      /* 子步方向每步按"当前"速度重算：一帧内撞砖/撞拍会在一帧内改向，
+         若沿用帧初方向，球会继续朝原方向钻进刚弹开的那块砖，
+         同一帧对同一块砖重复结算伤害（实测 3 血砖一帧掉 3 血、BOSS 一帧掉 3 血） */
+      var sp = ballSpeed(b);
+      var kk = sp > 0.001 ? stepLen / sp : 0;
+      sx = b.vx * kk; sy = b.vy * kk;
       b.x += sx;
       b.y += sy;
 
@@ -2025,6 +2035,9 @@
 
   function toggleServePause() {
     if (over) { restart(); return; }
+    /* 暂停优先：否则"还没发球就按 P 暂停"时，serve() 会因为 paused 直接返回 false，
+       空格既发不出球也解不了暂停——提示写着"空格或点按画面继续"，却按什么都没反应 */
+    if (paused) { togglePause(); return; }
     if (releaseHeld()) return;
     if (!served) { hideToast(); serve(); }
     else togglePause();
@@ -2052,7 +2065,15 @@
   function onKeyDown(e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.isTrusted) SFX.resume();
-    var k = e.key;
+    var k = e.key, tg = e.target;
+    var isUi = !!tg && (tg.tagName === 'BUTTON' || tg.tagName === 'SELECT' || tg.tagName === 'INPUT');
+    /* 焦点停在按钮上时，浏览器会把空格解释成"再点一次这个按钮"：
+       点过「暂停 / 发球」再按空格，按键会同时被游戏和按钮消费。
+       这里截住默认行为并移走焦点，空格仍归游戏；回车交给按钮自己处理。 */
+    if (isUi) {
+      if (k === ' ' || k === 'Spacebar') { e.preventDefault(); if (tg.blur) tg.blur(); }
+      else if (k === 'Enter') return;
+    }
     if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown' || k === ' ' || k === 'Spacebar') e.preventDefault();
     if (k === 'ArrowLeft' || k === 'a' || k === 'A') held.left = true;
     if (k === 'ArrowRight' || k === 'd' || k === 'D') held.right = true;
@@ -2152,6 +2173,13 @@
   window.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', onBlur);
   window.addEventListener('resize', setupCanvas);
+
+  /* 点完按钮立刻失焦：焦点若留在按钮上，之后按空格会被浏览器当成"再点一次这个按钮"，
+     游戏里的空格（发球 / 松球 / 暂停）就被按钮抢走了 */
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t && t.tagName === 'BUTTON' && t.blur) setTimeout(function () { t.blur(); }, 0);
+  });
 
   flashEl.addEventListener('animationend', function () { flashEl.classList.remove('on'); });
 

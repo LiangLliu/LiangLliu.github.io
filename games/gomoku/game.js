@@ -19,7 +19,11 @@
   const S = SIZE * SIZE;
 
   /* ---------- 可播种 PRNG（mulberry32）：AI 同分时用它挑点 ---------- */
-  let seed = 20260917;
+  /* 默认种子每次加载 / 每局都换，避免"刷新、重开都是同一局"；
+     调过 setSeed() 之后固定下来，方便复现整局。 */
+  function newSeed() { return (Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0 || 1; }
+  let seed = newSeed();
+  let autoSeed = true;
   let rngState = seed >>> 0;
   function rand() {
     rngState = (rngState + 0x6d2b79f5) >>> 0;
@@ -208,6 +212,7 @@
     state.hover = null;
     pops.clear();
     winT0 = 0;
+    if (autoSeed) seed = newSeed();   // 每局换一副牌；setSeed() 之后不再自动换
     rngState = seed >>> 0;
     render();
   }
@@ -658,6 +663,19 @@
   function onKeyDown(e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
+    const tg = e.target;
+    const isUi = !!tg && (tg.tagName === 'BUTTON' || tg.tagName === 'SELECT' || tg.tagName === 'INPUT');
+    /* 空格在本作里只有一个含义：在光标处落子。焦点若停在按钮上，浏览器会把空格
+       当成"激活这个按钮"（点过「重新开始」之后再按空格就会重开一局），这里先截住并移走焦点；
+       回车则相反，让给按钮自己 —— 否则按钮没法用键盘激活。 */
+    if (isUi && (k === ' ' || k === 'Spacebar')) {
+      e.preventDefault();
+      if (tg.blur) tg.blur();
+    } else if (isUi && k === 'Enter') {
+      return;
+    } else if (isUi && tg.blur) {
+      tg.blur();  // 方向键等游戏按键：焦点还给棋盘，别让后续空格/回车被按钮截走
+    }
     if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown' ||
         k === ' ' || k === 'Spacebar' || k === 'Enter') {
       e.preventDefault(); // 别让页面跟着滚
@@ -666,6 +684,29 @@
   }
 
   /* ---------- 测试钩子 ---------- */
+  /* 直接摆子构造局面：不走回合与胜负判定；turn === 'ai' 时按正常节奏让 AI 落子 */
+  function hookSetBoard(cells, turn) {
+    restart();
+    for (let i = 0; cells && i < cells.length; i++) {
+      const c = cells[i];
+      if (!c || !inside(c[0], c[1]) || (c[2] !== BLACK && c[2] !== WHITE)) continue;
+      board[c[1]][c[0]] = c[2];
+      state.history.push({ x: c[0], y: c[1], color: c[2] });
+    }
+    state.moves = state.history.length;
+    state.score = 0;
+    for (let j = 0; j < state.history.length; j++) {
+      if (state.history[j].color === BLACK) state.score += 1;
+    }
+    state.turn = turn === 'ai' ? 'ai' : 'player';
+    if (state.turn === 'ai') {
+      state.thinking = true;
+      aiTimer = setTimeout(aiMove, AI_DELAY);
+    }
+    render();
+    return snapshot().board;
+  }
+
   function snapshot() {
     return {
       score: state.score,
@@ -685,7 +726,10 @@
     snapshot: snapshot,
     restart: restart,
     press: function (key) { return handleKey(String(key)); },
-    setSeed: function (n) { seed = Number(n) >>> 0; rngState = seed; },
+    setSeed: function (n) { seed = Number(n) >>> 0; rngState = seed; autoSeed = false; },
+    /* —— 扩展钩子：构造局面 / 只问 AI 怎么选（不落子） —— */
+    setBoard: hookSetBoard,
+    aiPick: function () { const s = aiChoose(); return s ? { x: s.x, y: s.y } : null; },
   };
 
   document.getElementById('restart').addEventListener('click', restart);
@@ -701,6 +745,11 @@
     if (state.hover) { state.hover = null; draw(); }
   });
   document.addEventListener('keydown', onKeyDown);
+  /* 鼠标点完按钮立刻失焦：否则焦点留在按钮上，之后按空格/回车会被按钮抢走 */
+  document.addEventListener('click', function (e) {
+    const t = e.target;
+    if (t && t.tagName === 'BUTTON' && t.blur) setTimeout(function () { t.blur(); }, 0);
+  });
   window.addEventListener('resize', fit);
 
   fit();

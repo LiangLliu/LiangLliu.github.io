@@ -1,0 +1,98 @@
+/* 隔山炮战 —— 只写这个游戏独有的部分，页面骨架/HUD/按钮/遮罩来自 /games/assets/base.css */
+
+/* 横版游戏需要更宽：本页把 .app 放宽，文字段落再单独收窄保持易读 */
+.app { max-width: 920px; }
+.directions { max-width: 680px; margin-left: auto; margin-right: auto; }
+.hint { max-width: 680px; margin-left: auto; margin-right: auto; }
+
+/* 结算浮层只盖住画面，不参与命中测试：它一直铺满画布，
+   否则隐藏期间（visibility 有 0.3s 过渡）会把拖动和点击都吃掉 */
+.stage .overlay { pointer-events: none; }
+.stage .overlay.on { pointer-events: auto; }
+
+.stage canvas {
+  display: block;
+  width: min(100%, 880px);
+  aspect-ratio: 800 / 600;   /* 显式锁死比例：canvas 没有宽高属性时，内在比例是默认的 300x150 */
+  height: auto;
+  border-radius: 2px;
+  background: #bfe3f2;
+  cursor: crosshair;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 难度星级 */
+.hud .stars { color: var(--c1); letter-spacing: 1px; font-size: 1.05rem; }
+
+/* ---------- 地图选择 ---------- */
+
+.maps { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 16px; font-size: 0.9rem; }
+.maps select {
+  font: inherit;
+  font-size: 0.95rem;
+  max-width: 66%;
+  padding: 0.4em 0.6em;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.maps select:disabled { opacity: 0.45; cursor: default; }
+.maps button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.42em 0.75em;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.maps button:active { background: var(--muted); color: #fff; }
+
+/* ---------- 弹药 ---------- */
+
+.weapons { display: flex; justify-content: center; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.weapons button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.45em 0.9em;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.weapons button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.weapons button[disabled] { opacity: 0.45; cursor: default; }
+.weapons button small { display: block; font-size: 0.7rem; opacity: 0.75; }
+
+/* ---------- 模式 ---------- */
+
+.modes { display: flex; justify-content: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.modes button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.4em 0.9em;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.modes button.on { color: var(--accent); border-color: var(--accent); font-weight: 700; }
+
+/* 结算面板里的统计用两列更紧凑 */
+.ov-stats { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 12px; }
+
+@media (max-width: 440px) {
+  .stage canvas { width: 100%; }
+  .app { max-width: 560px; padding-left: 8px; padding-right: 8px; }
+  .hud { gap: 14px; font-size: 0.88rem; }
+}

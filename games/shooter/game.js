@@ -28,6 +28,7 @@
   }
 
   let seed = 1;
+  let seedLocked = false;    // setSeed() 指定过种子后不复掷，保证可复现
   let rng = mulberry32(seed);
   const fxRng = mulberry32(0xBEEF);      // 特效专用流，不干扰玩法序列
   const bgRng = mulberry32(0x5EED);      // 云朵专用流
@@ -387,7 +388,10 @@
     let n = 0, i, s;
 
     // 编队之外的“压阵”单位：中级机横切停留、重装机下压驻留
-    const medN = f === 1 ? (d >= 4 ? 2 : 1) : (f === 5 && d >= 2 ? 2 : 0);
+    // 编队 f 和波次槽位是随机绑定的：压阵单位只按 f 给，会有约七成开局整局见不到
+    // 中级/重装机（实测 2000 个种子：71% 无中级机、70% 无重装机）。因此补一条
+    // 只跟难度挂钩的保底（d>=3 出中级、d>=4 出重装），保证两种机都能玩到。
+    const medN = f === 1 ? (d >= 4 ? 2 : 1) : (f === 5 && d >= 2 ? 2 : (d >= 3 ? 1 : 0));
     for (i = 0; i < medN; i++) {
       s = S[n++];
       const fromLeft = (i & 1) === 0;
@@ -398,7 +402,7 @@
       s.vx = fromLeft ? 2.4 : -2.4;
       s.vy = 0;
     }
-    const heavyN = ((f === 0 && d >= 4) || (f === 5 && d >= 3)) ? 1 : 0;
+    const heavyN = (d >= 4 || (f === 5 && d >= 3)) ? 1 : 0;
     for (i = 0; i < heavyN; i++) {
       s = S[n++];
       s.kind = E_HEAVY; s.mv = M_DESCEND;
@@ -739,7 +743,9 @@
 
   function killEnemy(idx, byBomb) {
     const e = en[idx];
-    waveAlive--;
+    /* 只有本波敌机才减计数：上一波超时残留下来的敌机（e.wave < wave）被算进来
+       会把本波计数减成负数，导致本波提前结束、场上还留着敌机 */
+    if (e.wave === wave) waveAlive--;
     const base = ENEMY_DEF[e.kind].score;
     combo = comboT > 0 ? combo + 1 : 1;
     comboT = COMBO_T;
@@ -1500,6 +1506,9 @@
   function hideOverlay() { overlay.classList.remove('on'); }
 
   function initState() {
+    /* 每局重掷种子。否则波次编队顺序（ORDER）、敌机开火时机、掉落全部走同一串
+       随机数：第二局和第一局完全一样。setSeed() 指定过种子时保持复现。 */
+    if (!seedLocked) seed = (Math.random() * 0x100000000) >>> 0;
     rng = mulberry32(seed);
     for (let i = 0; i < ORDER.length; i++) ORDER[i] = i;
     shuffleOrder();
@@ -1596,6 +1605,13 @@
     return false;
   }
 
+  /* 点过按钮后立刻移走焦点：焦点留在按钮上时，再按空格会被浏览器解释成
+     “再按一次那个按钮”（重新开始 / 继续 / 再放一颗炸弹）。画布不受影响。 */
+  document.addEventListener('click', function (e) {
+    const t = e.target;
+    if (t && t.tagName === 'BUTTON' && t.blur) setTimeout(function () { t.blur(); }, 0);
+  });
+
   window.addEventListener('keydown', function (ev) {
     const d = normDir(ev.key);
     if (d >= 0) { ev.preventDefault(); setDir(d, true); return; }
@@ -1608,6 +1624,16 @@
   window.addEventListener('keyup', function (ev) {
     const d = normDir(ev.key);
     if (d >= 0) setDir(d, false);
+  });
+
+  /* 失焦 / 切后台时收不到 keyup 与 pointerup：不清状态，机体会一直朝那个方向漂 */
+  function releaseInput() {
+    kL = kR = kU = kD = false;
+    pointerOn = false;
+  }
+  window.addEventListener('blur', releaseInput);
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) releaseInput();
   });
 
   function localPos(ev) {
@@ -1745,7 +1771,7 @@
     snapshot: snapshot,
     restart: restart,
     press: press,
-    setSeed: function (n) { seed = n >>> 0; },
+    setSeed: function (n) { seed = n >>> 0; seedLocked = true; },
     spawn: hookSpawn,
     grantWeapon: hookGrant,
     addBomb: hookBombAdd,

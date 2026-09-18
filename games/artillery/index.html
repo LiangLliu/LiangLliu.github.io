@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>隔山炮战 · 摸鱼小游戏</title>
+<link rel="icon" href="/assets/favicon.png">
+<link rel="stylesheet" href="/games/assets/base.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="app">
+  <header class="app-head">
+    <h1 class="app-title"><span>隔</span><span>山</span><span>炮</span><span>战</span></h1>
+    <a class="back" href="/games/">← 返回游戏列表</a>
+  </header>
+
+  <section class="directions"><p><strong>怎么玩：</strong>左右调角度、上下调力度、空格发射。炮弹走抛物线翻过山，落点<strong>会把地形炸出一个坑</strong>——把对方脚下的土一点点削掉，它就露出来了。电脑也会瞄准你还击，注意右上角的风向。<strong>地图、武器、模式随便选</strong>，12 张地图难度各不相同；4 种炮弹开局就都能用。命中越陡越深、越平越宽，炮弹越快坑越大。</p></section>
+
+  <section class="hud">
+    <span class="hud-item">地图<b id="mapName">教学·小丘</b></span>
+    <span class="hud-item">难度<b class="stars" id="mapStars">★</b></span>
+  </section>
+
+  <div class="frame">
+    <div class="stage" id="stage">
+      <canvas id="game" width="800" height="600" tabindex="0"></canvas>
+      <div class="overlay" id="overlay">
+        <span class="overlay-emoji" id="ovEmoji">🎯</span>
+        <span class="overlay-title" id="ovTitle">隔山炮战</span>
+        <div class="ov-stats">
+          <span class="overlay-sub" id="ovLine1"></span>
+          <span class="overlay-sub" id="ovLine2"></span>
+          <span class="overlay-sub" id="ovLine3"></span>
+        </div>
+        <button class="btn" id="again">开始</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="maps">
+    <select id="mapSel" aria-label="选择地图"></select>
+    <button type="button" id="randMap">🎲 随机地图</button>
+  </div>
+
+  <div class="weapons" id="weapons"></div>
+
+  <div class="modes" id="modes">
+    <button type="button" data-mode="0" class="on">单张地图</button>
+    <button type="button" data-mode="1">无尽</button>
+    <button type="button" data-mode="2">双人同机</button>
+  </div>
+
+  <div class="pad">
+    <button type="button" id="fireBtn">🔥 发射</button>
+    <button type="button" id="weaponBtn">💣 换弹</button>
+    <button type="button" id="pauseBtn">⏸ 暂停</button>
+  </div>
+
+  <div class="actions"><button class="btn" id="restart">重新开始</button></div>
+
+  <p class="hint">← → 角度 · ↑ ↓ 力度 · 空格发射 · Q/E 换弹 · M 静音 · P 暂停 · R 重开</p>
+</main>
+<script src="game.js"></script>
+</body>
+</html>

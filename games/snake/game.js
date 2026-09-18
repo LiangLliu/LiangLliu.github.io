@@ -116,7 +116,13 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  var seed = 1;
+  // 默认种子每次加载都随机：否则刷新后每一局的水果/道具序列都一模一样
+  // （setSeed(n) 仍然把序列钉死，完全可复现）
+  function randSeed() {
+    return ((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0) || 1;
+  }
+  var seed = randSeed();
+  var seedPinned = false;          // setSeed 之后不再自动换种子
   var rng = mulberry32(seed);
 
   /* ═════════════ 6. 存档（file:// 下 localStorage 可能抛异常） ═════════════ */
@@ -204,6 +210,10 @@
   var dyn = new Uint8Array(CAP);     // 动态墙（生长之墙）
   var dynList = new Int16Array(CAP);
   var dynN = 0;
+  // 换关时被蛇身压住、暂时没落的墙格，等蛇让开再补上（见 healPending）
+  var pendSol = new Int16Array(CAP);
+  var pendMark = new Uint8Array(CAP);   // 1 = 这格是"待补的墙"，别往这儿刷水果/道具
+  var pendN = 0;
 
   // BFS 复用缓冲（生成墙时校验食物仍可达，避免刷出必死局）
   var bfsSeen = new Uint8Array(CAP);
@@ -391,8 +401,9 @@
   /* ═════════════ 13. 地图编译 / 底图预渲染 ═════════════ */
 
   function clearBoard() {
-    for (var i = 0; i < CAP; i++) { solid[i] = 0; dyn[i] = 0; }
+    for (var i = 0; i < CAP; i++) { solid[i] = 0; dyn[i] = 0; pendMark[i] = 0; }
     dynN = 0;
+    pendN = 0;
   }
 
   function stampRects(rects, keepSnake) {
@@ -402,10 +413,32 @@
         if (y < 0 || y >= N) continue;
         for (var x = c; x < c + w; x++) {
           if (x < 0 || x >= N) continue;
-          if (keepSnake && onBody(x, y, false)) continue;   // 换关时不把墙压在蛇身上
+          if (keepSnake && onBody(x, y, false)) {            // 换关时不把墙压在蛇身上
+            if (pendN < CAP) {                               // 先记下来，等蛇走开再补（否则地图永久缺一块）
+              pendSol[pendN++] = y * N + x;
+              pendMark[y * N + x] = 1;
+            }
+            continue;
+          }
           solid[y * N + x] = 1;
         }
       }
+    }
+  }
+
+  /* 补上换关时被蛇身压住的墙格。不补的后果：缺的那格可能被周围墙完全围死
+     （棋盘格右下角 (19,19) 就是这种格子），食物一旦刷进去，这一关就再也打不通了 */
+  function healPending() {
+    for (var i = 0; i < pendN; i++) {
+      var p = pendSol[i], x = p % N, y = (p / N) | 0;
+      if (onBody(x, y, false)) continue;                                          // 蛇还没让开
+      if (p === foodP || p === goldP || p === pwP) continue;                      // 别把水果砌进墙里
+      if (Math.abs(x - sx[head]) + Math.abs(y - sy[head]) < WALL_SAFE) continue;   // 也别贴着脸长出来
+      solid[p] = 1;
+      pendMark[p] = 0;
+      pendSol[i] = pendSol[--pendN]; i--;
+      paintWall(p);
+      dirty = true;
     }
   }
 
@@ -454,7 +487,7 @@
 
   /* 食物/道具落点：拒绝采样 + 兜底两趟扫描（零分配） */
   function cellOccupied(p) {
-    if (isBlocked(p)) return true;
+    if (isBlocked(p) || pendMark[p]) return true;
     if (p === foodP || p === goldP || p === pwP) return true;
     return onBody(p % N, (p / N) | 0, false);
   }
@@ -787,6 +820,7 @@
     if (goldP >= 0 && p === goldP) eatGold();
     if (pwP >= 0 && p === pwP) eatPower();
     if (fx.magnet > 0) magnetPull();
+    healPending();
     sync();
   }
 
@@ -1079,6 +1113,7 @@
     cause = ''; winText = ''; holdCause = ''; acc = 0; stepN = 0; playMs = 0; gtime = 0; hitStop = 0;
     flashUntil = -1e9; fadeFrom = -1e9; crashT = -1e9; crashP = -1; spN = 0;
     goldP = -1; goldLeft = 0; pwP = -1; pwKind = -1; pwLeft = 0; lastPwKind = -1;
+    foodP = -1;                 // 先清掉上一局的水果格：否则它会占掉一个随机抽签位，同一种子抽不出同一局
     fx.shield = fx.magnet = fx.slow = fx.fast = fx.double = 0;
     for (var c = 0; c < chipEls.length; c++) { chipEls[c].last = -1; chipEls[c].el.classList.remove('on'); }
     timeLeft = MODE.limit || 0;
@@ -1100,12 +1135,14 @@
   }
 
   function restart() {
+    if (!seedPinned) seed = randSeed();   // 没显式钉过种子：每局换一条随机序列
     el.float.classList.remove('on');
     reset();
   }
 
   function setSeed(n) {
     seed = (typeof n === 'number' && isFinite(n)) ? Math.trunc(n) : 1;
+    seedPinned = true;
     reset();
   }
 
@@ -1661,12 +1698,23 @@
 
   /* ═════════════ 25. 事件绑定 / 启动 ═════════════ */
 
+  /* 鼠标/触摸点完按钮立刻失焦：否则焦点留在按钮上，之后按空格会被浏览器当成"再点一次它"——
+     点过「重新开始」或「模式」按钮再按空格，就会莫名其妙又重开一局（与 artillery 同款修法；
+     这里直接 blur 不用 setTimeout：后台标签页的定时器会被节流，焦点会赖着不掉） */
+  document.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('button') : null;
+    if (t && t.blur) t.blur();
+  });
+
   window.addEventListener('keydown', function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     var k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     var known = !!DIRS[k] || k === ' ' || k === 'Spacebar' || k === 'p' || k === 'r' || k === 'm' || k === 'Enter' || (k >= '1' && k <= '4');
     if (!known) return;
-    if (e.target && e.target.tagName === 'BUTTON' && (k === ' ' || k === 'Enter')) return;
+    var tg = e.target;
+    if (tg && (tg.tagName === 'BUTTON' || tg.tagName === 'SELECT' || tg.tagName === 'INPUT')) {
+      if (k === ' ' || k === 'Spacebar' || k === 'Enter') return;   // 交给按钮自己处理
+    }
     e.preventDefault();
     sfx.arm(e.isTrusted !== false);
     press(k);

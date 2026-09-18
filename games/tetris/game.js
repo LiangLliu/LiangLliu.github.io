@@ -91,6 +91,7 @@
   /* 方块序列用可播种 PRNG（setSeed 可复现）；视觉特效另用一个独立 PRNG，
      避免屏震/粒子消耗 rng() 而改变后续出块顺序。 */
   var seed = 1;
+  var seedPinned = false;   /* setSeed 之后锁住：测试要可复现，玩家每局要换牌 */
   function mulberry32(a) {
     return function () {
       a |= 0;
@@ -333,6 +334,7 @@
   var over = false, paused = false;
   var mode = 'marathon', elapsed = 0, timeLeft = ULTRA_MS;
   var bests = { marathon: readBest('marathon'), sprint: readBest('sprint'), ultra: readBest('ultra') };
+  var bestBeaten = false;   /* 本局是否刷新过纪录（updateBest 边玩边写 bests，结算时查不出来了） */
 
   var pieces = 0, tetrises = 0, tspinClears = 0, maxCombo = 0, holds = 0;
   var gravAcc = 0, gravMs = 1000;
@@ -459,12 +461,12 @@
 
   /* ═══════════════ 11. 生成 / 暂存 ═══════════════ */
 
-  function spawnP(type) {
+  function spawnP(type, fromHold) {
     cur = { type: type, rot: 0, x: SPAWN_X[type], y: SPAWN_Y[type] };
     grounded = false;
     lockTimer = 0; lockResets = 0; lowestY = cur.y;
     gravAcc = 0; lastRot = false; lastKick = -1;
-    pieces++;
+    if (!fromHold) pieces++;   /* 暂存换回的方块是同一块，重复计数会虚高 PPS */
     hudDirty = true;
     if (collides(type, 0, cur.x, cur.y)) {   /* 生成即重叠 → 顶死 */
       cur = null;
@@ -492,7 +494,7 @@
     if (holdType) {
       var incoming = holdType;
       holdType = outgoing;
-      spawnP(incoming);                      /* 换出的方块回到生成点（旋转态复位、锁定延迟重置） */
+      spawnP(incoming, true);                /* 换出的方块回到生成点（旋转态复位、锁定延迟重置） */
     } else {
       holdType = outgoing;
       cur = null;
@@ -823,14 +825,14 @@
   function bestLabelText() { return mode === 'sprint' ? '最快时间' : '历史最佳'; }
 
   function fmtBest(v) {
-    if (mode === 'sprint') return (v / 1000).toFixed(2) + 's';
+    if (mode === 'sprint') return v > 0 ? (v / 1000).toFixed(2) + 's' : '—';   /* 没成绩时不要显示 0.00s */
     return String(v);
   }
 
   function updateBest() {
     if (mode === 'sprint') return;   /* 冲刺的最佳只在结算时写 */
     if (!isFinite(score)) return;    /* 防守：任何异常分数都不入库 */
-    if (score > bests[mode]) { bests[mode] = score; writeBest(mode, score); hudDirty = true; }
+    if (score > bests[mode]) { bests[mode] = score; writeBest(mode, score); hudDirty = true; bestBeaten = true; }
   }
 
   function buildResult() {
@@ -855,7 +857,7 @@
     heldKeysClear();
 
     var secs = elapsed / 1000;
-    var emoji = '🙈', title = '游戏结束', sub = '', newBest = false;
+    var emoji = '🙈', title = '游戏结束', sub = '', newBest = bestBeaten;
 
     if (reason === 'goal' && mode === 'sprint') {
       if (!bests.sprint || elapsed < bests.sprint) { bests.sprint = elapsed; writeBest('sprint', elapsed); newBest = true; }
@@ -909,6 +911,9 @@
   }
 
   function restart() {
+    /* 每局换一副新牌：seed 固定不变时，第二局的方块序列会和第一局完全一样。
+       setSeed 之后不再自动换，测试仍可复现。 */
+    if (!seedPinned) seed = (Math.random() * 4294967296) >>> 0;
     rng = mulberry32(seed);
     bag.length = 0;
     for (var i = 0; i < PREVIEWS; i++) queue[i] = null;
@@ -918,7 +923,7 @@
     holdUsed = false;
     el.hold.classList.add('empty');
     score = 0; lines = 0; level = 1; comboChain = 0; b2b = false;
-    over = false; paused = false;
+    over = false; paused = false; bestBeaten = false;
     elapsed = 0; timeLeft = ULTRA_MS;
     pieces = 0; tetrises = 0; tspinClears = 0; maxCombo = 0; holds = 0;
     gravAcc = 0; lockTimer = 0; lockResets = 0; grounded = false; lowestY = 0;
@@ -1543,6 +1548,7 @@
     press: function (key) { handleKey(key); releaseKey(key); },
     setSeed: function (n) {
       seed = (Number(n) || 0) >>> 0;
+      seedPinned = true;
       rng = mulberry32(seed);
     },
     /* —— 扩展钩子 —— */

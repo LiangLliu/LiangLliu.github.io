@@ -16,7 +16,8 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  let rnd = mulberry32(20260917);
+  /* 默认种子取当前时刻：固定种子会让每次刷新的开局与出块序列完全一样 */
+  let rnd = mulberry32((Date.now() ^ (Math.random() * 4294967296)) | 0);
 
   /* ---------- 状态 ---------- */
   let board = new Array(CELLS).fill(0); // 行优先，0 为空
@@ -294,9 +295,21 @@
   }
 
   /* ---------- 事件 ---------- */
+  /* 点完按钮让焦点掉下来：否则焦点停在按钮上，之后按 Enter/空格会被浏览器当成"再点一次它" */
+  document.addEventListener('click', function (e) {
+    const t = e.target && e.target.closest && e.target.closest('button');
+    if (t && t.blur) setTimeout(function () { t.blur(); }, 0);
+  });
+
   window.addEventListener('keydown', function (e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key;
+    const tg = e.target;
+    /* 焦点还在按钮/表单控件上时，空格与回车交给控件自己处理，避免二次触发游戏动作 */
+    if (tg && (tg.tagName === 'BUTTON' || tg.tagName === 'SELECT' || tg.tagName === 'INPUT') &&
+        (k === ' ' || k === 'Spacebar' || k === 'Enter')) {
+      return;
+    }
     if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' ||
         k === 'ArrowDown' || k === ' ' || k === 'Spacebar') {
       e.preventDefault();
