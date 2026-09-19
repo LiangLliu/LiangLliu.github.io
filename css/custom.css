@@ -11,3 +11,11 @@
 .gallery-group figcaption {
   background: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0) 60%);
 }
+
+/* 3) 移动端表格：主题的表格是 width:100%，中文可以任意断行，于是窄列被压成"一个字一行"
+      （实测「Java——模式匹配演进史」里那张 JEP 表的「状态」列：390px 宽下最高格 5 行、列宽 43px）。
+      给表格一个内容宽度下限，让它按自然宽度排，超宽时交给主题自带的 .table-wrap 横向滚动。
+      实测：同一张表最高格 5 行 → 1 行，表格 859px、外层可横滚，页面本身仍无横向滚动。 */
+.post-content table {
+  min-width: max-content;
+}
